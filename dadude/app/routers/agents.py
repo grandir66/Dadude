@@ -791,7 +791,7 @@ async def verify_agent_version(agent_db_id: str):
                 
                 # Aggiorna versione nel database
                 if real_version != "unknown":
-                    service.update_agent_status(agent_db_id, version=real_version)
+                    service.update_agent_status(agent_db_id, status="online", version=real_version)
                 
                 needs_update = _compare_versions(real_version, AGENT_VERSION) < 0
                 
