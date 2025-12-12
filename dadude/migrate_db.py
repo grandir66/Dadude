@@ -173,6 +173,7 @@ def migrate_database(db_path: str = "./data/dadude.db"):
                     dns_server VARCHAR(255),
                     default_scan_type VARCHAR(50) DEFAULT 'ping',
                     auto_add_devices BOOLEAN DEFAULT 0,
+                    assigned_networks TEXT,
                     description TEXT,
                     notes TEXT,
                     active BOOLEAN DEFAULT 0,
