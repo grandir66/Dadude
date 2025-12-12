@@ -271,7 +271,8 @@ async def auto_detect_device(
                     
                     if cred:
                         # Decripta la password
-                        encryption = customer_service._encryption
+                        from ..services.encryption_service import get_encryption_service
+                        encryption = get_encryption_service()
                         password = encryption.decrypt(cred.password) if cred.password else None
                         
                         credentials_list.append({
