@@ -271,6 +271,52 @@ async def create_credential(customer_id: str, data: CredentialCreate):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ==========================================
+# GLOBAL CREDENTIALS ENDPOINTS (DEVE ESSERE PRIMA DI {credential_id})
+# ==========================================
+
+@router.get("/credentials/all")
+async def list_all_credentials(include_usage: bool = True):
+    """
+    Lista tutte le credenziali dall'archivio centrale.
+    Include conteggio di utilizzo (clienti e device).
+    """
+    service = get_customer_service()
+    credentials = service.get_all_credentials(include_usage=include_usage)
+    return {"total": len(credentials), "credentials": credentials}
+
+
+@router.get("/credentials", response_model=CredentialListResponse)
+async def list_global_credentials(
+    credential_type: Optional[str] = Query(None, description="Filtra per tipo"),
+):
+    """
+    Lista credenziali globali (disponibili a tutti i clienti).
+    """
+    service = get_customer_service()
+    credentials = service.list_global_credentials(credential_type=credential_type)
+    return CredentialListResponse(total=len(credentials), credentials=credentials)
+
+
+@router.post("/credentials", response_model=CredentialSafe, status_code=201)
+async def create_global_credential(data: CredentialCreate):
+    """
+    Crea nuove credenziali globali (archivio centrale).
+    """
+    service = get_customer_service()
+    
+    # Crea una copia con is_global=True e customer_id=None
+    global_data = data.model_copy(update={"is_global": True, "customer_id": None})
+    
+    try:
+        credential = service.create_credential(global_data)
+        return credential
+    except Exception as e:
+        logger.error(f"Error creating global credential: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Endpoint con path parameter DOPO quelli statici
 @router.get("/credentials/{credential_id}")
 async def get_credential(credential_id: str, include_secrets: bool = False):
     """
@@ -321,51 +367,6 @@ async def delete_credential(credential_id: str):
         raise HTTPException(status_code=500, detail="Errore eliminazione credenziali")
     
     return {"success": True, "message": f"Credenziali {credential_id} eliminate"}
-
-
-# ==========================================
-# GLOBAL CREDENTIALS ENDPOINTS
-# ==========================================
-
-@router.get("/credentials", response_model=CredentialListResponse)
-async def list_global_credentials(
-    credential_type: Optional[str] = Query(None, description="Filtra per tipo"),
-):
-    """
-    Lista credenziali globali (disponibili a tutti i clienti).
-    """
-    service = get_customer_service()
-    credentials = service.list_global_credentials(credential_type=credential_type)
-    return CredentialListResponse(total=len(credentials), credentials=credentials)
-
-
-@router.post("/credentials", response_model=CredentialSafe, status_code=201)
-async def create_global_credential(data: CredentialCreate):
-    """
-    Crea nuove credenziali globali (archivio centrale).
-    """
-    service = get_customer_service()
-    
-    # Crea una copia con is_global=True e customer_id=None
-    global_data = data.model_copy(update={"is_global": True, "customer_id": None})
-    
-    try:
-        credential = service.create_credential(global_data)
-        return credential
-    except Exception as e:
-        logger.error(f"Error creating global credential: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/credentials/all")
-async def list_all_credentials(include_usage: bool = True):
-    """
-    Lista tutte le credenziali dall'archivio centrale.
-    Include conteggio di utilizzo (clienti e device).
-    """
-    service = get_customer_service()
-    credentials = service.get_all_credentials(include_usage=include_usage)
-    return {"total": len(credentials), "credentials": credentials}
 
 
 # ==========================================
