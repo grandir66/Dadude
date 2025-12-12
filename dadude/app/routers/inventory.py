@@ -332,7 +332,10 @@ async def auto_detect_device(
                     "source": "default",
                 })
         
-        logger.info(f"Auto-detect: Testing {len(credentials_list)} credentials on {data.address}")
+        if not credentials_list:
+            logger.warning(f"Auto-detect: No credentials found for {data.address}!")
+        else:
+            logger.info(f"Auto-detect: Testing {len(credentials_list)} credentials on {data.address}: {[c.get('type') for c in credentials_list]}")
         
         # 3. Esegui probe con credenziali
         # Se abbiamo un agent Docker, usalo per i probe
@@ -375,10 +378,23 @@ async def auto_detect_device(
         result["success"] = True
         result["identified"] = scan_result.get("identified_by") is not None
         
+        # Log dettagliato dei dati raccolti
+        collected_data = {k: v for k, v in scan_result.items() if v and k not in ['probe_results', 'open_ports', 'available_protocols']}
         logger.info(f"Auto-detect complete for {data.address}: identified={result['identified']}, method={scan_result.get('identified_by')}")
+        logger.info(f"Auto-detect data collected: {collected_data}")
         
         # 4. Salva i risultati nel device se richiesto
-        if data.save_results and data.device_id and result["identified"]:
+        # Salva anche se non completamente identificato, ma ci sono dati utili
+        has_useful_data = (
+            scan_result.get("hostname") or 
+            scan_result.get("os_family") or 
+            scan_result.get("cpu_model") or
+            scan_result.get("serial_number") or
+            scan_result.get("memory_total_mb") or
+            scan_result.get("manufacturer")
+        )
+        
+        if data.save_results and data.device_id and (result["identified"] or has_useful_data):
             from ..models.inventory import InventoryDevice
             import json
             
@@ -389,34 +405,94 @@ async def auto_detect_device(
                 ).first()
                 
                 if device:
-                    # Aggiorna campi dal risultato
-                    if scan_result.get("hostname"):
-                        device.hostname = scan_result["hostname"]
+                    logger.info(f"Saving probe results for device {data.device_id}: {list(scan_result.keys())}")
+                    
+                    # Hostname
+                    hostname = scan_result.get("hostname") or scan_result.get("sysName") or scan_result.get("computer_name")
+                    if hostname:
+                        device.hostname = hostname
+                    
+                    # OS
                     if scan_result.get("os_family"):
                         device.os_family = scan_result["os_family"]
-                    if scan_result.get("os_version"):
-                        device.os_version = scan_result["os_version"]
-                    if scan_result.get("manufacturer") or scan_result.get("vendor"):
-                        device.manufacturer = scan_result.get("manufacturer") or scan_result.get("vendor")
-                    if scan_result.get("model"):
-                        device.model = scan_result["model"]
-                    if scan_result.get("serial_number"):
-                        device.serial_number = scan_result["serial_number"]
-                    if scan_result.get("cpu_model"):
-                        device.cpu_model = scan_result["cpu_model"]
-                    if scan_result.get("cpu_cores"):
-                        device.cpu_cores = int(scan_result["cpu_cores"])
-                    if scan_result.get("ram_total_gb"):
-                        device.ram_total_gb = float(scan_result["ram_total_gb"])
-                    if scan_result.get("disk_total_gb"):
-                        device.disk_total_gb = float(scan_result["disk_total_gb"])
-                    if scan_result.get("firmware_version"):
-                        device.firmware_version = scan_result["firmware_version"]
+                    if scan_result.get("os_version") or scan_result.get("version"):
+                        device.os_version = scan_result.get("os_version") or scan_result.get("version")
+                    if scan_result.get("os_name"):
+                        device.os_family = scan_result["os_name"]
+                    
+                    # Vendor/Manufacturer
+                    manufacturer = (scan_result.get("manufacturer") or scan_result.get("vendor") or 
+                                   scan_result.get("system_manufacturer"))
+                    if manufacturer:
+                        device.manufacturer = manufacturer
+                    
+                    # Model
+                    model = scan_result.get("model") or scan_result.get("system_model")
+                    if model:
+                        device.model = model
+                    
+                    # Serial
+                    serial = scan_result.get("serial_number") or scan_result.get("serial")
+                    if serial:
+                        device.serial_number = serial
+                    
+                    # CPU
+                    cpu = scan_result.get("cpu_model") or scan_result.get("cpu")
+                    if cpu:
+                        device.cpu_model = cpu
+                    cores = scan_result.get("cpu_cores") or scan_result.get("cores")
+                    if cores:
+                        try:
+                            device.cpu_cores = int(cores)
+                        except (ValueError, TypeError):
+                            pass
+                    
+                    # RAM (vari formati: MB, GB, bytes)
+                    ram_mb = scan_result.get("memory_total_mb") or scan_result.get("ram_total_mb")
+                    ram_gb = scan_result.get("ram_total_gb") or scan_result.get("memory_total_gb")
+                    if ram_gb:
+                        try:
+                            device.ram_total_gb = float(ram_gb)
+                        except (ValueError, TypeError):
+                            pass
+                    elif ram_mb:
+                        try:
+                            device.ram_total_gb = float(ram_mb) / 1024
+                        except (ValueError, TypeError):
+                            pass
+                    
+                    # Disco
+                    disk_gb = scan_result.get("disk_total_gb") or scan_result.get("storage_total_gb")
+                    if disk_gb:
+                        try:
+                            device.disk_total_gb = float(disk_gb)
+                        except (ValueError, TypeError):
+                            pass
+                    disk_free = scan_result.get("disk_free_gb") or scan_result.get("storage_free_gb")
+                    if disk_free:
+                        try:
+                            device.disk_free_gb = float(disk_free)
+                        except (ValueError, TypeError):
+                            pass
+                    
+                    # Firmware/Version
+                    firmware = scan_result.get("firmware_version") or scan_result.get("bios_version")
+                    if firmware:
+                        device.firmware_version = firmware
+                    
+                    # Category e device_type
                     if scan_result.get("category"):
                         device.category = scan_result["category"]
+                    if scan_result.get("device_type"):
+                        device.device_type = scan_result["device_type"]
+                    
+                    # Domain
+                    if scan_result.get("domain"):
+                        device.domain = scan_result["domain"]
                     
                     # Metodo di identificazione
-                    device.identified_by = scan_result.get("identified_by")
+                    if scan_result.get("identified_by"):
+                        device.identified_by = scan_result["identified_by"]
                     
                     # Credenziale usata
                     if result["credentials_tested"]:
@@ -431,10 +507,10 @@ async def auto_detect_device(
                     device.last_scan = datetime.utcnow()
                     
                     session.commit()
-                    logger.info(f"Auto-detect: Saved results to device {data.device_id}")
+                    logger.info(f"Auto-detect: Saved results to device {data.device_id} - hostname={device.hostname}, os={device.os_family}, cpu={device.cpu_model}")
                     result["saved"] = True
             except Exception as save_err:
-                logger.error(f"Failed to save auto-detect results: {save_err}")
+                logger.error(f"Failed to save auto-detect results: {save_err}", exc_info=True)
                 session.rollback()
                 result["save_error"] = str(save_err)
             finally:
