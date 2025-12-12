@@ -35,6 +35,7 @@ CTID=""
 HOSTNAME="dadude-agent"
 BRIDGE="vmbr0"
 STORAGE="local-lvm"
+TEMPLATE_STORAGE="local"  # Storage per template (tipo directory)
 MEMORY=512
 DISK=4
 IP_CONFIG="dhcp"
@@ -124,8 +125,23 @@ fi
 # Scarica template se non esiste
 echo -e "${BLUE}[1/6] Verifico template...${NC}"
 
+# Rileva storage per template (deve essere tipo 'dir', non 'lvm')
+# Prova prima 'local', poi cerca altri storage di tipo directory
+if pvesm status | grep -q "^local "; then
+    TEMPLATE_STORAGE="local"
+else
+    # Cerca uno storage di tipo 'dir' che supporta template
+    TEMPLATE_STORAGE=$(pvesm status 2>/dev/null | grep -E "dir|nfs|cifs" | head -1 | awk '{print $1}')
+    if [ -z "$TEMPLATE_STORAGE" ]; then
+        TEMPLATE_STORAGE="local"
+    fi
+fi
+
+echo -e "${YELLOW}Storage template: $TEMPLATE_STORAGE${NC}"
+echo -e "${YELLOW}Storage disco: $STORAGE${NC}"
+
 # Cerca template già scaricati (Debian o Ubuntu)
-TEMPLATE_PATH=$(pveam list $STORAGE 2>/dev/null | grep -iE "debian-12|debian-11|ubuntu-22|ubuntu-24" | head -1 | awk '{print $1}' || true)
+TEMPLATE_PATH=$(pveam list $TEMPLATE_STORAGE 2>/dev/null | grep -iE "debian-12|debian-11|ubuntu-22|ubuntu-24" | head -1 | awk '{print $1}' || true)
 
 if [ -z "$TEMPLATE_PATH" ]; then
     echo -e "${YELLOW}Nessun template trovato. Cerco template disponibili...${NC}"
@@ -173,30 +189,30 @@ if [ -z "$TEMPLATE_PATH" ]; then
         pveam available | head -20
         echo ""
         echo "Scarica manualmente un template con:"
-        echo "  pveam download $STORAGE <nome-template>"
+        echo "  pveam download $TEMPLATE_STORAGE <nome-template>"
         echo ""
         echo "Poi riesegui questo script."
         exit 1
     fi
     
     echo ""
-    echo -e "${GREEN}Scarico template: $TEMPLATE_NAME${NC}"
+    echo -e "${GREEN}Scarico template: $TEMPLATE_NAME su $TEMPLATE_STORAGE${NC}"
     
-    if ! pveam download $STORAGE "$TEMPLATE_NAME"; then
+    if ! pveam download $TEMPLATE_STORAGE "$TEMPLATE_NAME"; then
         echo -e "${RED}Errore durante il download del template${NC}"
         echo ""
         echo "Prova manualmente:"
-        echo "  pveam download $STORAGE $TEMPLATE_NAME"
+        echo "  pveam download $TEMPLATE_STORAGE $TEMPLATE_NAME"
         exit 1
     fi
     
     # Rileggi il path del template scaricato
-    TEMPLATE_PATH=$(pveam list $STORAGE 2>/dev/null | grep -iE "debian|ubuntu" | head -1 | awk '{print $1}')
+    TEMPLATE_PATH=$(pveam list $TEMPLATE_STORAGE 2>/dev/null | grep -iE "debian|ubuntu" | head -1 | awk '{print $1}')
 fi
 
 if [ -z "$TEMPLATE_PATH" ]; then
     echo -e "${RED}Errore: Template non trovato dopo il download${NC}"
-    echo "Verifica con: pveam list $STORAGE"
+    echo "Verifica con: pveam list $TEMPLATE_STORAGE"
     exit 1
 fi
 
