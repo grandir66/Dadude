@@ -283,7 +283,8 @@ class CredentialUpdate(BaseModel):
 class Credential(CredentialBase):
     """Schema credenziali completo (con password - uso interno)"""
     id: str
-    customer_id: str
+    customer_id: Optional[str] = None  # NULL = credenziale globale
+    is_global: bool = False
     password: Optional[str] = None
     # SSH secrets
     ssh_private_key: Optional[str] = None

@@ -416,6 +416,7 @@ class CustomerService:
         return Credential(
             id=cred.id,
             customer_id=cred.customer_id,
+            is_global=cred.is_global or False,
             name=cred.name,
             credential_type=cred.credential_type,
             username=cred.username,
