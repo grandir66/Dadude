@@ -197,20 +197,60 @@ async def delete_network(network_id: str):
 # CREDENTIALS ENDPOINTS
 # ==========================================
 
-@router.get("/{customer_id}/credentials", response_model=CredentialListResponse)
+@router.get("/{customer_id}/credentials")
 async def list_customer_credentials(
     customer_id: str,
     credential_type: Optional[str] = Query(None, description="Filtra per tipo"),
 ):
     """
-    Lista credenziali di un cliente (senza dati sensibili).
+    Lista credenziali disponibili per un cliente.
+    Include:
+    - Credenziali linkate dall'archivio centrale
+    - Credenziali legacy con customer_id (retrocompatibilità)
     """
     service = get_customer_service()
-    credentials = service.list_credentials(
+    
+    # 1. Credenziali linkate (nuovo sistema)
+    linked_creds = service.get_customer_credentials(customer_id=customer_id)
+    
+    # 2. Credenziali legacy (vecchio sistema con customer_id)
+    legacy_creds = service.list_credentials(
         customer_id=customer_id,
         credential_type=credential_type,
     )
-    return CredentialListResponse(total=len(credentials), credentials=credentials)
+    
+    # Combina evitando duplicati (per ID)
+    seen_ids = set()
+    all_creds = []
+    
+    for cred in linked_creds:
+        if credential_type and cred.get("credential_type") != credential_type:
+            continue
+        if cred["id"] not in seen_ids:
+            seen_ids.add(cred["id"])
+            all_creds.append(cred)
+    
+    for cred in legacy_creds:
+        if cred.id not in seen_ids:
+            seen_ids.add(cred.id)
+            # Converti CredentialSafe in dict
+            all_creds.append({
+                "id": cred.id,
+                "name": cred.name,
+                "credential_type": cred.credential_type,
+                "username": cred.username,
+                "is_default": cred.is_default,
+                "description": cred.description,
+                "active": cred.active,
+                "ssh_port": cred.ssh_port,
+                "snmp_community": cred.snmp_community,
+                "snmp_version": cred.snmp_version,
+                "snmp_port": cred.snmp_port,
+                "wmi_domain": cred.wmi_domain,
+                "mikrotik_api_port": cred.mikrotik_api_port,
+            })
+    
+    return {"total": len(all_creds), "credentials": all_creds}
 
 
 @router.post("/{customer_id}/credentials", response_model=CredentialSafe, status_code=201)
@@ -302,7 +342,7 @@ async def list_global_credentials(
 @router.post("/credentials", response_model=CredentialSafe, status_code=201)
 async def create_global_credential(data: CredentialCreate):
     """
-    Crea nuove credenziali globali.
+    Crea nuove credenziali globali (archivio centrale).
     """
     service = get_customer_service()
     
@@ -315,6 +355,85 @@ async def create_global_credential(data: CredentialCreate):
     except Exception as e:
         logger.error(f"Error creating global credential: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/credentials/all")
+async def list_all_credentials(include_usage: bool = True):
+    """
+    Lista tutte le credenziali dall'archivio centrale.
+    Include conteggio di utilizzo (clienti e device).
+    """
+    service = get_customer_service()
+    credentials = service.get_all_credentials(include_usage=include_usage)
+    return {"total": len(credentials), "credentials": credentials}
+
+
+# ==========================================
+# CREDENTIAL LINKS (Associazione Cliente-Credenziale)
+# ==========================================
+
+@router.post("/{customer_id}/credential-links")
+async def link_credential(
+    customer_id: str,
+    credential_id: str = Query(..., description="ID credenziale da associare"),
+    is_default: bool = Query(False, description="Imposta come default per questo tipo"),
+    notes: str = Query(None, description="Note per questa associazione"),
+):
+    """
+    Associa una credenziale dall'archivio centrale a un cliente.
+    """
+    service = get_customer_service()
+    try:
+        result = service.link_credential_to_customer(
+            customer_id=customer_id,
+            credential_id=credential_id,
+            is_default=is_default,
+            notes=notes
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error linking credential: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/{customer_id}/credential-links/{credential_id}")
+async def unlink_credential(customer_id: str, credential_id: str):
+    """
+    Rimuove l'associazione tra credenziale e cliente.
+    """
+    service = get_customer_service()
+    if service.unlink_credential_from_customer(customer_id, credential_id):
+        return {"success": True, "message": "Credenziale rimossa dal cliente"}
+    raise HTTPException(status_code=404, detail="Link non trovato")
+
+
+@router.get("/{customer_id}/credential-links")
+async def get_customer_credential_links(
+    customer_id: str,
+    include_password: bool = False,
+):
+    """
+    Ottiene tutte le credenziali associate a un cliente.
+    """
+    service = get_customer_service()
+    credentials = service.get_customer_credentials(
+        customer_id=customer_id,
+        include_password=include_password
+    )
+    return {"total": len(credentials), "credentials": credentials}
+
+
+@router.put("/{customer_id}/credential-links/{credential_id}/set-default")
+async def set_default_credential(customer_id: str, credential_id: str):
+    """
+    Imposta una credenziale come default per il suo tipo per questo cliente.
+    """
+    service = get_customer_service()
+    if service.set_customer_default_credential(customer_id, credential_id):
+        return {"success": True, "message": "Credenziale impostata come default"}
+    raise HTTPException(status_code=404, detail="Credenziale o link non trovato")
 
 
 # ==========================================

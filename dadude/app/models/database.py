@@ -168,6 +168,40 @@ class Credential(Base):
         return f"<Credential {self.name} ({self.credential_type})>"
 
 
+class CustomerCredentialLink(Base):
+    """
+    Associazione Credenziale → Cliente
+    Permette di linkare credenziali centrali ai clienti che le usano
+    Una credenziale può essere usata da più clienti
+    """
+    __tablename__ = "customer_credential_links"
+    
+    id = Column(String(8), primary_key=True, default=generate_uuid)
+    customer_id = Column(String(8), ForeignKey("customers.id"), nullable=False)
+    credential_id = Column(String(8), ForeignKey("credentials.id"), nullable=False)
+    
+    # Se True, questa credenziale è il default per questo tipo per questo cliente
+    is_default = Column(Boolean, default=False)
+    
+    # Note specifiche per questa associazione
+    notes = Column(Text, nullable=True)
+    
+    created_at = Column(DateTime, default=func.now())
+    
+    # Relationships
+    customer = relationship("Customer", backref="credential_links")
+    credential = relationship("Credential", backref="customer_links")
+    
+    __table_args__ = (
+        UniqueConstraint('customer_id', 'credential_id', name='uq_customer_credential'),
+        Index('idx_cred_link_customer', 'customer_id'),
+        Index('idx_cred_link_credential', 'credential_id'),
+    )
+    
+    def __repr__(self):
+        return f"<CustomerCredentialLink {self.customer_id} -> {self.credential_id}>"
+
+
 class DeviceAssignment(Base):
     """
     Associazione Device Dude → Cliente

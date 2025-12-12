@@ -12,6 +12,7 @@ from ..models.database import (
     Customer as CustomerDB,
     Network as NetworkDB,
     Credential as CredentialDB,
+    CustomerCredentialLink as CredentialLinkDB,
     DeviceAssignment as DeviceAssignmentDB,
     AgentAssignment as AgentAssignmentDB,
     init_db, get_session
@@ -587,8 +588,12 @@ class CustomerService:
     ) -> Dict[str, Credential]:
         """
         Ottiene le credenziali di default per ogni tipo richiesto.
-        Include sia credenziali del cliente che globali.
-        Priorità: cliente default > cliente non-default > globali default > globali non-default
+        
+        Priorità:
+        1. Credenziali linkate al cliente con is_default=True
+        2. Credenziali linkate al cliente senza is_default
+        3. Credenziali legacy (con customer_id diretto)
+        4. Credenziali globali non linkate
         
         Args:
             customer_id: ID del cliente
@@ -599,33 +604,52 @@ class CustomerService:
             Dict[tipo -> Credential] con credenziali decriptate
         """
         session = self._get_session()
+        result = {}
+        
         try:
-            # Query credenziali attive del cliente O globali
-            query = session.query(CredentialDB).filter(
-                or_(
-                    CredentialDB.customer_id == customer_id,
-                    CredentialDB.is_global == True
-                ),
-                CredentialDB.active == True,
-            )
-            
-            if credential_types:
-                query = query.filter(CredentialDB.credential_type.in_(credential_types))
-            
-            # Ordina: priorità cliente, poi default
-            creds = query.order_by(
-                # Credenziali cliente prima delle globali
-                (CredentialDB.customer_id == customer_id).desc(),
-                # Default prima
-                CredentialDB.is_default.desc()
+            # 1. Prima cerca credenziali linkate al cliente
+            links = session.query(CredentialLinkDB).filter(
+                CredentialLinkDB.customer_id == customer_id
+            ).order_by(
+                CredentialLinkDB.is_default.desc()  # Default prima
             ).all()
             
-            # Raggruppa per tipo, prendendo il primo (che ha priorità più alta)
-            result = {}
-            for cred in creds:
-                cred_type = cred.credential_type
-                if cred_type not in result:
-                    result[cred_type] = self._decrypt_credential(cred)
+            for link in links:
+                cred = session.query(CredentialDB).filter(
+                    CredentialDB.id == link.credential_id,
+                    CredentialDB.active == True
+                ).first()
+                
+                if not cred:
+                    continue
+                    
+                if credential_types and cred.credential_type not in credential_types:
+                    continue
+                
+                if cred.credential_type not in result:
+                    result[cred.credential_type] = self._decrypt_credential(cred)
+            
+            # 2. Poi cerca credenziali legacy e globali per tipi mancanti
+            remaining_types = credential_types or ['ssh', 'snmp', 'wmi', 'mikrotik']
+            remaining_types = [t for t in remaining_types if t not in result]
+            
+            if remaining_types:
+                query = session.query(CredentialDB).filter(
+                    or_(
+                        CredentialDB.customer_id == customer_id,
+                        CredentialDB.is_global == True
+                    ),
+                    CredentialDB.active == True,
+                    CredentialDB.credential_type.in_(remaining_types)
+                ).order_by(
+                    (CredentialDB.customer_id == customer_id).desc(),
+                    CredentialDB.is_default.desc()
+                ).all()
+                
+                for cred in query:
+                    cred_type = cred.credential_type
+                    if cred_type not in result:
+                        result[cred_type] = self._decrypt_credential(cred)
                     logger.debug(f"Using credential '{cred.name}' ({cred_type}) - global={cred.is_global}")
             
             return result
@@ -1104,6 +1128,309 @@ class CustomerService:
                 agent.version = version
             
             session.commit()
+            return True
+            
+        finally:
+            session.close()
+    
+    # ==========================================
+    # CREDENTIAL LINKS (Archivio Centralizzato)
+    # ==========================================
+    
+    def link_credential_to_customer(
+        self, 
+        customer_id: str, 
+        credential_id: str, 
+        is_default: bool = False,
+        notes: str = None
+    ) -> Dict[str, Any]:
+        """Associa una credenziale centrale a un cliente"""
+        session = self._get_session()
+        try:
+            # Verifica che cliente e credenziale esistano
+            customer = session.query(CustomerDB).filter(CustomerDB.id == customer_id).first()
+            credential = session.query(CredentialDB).filter(CredentialDB.id == credential_id).first()
+            
+            if not customer:
+                raise ValueError(f"Cliente {customer_id} non trovato")
+            if not credential:
+                raise ValueError(f"Credenziale {credential_id} non trovata")
+            
+            # Verifica se il link esiste già
+            existing = session.query(CredentialLinkDB).filter(
+                CredentialLinkDB.customer_id == customer_id,
+                CredentialLinkDB.credential_id == credential_id
+            ).first()
+            
+            if existing:
+                # Aggiorna il link esistente
+                existing.is_default = is_default
+                if notes:
+                    existing.notes = notes
+                session.commit()
+                logger.info(f"Updated credential link: {credential.name} -> {customer.name}")
+                return {
+                    "id": existing.id,
+                    "customer_id": customer_id,
+                    "credential_id": credential_id,
+                    "is_default": is_default,
+                    "updated": True
+                }
+            
+            # Se is_default, rimuovi default da altre credenziali dello stesso tipo
+            if is_default:
+                session.query(CredentialLinkDB).filter(
+                    CredentialLinkDB.customer_id == customer_id,
+                    CredentialLinkDB.credential_id.in_(
+                        session.query(CredentialDB.id).filter(
+                            CredentialDB.credential_type == credential.credential_type
+                        )
+                    )
+                ).update({"is_default": False}, synchronize_session=False)
+            
+            # Crea nuovo link
+            from ..models.database import generate_uuid
+            link = CredentialLinkDB(
+                id=generate_uuid(),
+                customer_id=customer_id,
+                credential_id=credential_id,
+                is_default=is_default,
+                notes=notes
+            )
+            session.add(link)
+            session.commit()
+            
+            logger.info(f"Linked credential {credential.name} to customer {customer.name}")
+            return {
+                "id": link.id,
+                "customer_id": customer_id,
+                "credential_id": credential_id,
+                "is_default": is_default,
+                "created": True
+            }
+            
+        finally:
+            session.close()
+    
+    def unlink_credential_from_customer(self, customer_id: str, credential_id: str) -> bool:
+        """Rimuove l'associazione tra credenziale e cliente"""
+        session = self._get_session()
+        try:
+            link = session.query(CredentialLinkDB).filter(
+                CredentialLinkDB.customer_id == customer_id,
+                CredentialLinkDB.credential_id == credential_id
+            ).first()
+            
+            if not link:
+                return False
+            
+            session.delete(link)
+            session.commit()
+            
+            logger.info(f"Unlinked credential {credential_id} from customer {customer_id}")
+            return True
+            
+        finally:
+            session.close()
+    
+    def get_customer_credentials(self, customer_id: str, include_password: bool = False) -> List[Dict[str, Any]]:
+        """
+        Ottiene tutte le credenziali associate a un cliente (via link).
+        Include info sul link (is_default) e sulla credenziale.
+        """
+        session = self._get_session()
+        try:
+            links = session.query(CredentialLinkDB).filter(
+                CredentialLinkDB.customer_id == customer_id
+            ).all()
+            
+            result = []
+            for link in links:
+                cred = session.query(CredentialDB).filter(
+                    CredentialDB.id == link.credential_id
+                ).first()
+                
+                if cred:
+                    cred_data = {
+                        "id": cred.id,
+                        "name": cred.name,
+                        "credential_type": cred.credential_type,
+                        "username": cred.username,
+                        "description": cred.description,
+                        "is_default": link.is_default,
+                        "link_id": link.id,
+                        "link_notes": link.notes,
+                        "active": cred.active,
+                        # Info per UI
+                        "ssh_port": cred.ssh_port,
+                        "snmp_community": cred.snmp_community,
+                        "snmp_version": cred.snmp_version,
+                        "snmp_port": cred.snmp_port,
+                        "wmi_domain": cred.wmi_domain,
+                        "mikrotik_api_port": cred.mikrotik_api_port,
+                    }
+                    
+                    if include_password:
+                        enc = get_encryption_service()
+                        cred_data["password"] = enc.decrypt(cred.password) if cred.password else None
+                        cred_data["ssh_private_key"] = enc.decrypt(cred.ssh_private_key) if cred.ssh_private_key else None
+                    
+                    result.append(cred_data)
+            
+            return result
+            
+        finally:
+            session.close()
+    
+    def get_all_credentials(self, include_usage: bool = True) -> List[Dict[str, Any]]:
+        """
+        Ottiene tutte le credenziali dall'archivio centrale.
+        Opzionalmente include il conteggio di utilizzo (clienti e device).
+        """
+        session = self._get_session()
+        try:
+            creds = session.query(CredentialDB).filter(
+                CredentialDB.active == True
+            ).order_by(CredentialDB.name).all()
+            
+            result = []
+            for cred in creds:
+                cred_data = {
+                    "id": cred.id,
+                    "name": cred.name,
+                    "credential_type": cred.credential_type,
+                    "username": cred.username,
+                    "description": cred.description,
+                    "active": cred.active,
+                    "created_at": cred.created_at.isoformat() if cred.created_at else None,
+                    # Campi specifici tipo
+                    "ssh_port": cred.ssh_port,
+                    "snmp_community": cred.snmp_community,
+                    "snmp_version": cred.snmp_version,
+                    "wmi_domain": cred.wmi_domain,
+                    "mikrotik_api_port": cred.mikrotik_api_port,
+                }
+                
+                if include_usage:
+                    # Conta quanti clienti usano questa credenziale
+                    customer_count = session.query(CredentialLinkDB).filter(
+                        CredentialLinkDB.credential_id == cred.id
+                    ).count()
+                    
+                    # Conta quanti device la usano direttamente
+                    from ..models.inventory import InventoryDevice
+                    device_count = session.query(InventoryDevice).filter(
+                        InventoryDevice.credential_id == cred.id
+                    ).count()
+                    
+                    cred_data["customer_count"] = customer_count
+                    cred_data["device_count"] = device_count
+                    cred_data["total_usage"] = customer_count + device_count
+                
+                result.append(cred_data)
+            
+            return result
+            
+        finally:
+            session.close()
+    
+    def get_customer_default_credential(
+        self, 
+        customer_id: str, 
+        credential_type: str,
+        include_password: bool = False
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Ottiene la credenziale di default per un tipo specifico per un cliente.
+        Cerca tra le credenziali linkate al cliente con is_default=True.
+        """
+        session = self._get_session()
+        try:
+            # Cerca link con is_default per questo tipo
+            link = session.query(CredentialLinkDB).join(
+                CredentialDB, CredentialLinkDB.credential_id == CredentialDB.id
+            ).filter(
+                CredentialLinkDB.customer_id == customer_id,
+                CredentialLinkDB.is_default == True,
+                CredentialDB.credential_type == credential_type,
+                CredentialDB.active == True
+            ).first()
+            
+            if not link:
+                return None
+            
+            cred = session.query(CredentialDB).filter(
+                CredentialDB.id == link.credential_id
+            ).first()
+            
+            if not cred:
+                return None
+            
+            result = {
+                "id": cred.id,
+                "name": cred.name,
+                "credential_type": cred.credential_type,
+                "username": cred.username,
+                "ssh_port": cred.ssh_port,
+                "snmp_community": cred.snmp_community,
+                "snmp_version": cred.snmp_version,
+                "snmp_port": cred.snmp_port,
+                "wmi_domain": cred.wmi_domain,
+                "mikrotik_api_port": cred.mikrotik_api_port,
+            }
+            
+            if include_password:
+                enc = get_encryption_service()
+                result["password"] = enc.decrypt(cred.password) if cred.password else None
+                result["ssh_private_key"] = enc.decrypt(cred.ssh_private_key) if cred.ssh_private_key else None
+            
+            return result
+            
+        finally:
+            session.close()
+    
+    def set_customer_default_credential(self, customer_id: str, credential_id: str) -> bool:
+        """
+        Imposta una credenziale come default per il suo tipo per un cliente.
+        Rimuove il flag default da altre credenziali dello stesso tipo.
+        """
+        session = self._get_session()
+        try:
+            # Ottieni la credenziale per sapere il tipo
+            cred = session.query(CredentialDB).filter(
+                CredentialDB.id == credential_id
+            ).first()
+            
+            if not cred:
+                return False
+            
+            # Verifica che esista il link
+            link = session.query(CredentialLinkDB).filter(
+                CredentialLinkDB.customer_id == customer_id,
+                CredentialLinkDB.credential_id == credential_id
+            ).first()
+            
+            if not link:
+                # Crea il link se non esiste
+                self.link_credential_to_customer(customer_id, credential_id, is_default=True)
+            else:
+                # Rimuovi default da altre credenziali dello stesso tipo
+                other_links = session.query(CredentialLinkDB).join(
+                    CredentialDB, CredentialLinkDB.credential_id == CredentialDB.id
+                ).filter(
+                    CredentialLinkDB.customer_id == customer_id,
+                    CredentialDB.credential_type == cred.credential_type,
+                    CredentialLinkDB.id != link.id
+                ).all()
+                
+                for other in other_links:
+                    other.is_default = False
+                
+                # Imposta questo come default
+                link.is_default = True
+                session.commit()
+            
+            logger.info(f"Set {cred.name} as default {cred.credential_type} for customer {customer_id}")
             return True
             
         finally:

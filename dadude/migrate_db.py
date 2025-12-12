@@ -248,6 +248,28 @@ def migrate_database(db_path: str = "./data/dadude.db"):
             print("Aggiungo colonna last_check a inventory_devices...")
             cursor.execute("ALTER TABLE inventory_devices ADD COLUMN last_check DATETIME")
         
+        # Crea tabella customer_credential_links se non esiste
+        cursor.execute("""
+            SELECT name FROM sqlite_master 
+            WHERE type='table' AND name='customer_credential_links'
+        """)
+        if not cursor.fetchone():
+            print("Creo tabella customer_credential_links...")
+            cursor.execute("""
+                CREATE TABLE customer_credential_links (
+                    id VARCHAR(8) PRIMARY KEY,
+                    customer_id VARCHAR(8) NOT NULL REFERENCES customers(id),
+                    credential_id VARCHAR(8) NOT NULL REFERENCES credentials(id),
+                    is_default BOOLEAN DEFAULT 0,
+                    notes TEXT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(customer_id, credential_id)
+                )
+            """)
+            cursor.execute("CREATE INDEX idx_cred_link_customer ON customer_credential_links(customer_id)")
+            cursor.execute("CREATE INDEX idx_cred_link_credential ON customer_credential_links(credential_id)")
+            print("✓ Tabella customer_credential_links creata")
+        
         conn.commit()
         print("✓ Migrazione completata con successo!")
         
