@@ -123,14 +123,81 @@ fi
 
 # Scarica template se non esiste
 echo -e "${BLUE}[1/6] Verifico template...${NC}"
-TEMPLATE_PATH=$(pveam list $STORAGE 2>/dev/null | grep -i "debian-12" | head -1 | awk '{print $1}' || true)
+
+# Cerca template già scaricati (Debian o Ubuntu)
+TEMPLATE_PATH=$(pveam list $STORAGE 2>/dev/null | grep -iE "debian-12|debian-11|ubuntu-22|ubuntu-24" | head -1 | awk '{print $1}' || true)
 
 if [ -z "$TEMPLATE_PATH" ]; then
-    echo "Scarico template Debian 12..."
+    echo -e "${YELLOW}Nessun template trovato. Cerco template disponibili...${NC}"
     pveam update
-    pveam download $STORAGE debian-12-standard_12.2-1_amd64.tar.zst || \
-    pveam download $STORAGE debian-12-standard_12.0-1_amd64.tar.zst
-    TEMPLATE_PATH=$(pveam list $STORAGE | grep -i "debian-12" | head -1 | awk '{print $1}')
+    
+    echo ""
+    echo -e "${YELLOW}Template disponibili:${NC}"
+    echo "---"
+    
+    # Lista template Debian e Ubuntu disponibili
+    AVAILABLE_TEMPLATES=$(pveam available 2>/dev/null | grep -iE "debian|ubuntu" | grep -E "standard" | head -10)
+    echo "$AVAILABLE_TEMPLATES"
+    echo "---"
+    
+    # Cerca prima Debian 12, poi 11, poi Ubuntu
+    TEMPLATE_NAME=""
+    
+    # Prova Debian 12
+    TEMPLATE_NAME=$(pveam available 2>/dev/null | grep -i "debian-12-standard" | head -1 | awk '{print $2}')
+    
+    # Fallback Debian 11
+    if [ -z "$TEMPLATE_NAME" ]; then
+        TEMPLATE_NAME=$(pveam available 2>/dev/null | grep -i "debian-11-standard" | head -1 | awk '{print $2}')
+    fi
+    
+    # Fallback Ubuntu 22.04
+    if [ -z "$TEMPLATE_NAME" ]; then
+        TEMPLATE_NAME=$(pveam available 2>/dev/null | grep -i "ubuntu-22.04-standard" | head -1 | awk '{print $2}')
+    fi
+    
+    # Fallback Ubuntu 24.04
+    if [ -z "$TEMPLATE_NAME" ]; then
+        TEMPLATE_NAME=$(pveam available 2>/dev/null | grep -i "ubuntu-24" | head -1 | awk '{print $2}')
+    fi
+    
+    # Fallback: qualsiasi Debian o Ubuntu
+    if [ -z "$TEMPLATE_NAME" ]; then
+        TEMPLATE_NAME=$(pveam available 2>/dev/null | grep -iE "debian.*standard|ubuntu.*standard" | head -1 | awk '{print $2}')
+    fi
+    
+    if [ -z "$TEMPLATE_NAME" ]; then
+        echo -e "${RED}Errore: Nessun template Debian/Ubuntu trovato!${NC}"
+        echo ""
+        echo "Template disponibili sul tuo sistema:"
+        pveam available | head -20
+        echo ""
+        echo "Scarica manualmente un template con:"
+        echo "  pveam download $STORAGE <nome-template>"
+        echo ""
+        echo "Poi riesegui questo script."
+        exit 1
+    fi
+    
+    echo ""
+    echo -e "${GREEN}Scarico template: $TEMPLATE_NAME${NC}"
+    
+    if ! pveam download $STORAGE "$TEMPLATE_NAME"; then
+        echo -e "${RED}Errore durante il download del template${NC}"
+        echo ""
+        echo "Prova manualmente:"
+        echo "  pveam download $STORAGE $TEMPLATE_NAME"
+        exit 1
+    fi
+    
+    # Rileggi il path del template scaricato
+    TEMPLATE_PATH=$(pveam list $STORAGE 2>/dev/null | grep -iE "debian|ubuntu" | head -1 | awk '{print $1}')
+fi
+
+if [ -z "$TEMPLATE_PATH" ]; then
+    echo -e "${RED}Errore: Template non trovato dopo il download${NC}"
+    echo "Verifica con: pveam list $STORAGE"
+    exit 1
 fi
 
 echo -e "${GREEN}Template: $TEMPLATE_PATH${NC}"
