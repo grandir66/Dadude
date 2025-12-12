@@ -3,10 +3,28 @@ DaDude Agent - Configuration
 """
 import os
 import json
-from typing import Optional, List, Union, Any
+from typing import Optional, List
 from functools import lru_cache
 from pydantic_settings import BaseSettings
-from pydantic import field_validator
+
+
+def parse_dns_servers_env() -> List[str]:
+    """Legge e parsa DADUDE_DNS_SERVERS dall'ambiente"""
+    raw = os.environ.get("DADUDE_DNS_SERVERS", "")
+    if not raw:
+        return ["8.8.8.8", "1.1.1.1"]
+    
+    raw = raw.strip()
+    
+    # Prova come JSON array
+    if raw.startswith('['):
+        try:
+            return json.loads(raw)
+        except:
+            pass
+    
+    # Splitta per virgola
+    return [s.strip() for s in raw.split(',') if s.strip()]
 
 
 class Settings(BaseSettings):
@@ -23,41 +41,22 @@ class Settings(BaseSettings):
     # Polling
     poll_interval: int = 60  # seconds
     
-    # DNS - accetta stringa singola, lista separata da virgole, o JSON array
-    dns_servers: List[str] = ["8.8.8.8", "1.1.1.1"]
-    
     # API
     api_port: int = 8080
     
     # Logging
     log_level: str = "INFO"
     
-    @field_validator('dns_servers', mode='before')
-    @classmethod
-    def parse_dns_servers(cls, v: Any) -> List[str]:
-        """Converte dns_servers da vari formati a lista"""
-        if v is None:
-            return ["8.8.8.8", "1.1.1.1"]
-        if isinstance(v, list):
-            return v
-        if isinstance(v, str):
-            # Prova prima come JSON
-            v = v.strip()
-            if v.startswith('['):
-                try:
-                    return json.loads(v)
-                except:
-                    pass
-            # Altrimenti splitta per virgola
-            return [s.strip() for s in v.split(',') if s.strip()]
-        return ["8.8.8.8"]
-    
-    class Config:
-        env_prefix = "DADUDE_"
-        env_file = ".env"
+    model_config = {
+        "env_prefix": "DADUDE_",
+        "env_file": ".env",
+        "extra": "ignore",
+    }
     
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        # Parsa dns_servers manualmente
+        self._dns_servers = None
         
         # Try to load from config file
         config_paths = [
@@ -74,16 +73,29 @@ class Settings(BaseSettings):
                     
                     # Override with config file values
                     for key, value in config_data.items():
-                        if hasattr(self, key):
-                            setattr(self, key, value)
+                        if key == 'dns_servers':
+                            self._dns_servers = value
+                        elif hasattr(self, key):
+                            object.__setattr__(self, key, value)
                     
                     break
                 except Exception:
                     pass
+    
+    @property
+    def dns_servers(self) -> List[str]:
+        if self._dns_servers is None:
+            self._dns_servers = parse_dns_servers_env()
+        return self._dns_servers
 
 
-@lru_cache()
+# Singleton cached
+_settings_instance: Optional[Settings] = None
+
+
 def get_settings() -> Settings:
-    """Ottieni settings (cached)"""
-    return Settings()
-
+    """Ottieni settings (singleton)"""
+    global _settings_instance
+    if _settings_instance is None:
+        _settings_instance = Settings()
+    return _settings_instance
