@@ -21,6 +21,12 @@ from .config import get_settings, Settings
 
 
 # ==========================================
+# VERSION
+# ==========================================
+AGENT_VERSION = "1.1.0"
+
+
+# ==========================================
 # SCHEMAS
 # ==========================================
 
@@ -88,7 +94,7 @@ class ProbeResult(BaseModel):
 app = FastAPI(
     title="DaDude Agent",
     description="Network scanning agent for DaDude inventory system",
-    version="1.0.0",
+    version=AGENT_VERSION,
 )
 
 app.add_middleware(
@@ -135,7 +141,7 @@ async def health_check():
         "status": "healthy",
         "agent_id": settings.agent_id,
         "agent_name": settings.agent_name,
-        "version": "1.0.0",
+        "version": AGENT_VERSION,
         "timestamp": datetime.utcnow().isoformat(),
     }
 
@@ -557,7 +563,7 @@ async def register_with_server():
             "agent_id": settings.agent_id,
             "agent_name": settings.agent_name,
             "agent_type": "docker",
-            "version": "1.0.0",
+            "version": AGENT_VERSION,
             "detected_ip": local_ip,
             "detected_hostname": hostname,
             "capabilities": ["wmi", "ssh", "snmp", "port_scan", "dns_reverse", "nmap"],
@@ -601,7 +607,7 @@ async def send_heartbeat():
         heartbeat_data = {
             "agent_id": settings.agent_id,
             "status": "online",
-            "version": "1.0.0",
+            "version": AGENT_VERSION,
             "detected_ip": local_ip,
         }
         
@@ -648,8 +654,6 @@ async def startup_event():
 # ==========================================
 # ADMIN ENDPOINTS (UPDATE/RESTART)
 # ==========================================
-
-AGENT_VERSION = "1.1.0"
 
 class UpdateRequest(BaseModel):
     version: str
