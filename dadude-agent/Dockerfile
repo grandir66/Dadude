@@ -20,7 +20,6 @@ RUN apk add --no-cache \
     net-tools \
     iproute2 \
     nmap \
-    nmap-scripts \
     && rm -rf /var/cache/apk/*
 
 # Create app directory
