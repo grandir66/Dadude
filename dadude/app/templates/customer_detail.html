@@ -2415,6 +2415,27 @@ async function loadInventory() {
                 };
                 const typeIcon = typeIcons[dev.device_type] || typeIcons['other'];
                 
+                // Icona occhio per stato riconoscimento
+                // 🟢 Verde: identificato (identified_by o info hardware complete)
+                // 🟡 Giallo: parziale (alcuni dati ma non completi)
+                // 🔴 Rosso: solo scoperto (nessun dato significativo)
+                let recognitionIcon = '';
+                const hasIdentification = dev.identified_by && dev.identified_by !== '';
+                const hasHardwareInfo = dev.cpu_model || dev.ram_total_gb || dev.serial_number;
+                const hasOsInfo = dev.os_family || dev.os_version;
+                const hasVendor = dev.manufacturer && dev.manufacturer !== '' && dev.manufacturer !== 'Unknown';
+                
+                if (hasIdentification || (hasHardwareInfo && hasOsInfo)) {
+                    // Completamente riconosciuto
+                    recognitionIcon = '<i class="bi bi-eye-fill text-success me-1" title="Identificato: ' + (dev.identified_by || 'hardware info') + '"></i>';
+                } else if (hasOsInfo || hasVendor || hasHardwareInfo) {
+                    // Parzialmente riconosciuto
+                    recognitionIcon = '<i class="bi bi-eye-fill text-warning me-1" title="Parzialmente identificato"></i>';
+                } else {
+                    // Solo scoperto
+                    recognitionIcon = '<i class="bi bi-eye text-danger me-1" title="Solo scoperto - richiede detect"></i>';
+                }
+                
                 const statusBadge = dev.status === 'online' 
                     ? '<span class="badge bg-success">Online</span>'
                     : (dev.status === 'offline' 
@@ -2474,7 +2495,7 @@ async function loadInventory() {
                 tbody.innerHTML += `
                     <tr data-device-id="${dev.id}">
                         <td>
-                            <strong>${dev.name}</strong>
+                            ${recognitionIcon}<strong>${dev.name}</strong>
                             ${dev.hostname ? '<br><small class="text-muted">' + dev.hostname + '</small>' : ''}
                         </td>
                         <td><code class="small">${dev.primary_ip || '-'}</code></td>
