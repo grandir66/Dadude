@@ -306,15 +306,14 @@ async def create_global_credential(data: CredentialCreate):
     """
     service = get_customer_service()
     
-    # Forza is_global a True e rimuovi customer_id
-    data.is_global = True
-    data.customer_id = None
+    # Crea una copia con is_global=True e customer_id=None
+    global_data = data.model_copy(update={"is_global": True, "customer_id": None})
     
     try:
-        credential = service.create_credential(data)
+        credential = service.create_credential(global_data)
         return credential
     except Exception as e:
-        logger.error(f"Error creating global credential: {e}")
+        logger.error(f"Error creating global credential: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

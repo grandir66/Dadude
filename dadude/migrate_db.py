@@ -148,6 +148,79 @@ def migrate_database(db_path: str = "./data/dadude.db"):
             print("Aggiungo colonna is_global a credentials...")
             cursor.execute("ALTER TABLE credentials ADD COLUMN is_global BOOLEAN DEFAULT 0")
         
+        # Verifica se customer_id accetta NULL (per credenziali globali)
+        # Se esiste il vincolo NOT NULL, dobbiamo ricreare la tabella
+        cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='credentials'")
+        table_def = cursor.fetchone()
+        if table_def and 'customer_id' in table_def[0] and 'NOT NULL' in table_def[0] and 'customer_id VARCHAR(8) NOT NULL' in table_def[0]:
+            print("Ricreo tabella credentials per permettere customer_id NULL (credenziali globali)...")
+            
+            # 1. Rinomina tabella esistente
+            cursor.execute("ALTER TABLE credentials RENAME TO credentials_old")
+            
+            # 2. Crea nuova tabella con customer_id nullable
+            cursor.execute("""
+                CREATE TABLE credentials (
+                    id VARCHAR(8) PRIMARY KEY,
+                    customer_id VARCHAR(8),
+                    is_global BOOLEAN DEFAULT 0,
+                    name VARCHAR(100) NOT NULL,
+                    credential_type VARCHAR(50) DEFAULT 'device',
+                    username VARCHAR(255),
+                    password VARCHAR(255),
+                    ssh_port INTEGER,
+                    ssh_private_key TEXT,
+                    ssh_passphrase VARCHAR(255),
+                    ssh_key_type VARCHAR(20),
+                    snmp_community VARCHAR(100),
+                    snmp_version VARCHAR(10),
+                    snmp_port INTEGER,
+                    snmp_security_level VARCHAR(20),
+                    snmp_auth_protocol VARCHAR(20),
+                    snmp_priv_protocol VARCHAR(20),
+                    snmp_auth_password VARCHAR(255),
+                    snmp_priv_password VARCHAR(255),
+                    wmi_domain VARCHAR(255),
+                    wmi_namespace VARCHAR(255),
+                    mikrotik_api_port INTEGER,
+                    mikrotik_api_ssl BOOLEAN,
+                    api_key VARCHAR(500),
+                    api_secret VARCHAR(500),
+                    api_endpoint VARCHAR(500),
+                    vpn_type VARCHAR(50),
+                    vpn_config TEXT,
+                    is_default BOOLEAN DEFAULT 0,
+                    device_filter VARCHAR(255),
+                    description TEXT,
+                    notes TEXT,
+                    active BOOLEAN DEFAULT 1,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (customer_id) REFERENCES customers(id)
+                )
+            """)
+            
+            # 3. Copia dati
+            cursor.execute("""
+                INSERT INTO credentials 
+                SELECT id, customer_id, 
+                       COALESCE(is_global, 0), 
+                       name, credential_type, username, password,
+                       ssh_port, ssh_private_key, ssh_passphrase, ssh_key_type,
+                       snmp_community, snmp_version, snmp_port, snmp_security_level,
+                       snmp_auth_protocol, snmp_priv_protocol, snmp_auth_password, snmp_priv_password,
+                       wmi_domain, wmi_namespace, mikrotik_api_port, mikrotik_api_ssl,
+                       api_key, api_secret, api_endpoint, vpn_type, vpn_config,
+                       is_default, device_filter, description, notes, active,
+                       created_at, updated_at
+                FROM credentials_old
+            """)
+            
+            # 4. Elimina vecchia tabella
+            cursor.execute("DROP TABLE credentials_old")
+            
+            print("✓ Tabella credentials ricreata con customer_id nullable")
+        
         # Verifica colonne esistenti in inventory_devices
         cursor.execute("PRAGMA table_info(inventory_devices)")
         columns = [row[1] for row in cursor.fetchall()]
