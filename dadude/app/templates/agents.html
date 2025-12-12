@@ -118,9 +118,10 @@ async function loadAgents() {
 
 async function loadCustomers() {
     try {
-        const response = await fetch('/api/v1/customers/');
+        const response = await fetch('/api/v1/customers');
         if (response.ok) {
-            customers = await response.json();
+            const data = await response.json();
+            customers = data.customers || data;
             
             // Popola dropdown
             const select = document.getElementById('approve-customer-id');
