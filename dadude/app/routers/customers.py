@@ -927,6 +927,7 @@ async def scan_customer_networks(
     
     if agent_type == "docker":
         # Scansione tramite Docker Agent
+        # Strategia: se c'è un MikroTik nel cliente, usalo per ARP scan
         from ..services.agent_client import AgentClient, AgentConfig
         
         agent_url = agent.agent_url or f"http://{agent.address}:{agent.agent_api_port or 8080}"
@@ -934,23 +935,64 @@ async def scan_customer_networks(
         
         logger.info(f"Docker agent config: url={agent_url}, token={'***' if agent_token else 'MISSING'}")
         
-        agent_config = AgentConfig(
-            agent_id=agent.id,
-            agent_url=agent_url,
-            agent_token=agent_token,
-        )
+        # Cerca un MikroTik agent per questo cliente (per ARP scan)
+        all_agents = service.list_agents(customer_id=agent.customer_id, active_only=True, include_password=True)
+        mikrotik_agent = None
+        for ag in all_agents:
+            ag_type = getattr(ag, 'agent_type', 'mikrotik') or 'mikrotik'
+            if ag_type == 'mikrotik' and ag.id != agent_id:
+                mikrotik_agent = ag
+                break
         
-        agent_client = AgentClient(agent_config)
-        try:
-            # Scansione rete tramite Docker agent
-            logger.info(f"Starting network scan via Docker agent: network={network.ip_network}")
-            scan_result = await agent_client.scan_network(network.ip_network, scan_type=scan_type)
-            logger.info(f"Docker agent scan result: {scan_result}")
-        except Exception as e:
-            logger.error(f"Docker agent scan failed: {e}", exc_info=True)
-            raise HTTPException(status_code=500, detail=f"Errore scansione Docker agent: {e}")
-        finally:
-            await agent_client.close()
+        scan_result = None
+        
+        if mikrotik_agent:
+            # OPZIONE B: Usa MikroTik per ARP scan (ottiene MAC address)
+            logger.info(f"Using MikroTik {mikrotik_agent.name} ({mikrotik_agent.address}) for ARP scan")
+            try:
+                if mikrotik_agent.connection_type in ["api", "both"]:
+                    scan_result = scanner.scan_network_via_router(
+                        router_address=mikrotik_agent.address,
+                        router_port=mikrotik_agent.port or 8728,
+                        router_username=mikrotik_agent.username or "admin",
+                        router_password=mikrotik_agent.password or "",
+                        network=network.ip_network,
+                        scan_type="arp",  # Forza ARP per ottenere MAC
+                        use_ssl=mikrotik_agent.use_ssl or False,
+                    )
+                elif mikrotik_agent.connection_type == "ssh":
+                    scan_result = scanner.scan_network_via_ssh(
+                        router_address=mikrotik_agent.address,
+                        ssh_port=mikrotik_agent.ssh_port or 22,
+                        username=mikrotik_agent.username or "admin",
+                        password=mikrotik_agent.password or "",
+                        network=network.ip_network,
+                        ssh_key=mikrotik_agent.ssh_key,
+                    )
+                logger.info(f"MikroTik ARP scan found {scan_result.get('devices_found', 0)} devices")
+            except Exception as e:
+                logger.warning(f"MikroTik ARP scan failed, falling back to Docker agent: {e}")
+                scan_result = None
+        
+        if not scan_result or not scan_result.get("success"):
+            # OPZIONE C: Nessun MikroTik o fallback - usa Docker agent con ARP attivo
+            logger.info(f"Using Docker agent for network scan (no MikroTik or fallback)")
+            agent_config = AgentConfig(
+                agent_id=agent.id,
+                agent_url=agent_url,
+                agent_token=agent_token,
+            )
+            
+            agent_client = AgentClient(agent_config)
+            try:
+                logger.info(f"Starting network scan via Docker agent: network={network.ip_network}")
+                scan_result = await agent_client.scan_network(network.ip_network, scan_type=scan_type)
+                logger.info(f"Docker agent scan result: {scan_result.get('devices_found', 0)} devices")
+            except Exception as e:
+                logger.error(f"Docker agent scan failed: {e}", exc_info=True)
+                raise HTTPException(status_code=500, detail=f"Errore scansione Docker agent: {e}")
+            finally:
+                await agent_client.close()
     
     # MikroTik agent - Usa API o SSH in base al tipo di connessione
     elif agent.connection_type in ["api", "both"]:

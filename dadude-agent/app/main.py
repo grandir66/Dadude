@@ -376,7 +376,10 @@ async def scan_network(
                     pass
             
             if result["alive"]:
-                # 3. Ottieni MAC dalla tabella ARP
+                # 3. Ottieni MAC dalla tabella ARP (prova più metodi)
+                mac = None
+                
+                # Metodo 1: ip neigh
                 try:
                     proc = await asyncio.create_subprocess_exec(
                         "ip", "neigh", "show", ip_str,
@@ -385,16 +388,50 @@ async def scan_network(
                     )
                     stdout, _ = await proc.communicate()
                     output = stdout.decode().strip()
-                    # Formato: "IP dev ethX lladdr MAC state"
                     if "lladdr" in output:
                         parts = output.split()
                         for i, p in enumerate(parts):
                             if p == "lladdr" and i + 1 < len(parts):
-                                result["mac_address"] = parts[i + 1].upper()
+                                mac = parts[i + 1].upper()
                                 break
                 except:
                     pass
                 
+                # Metodo 2: arp -n (fallback)
+                if not mac:
+                    try:
+                        proc = await asyncio.create_subprocess_exec(
+                            "arp", "-n", ip_str,
+                            stdout=asyncio.subprocess.PIPE,
+                            stderr=asyncio.subprocess.DEVNULL,
+                        )
+                        stdout, _ = await proc.communicate()
+                        output = stdout.decode().strip()
+                        # Cerca pattern MAC xx:xx:xx:xx:xx:xx
+                        import re
+                        mac_match = re.search(r'([0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}', output)
+                        if mac_match:
+                            mac = mac_match.group(0).upper().replace('-', ':')
+                    except:
+                        pass
+                
+                # Metodo 3: /proc/net/arp
+                if not mac:
+                    try:
+                        with open('/proc/net/arp', 'r') as f:
+                            for line in f:
+                                if ip_str in line:
+                                    parts = line.split()
+                                    if len(parts) >= 4:
+                                        mac = parts[3].upper()
+                                        if mac != "00:00:00:00:00:00":
+                                            break
+                                        else:
+                                            mac = None
+                    except:
+                        pass
+                
+                result["mac_address"] = mac
                 return result
             return None
         
