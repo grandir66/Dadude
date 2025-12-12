@@ -533,20 +533,39 @@ class DeviceProbeService:
             
             # Check sysObjectID per vendor noti (OID enterprise numbers)
             # https://www.iana.org/assignments/enterprise-numbers/
-            if sys_object_id.startswith("1.3.6.1.4.1.41112"):  # Ubiquiti
+            # Ubiquiti - OID 41112 (standard) o check sysDescr per modelli con OID generico
+            if sys_object_id.startswith("1.3.6.1.4.1.41112") or \
+               any(ubnt in sys_descr for ubnt in ["u6-", "u7-", "uap-", "usw-", "udm-", "usg-", 
+                                                   "edgeswitch", "edgerouter", "nanostation", 
+                                                   "nanobeam", "powerbeam", "airmax"]):
                 vendor = "Ubiquiti"
                 device_type = "network"
                 os_family = "UniFi"
-                model = sys_descr_orig.split()[0] if sys_descr_orig else None
+                # Estrai modello dal sysDescr (es: "Linux U6-LR 5.60.23" -> "U6-LR")
+                model = None
+                if sys_descr_orig:
+                    parts = sys_descr_orig.split()
+                    for part in parts:
+                        # Cerca pattern modello Ubiquiti
+                        if any(x in part.upper() for x in ["U6", "U7", "UAP", "USW", "UDM", "USG", 
+                                                            "EDGE", "NANO", "BEAM", "AIR", "LITE", "PRO", "LR"]):
+                            model = part
+                            break
+                    if not model and len(parts) > 1:
+                        model = parts[1] if parts[0].lower() == "linux" else parts[0]
+                
                 # Identifica tipo device Ubiquiti
-                if any(x in sys_descr for x in ["u6", "u7", "uap", "ap", "nanohd", "flexhd", "lite", "lr", "pro"]):
+                if any(x in sys_descr for x in ["u6", "u7", "uap", "ap", "nanohd", "flexhd", "lite", "lr", "pro", 
+                                                 "nanostation", "nanobeam", "powerbeam", "litebeam", "airmax"]):
                     category = "ap"
-                elif any(x in sys_descr for x in ["usw", "switch", "us-"]):
+                elif any(x in sys_descr for x in ["usw", "switch", "us-", "edgeswitch"]):
                     category = "switch"
-                elif any(x in sys_descr for x in ["usg", "udm", "dream", "gateway"]):
+                elif any(x in sys_descr for x in ["usg", "udm", "dream", "gateway", "edgerouter"]):
                     category = "router"
                 else:
                     category = "ap"  # Default Ubiquiti = access point
+                
+                logger.info(f"SNMP: Identified Ubiquiti device - model={model}, category={category}")
             elif sys_object_id.startswith("1.3.6.1.4.1.14988"):  # MikroTik
                 vendor = "MikroTik"
                 device_type = "mikrotik"
@@ -622,9 +641,24 @@ class DeviceProbeService:
                 category = "firewall"
                 os_family = "FortiOS"
                 vendor = "Fortinet"
-            elif "ubiquiti" in sys_descr or "unifi" in sys_descr:
+            elif "ubiquiti" in sys_descr or "unifi" in sys_descr or "edgeos" in sys_descr:
                 device_type = "network"
                 category = "ap"
+                os_family = "UniFi"
+                vendor = "Ubiquiti"
+            # Ubiquiti devices often have sysDescr like "Linux U6-LR 5.60.23" or "Linux EdgeSwitch"
+            elif any(ubnt in sys_descr for ubnt in ["u6-", "u7-", "uap-", "usw-", "udm-", "usg-", 
+                                                      "edgeswitch", "edgerouter", "edgemax",
+                                                      "nanostation", "nanobeam", "powerbeam",
+                                                      "litebeam", "airmax", "airfiber"]):
+                device_type = "network"
+                # Determine category based on device name
+                if any(x in sys_descr for x in ["usw-", "edgeswitch", "switch"]):
+                    category = "switch"
+                elif any(x in sys_descr for x in ["usg-", "udm-", "edgerouter", "gateway"]):
+                    category = "router"
+                else:
+                    category = "ap"
                 os_family = "UniFi"
                 vendor = "Ubiquiti"
             elif "hp" in sys_descr or "procurve" in sys_descr or "aruba" in sys_descr:
