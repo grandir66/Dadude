@@ -321,13 +321,17 @@ async def scan_network(
 ):
     """
     Scansiona una rete per trovare host attivi.
-    Usa ping sweep o ARP scan.
+    Combina ping, port scan e ARP per massima rilevazione.
     """
     import ipaddress
     import subprocess
     import asyncio
+    import socket
     
     start_time = datetime.now()
+    
+    # Porte da scansionare per rilevare host anche senza ping
+    COMMON_PORTS = [22, 80, 443, 445, 139, 3389, 8080, 8443, 161, 21, 23, 25, 53, 110, 143, 993, 995, 8728, 8729]
     
     try:
         network = ipaddress.ip_network(request.network, strict=False)
@@ -337,40 +341,79 @@ async def scan_network(
         if len(hosts) > 256:
             hosts = hosts[:256]
         
-        logger.info(f"Scanning network {request.network} ({len(hosts)} hosts)")
+        logger.info(f"Scanning network {request.network} ({len(hosts)} hosts) - ping + port scan")
         
-        results = []
+        found_hosts = {}  # IP -> info
         
-        async def ping_host(ip: str) -> Optional[Dict]:
-            """Ping singolo host"""
+        async def check_host(ip: str) -> Optional[Dict]:
+            """Controlla host via ping e porte comuni"""
+            ip_str = str(ip)
+            result = {"address": ip_str, "alive": False, "open_ports": [], "mac_address": None}
+            
+            # 1. Prova ping
             try:
                 proc = await asyncio.create_subprocess_exec(
-                    "ping", "-c", "1", "-W", str(int(request.timeout)),
-                    str(ip),
+                    "ping", "-c", "1", "-W", "1", ip_str,
                     stdout=asyncio.subprocess.DEVNULL,
                     stderr=asyncio.subprocess.DEVNULL,
                 )
-                await asyncio.wait_for(proc.wait(), timeout=request.timeout + 1)
-                
+                await asyncio.wait_for(proc.wait(), timeout=2)
                 if proc.returncode == 0:
-                    return {"address": str(ip), "alive": True}
-            except asyncio.TimeoutError:
+                    result["alive"] = True
+            except:
                 pass
-            except Exception:
-                pass
+            
+            # 2. Prova porte comuni (anche se ping fallisce)
+            for port in COMMON_PORTS[:5]:  # Solo prime 5 porte per velocità
+                try:
+                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    sock.settimeout(0.5)
+                    if sock.connect_ex((ip_str, port)) == 0:
+                        result["alive"] = True
+                        result["open_ports"].append(port)
+                    sock.close()
+                except:
+                    pass
+            
+            if result["alive"]:
+                # 3. Ottieni MAC dalla tabella ARP
+                try:
+                    proc = await asyncio.create_subprocess_exec(
+                        "ip", "neigh", "show", ip_str,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.DEVNULL,
+                    )
+                    stdout, _ = await proc.communicate()
+                    output = stdout.decode().strip()
+                    # Formato: "IP dev ethX lladdr MAC state"
+                    if "lladdr" in output:
+                        parts = output.split()
+                        for i, p in enumerate(parts):
+                            if p == "lladdr" and i + 1 < len(parts):
+                                result["mac_address"] = parts[i + 1].upper()
+                                break
+                except:
+                    pass
+                
+                return result
             return None
         
-        # Esegui ping in parallelo (max 50 alla volta)
-        batch_size = 50
+        # Esegui in parallelo (max 30 alla volta per non sovraccaricare)
+        batch_size = 30
+        results = []
         for i in range(0, len(hosts), batch_size):
             batch = hosts[i:i+batch_size]
-            tasks = [ping_host(str(ip)) for ip in batch]
+            tasks = [check_host(str(ip)) for ip in batch]
             batch_results = await asyncio.gather(*tasks)
             results.extend([r for r in batch_results if r])
+            
+            # Log progresso
+            if i % 100 == 0 and i > 0:
+                logger.info(f"Scanned {i}/{len(hosts)} hosts, found {len(results)} so far")
         
         duration = int((datetime.now() - start_time).total_seconds() * 1000)
         
-        logger.info(f"Network scan completed: {len(results)}/{len(hosts)} hosts found")
+        logger.info(f"Network scan completed: {len(results)}/{len(hosts)} hosts found in {duration}ms")
         
         return {
             "success": True,

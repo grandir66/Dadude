@@ -2,7 +2,7 @@
 DaDude - Customer/Tenant Schemas
 Modelli Pydantic per gestione clienti multi-tenant
 """
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from enum import Enum
@@ -539,29 +539,45 @@ class AgentAssignmentSafe(BaseModel):
     customer_id: str
     name: str
     address: str
-    port: int
-    agent_type: str = "mikrotik"
+    port: Optional[int] = 8728
+    agent_type: Optional[str] = "mikrotik"
     dude_agent_id: Optional[str] = None
-    status: str = "unknown"
+    status: Optional[str] = "unknown"
     last_seen: Optional[datetime] = None
     version: Optional[str] = None
     location: Optional[str] = None
     site_name: Optional[str] = None
-    connection_type: str = "api"
+    connection_type: Optional[str] = "api"
     username: Optional[str] = None
-    use_ssl: bool = False
-    ssh_port: int = 22
-    agent_api_port: int = 8080
+    use_ssl: Optional[bool] = False
+    ssh_port: Optional[int] = 22
+    agent_api_port: Optional[int] = 8080
     agent_url: Optional[str] = None
     dns_server: Optional[str] = None
-    default_scan_type: str = "ping"
-    auto_add_devices: bool = False
+    default_scan_type: Optional[str] = "ping"
+    auto_add_devices: Optional[bool] = False
     assigned_networks: Optional[List[str]] = None
     description: Optional[str] = None
     notes: Optional[str] = None
-    active: bool = True
-    created_at: datetime
-    updated_at: datetime
+    active: Optional[bool] = True
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    
+    @model_validator(mode='before')
+    @classmethod
+    def set_defaults(cls, values):
+        """Imposta valori di default per campi NULL"""
+        if isinstance(values, dict):
+            defaults = {
+                'port': 8728, 'agent_type': 'mikrotik', 'status': 'unknown',
+                'connection_type': 'api', 'use_ssl': False, 'ssh_port': 22,
+                'agent_api_port': 8080, 'default_scan_type': 'ping',
+                'auto_add_devices': False, 'active': True
+            }
+            for key, default in defaults.items():
+                if key in values and values[key] is None:
+                    values[key] = default
+        return values
     
     class Config:
         from_attributes = True
