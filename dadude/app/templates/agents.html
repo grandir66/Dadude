@@ -11,6 +11,65 @@
         </button>
     </div>
 
+    <!-- Server Update Status -->
+    <div class="card mb-4 border-primary">
+        <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">
+                <i class="bi bi-server"></i> Stato Server DaDude
+            </h5>
+            <div class="btn-group">
+                <button class="btn btn-sm btn-light" onclick="checkServerUpdate()">
+                    <i class="bi bi-cloud-arrow-down"></i> Verifica Aggiornamenti
+                </button>
+            </div>
+        </div>
+        <div class="card-body">
+            <div id="server-status">
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="d-flex align-items-center">
+                            <i class="bi bi-box-seam fs-2 me-3 text-primary"></i>
+                            <div>
+                                <small class="text-muted">Versione Server</small>
+                                <h5 class="mb-0" id="server-version">Caricamento...</h5>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="d-flex align-items-center">
+                            <i class="bi bi-robot fs-2 me-3 text-info"></i>
+                            <div>
+                                <small class="text-muted">Versione Agent</small>
+                                <h5 class="mb-0" id="agent-version">Caricamento...</h5>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="d-flex align-items-center" id="update-status-container" style="display: none;">
+                            <i class="bi bi-arrow-up-circle-fill fs-2 me-3 text-success"></i>
+                            <div>
+                                <small class="text-muted">Aggiornamento Disponibile</small>
+                                <h5 class="mb-0" id="latest-version">-</h5>
+                                <button class="btn btn-sm btn-success mt-1" onclick="updateServer()">
+                                    <i class="bi bi-download"></i> Aggiorna Server
+                                </button>
+                            </div>
+                        </div>
+                        <div id="up-to-date-container" style="display: none;">
+                            <div class="d-flex align-items-center">
+                                <i class="bi bi-check-circle-fill fs-2 me-3 text-success"></i>
+                                <div>
+                                    <small class="text-muted">Stato</small>
+                                    <h5 class="mb-0 text-success">Aggiornato</h5>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Agent in attesa di approvazione -->
     <div class="card mb-4">
         <div class="card-header bg-warning text-dark">
@@ -258,12 +317,17 @@ async function loadActiveAgents() {
                             </td>
                             <td>${a.version || 'N/A'}</td>
                             <td>
-                                <button class="btn btn-sm btn-outline-primary" onclick="testAgent('${a.id}', '${a.address}', ${a.agent_api_port || 8080})">
-                                    <i class="bi bi-broadcast"></i> Test
-                                </button>
-                                <button class="btn btn-sm btn-outline-warning" onclick="restartAgent('${a.id}')">
-                                    <i class="bi bi-arrow-clockwise"></i>
-                                </button>
+                                <div class="btn-group btn-group-sm">
+                                    <button class="btn btn-outline-primary" onclick="testAgent('${a.id}', '${a.address}', ${a.agent_api_port || 8080})" title="Test connessione">
+                                        <i class="bi bi-broadcast"></i>
+                                    </button>
+                                    <button class="btn btn-outline-info" onclick="verifyAgentVersion('${a.id}', '${a.name}')" title="Verifica versione">
+                                        <i class="bi bi-search"></i>
+                                    </button>
+                                    <button class="btn btn-outline-warning" onclick="restartAgent('${a.id}')" title="Riavvia">
+                                        <i class="bi bi-arrow-clockwise"></i>
+                                    </button>
+                                </div>
                             </td>
                         </tr>
                     `).join('')}
@@ -322,9 +386,14 @@ async function loadOutdatedAgents() {
                             <td><span class="badge bg-warning text-dark">${a.current_version}</span></td>
                             <td><span class="badge bg-success">${a.latest_version}</span></td>
                             <td>
-                                <button class="btn btn-sm btn-primary" onclick="updateAgent('${a.id}')">
-                                    <i class="bi bi-download"></i> Aggiorna
-                                </button>
+                                <div class="btn-group btn-group-sm">
+                                    <button class="btn btn-primary" onclick="updateAgent('${a.id}')">
+                                        <i class="bi bi-download"></i> Aggiorna
+                                    </button>
+                                    <button class="btn btn-info" onclick="verifyAgentVersion('${a.id}', '${a.name}')" title="Verifica versione dopo update">
+                                        <i class="bi bi-search"></i>
+                                    </button>
+                                </div>
                             </td>
                         </tr>
                     `).join('')}
@@ -464,8 +533,166 @@ async function updateAllAgents() {
     }
 }
 
+// ==========================================
+// VERIFICA VERSIONE AGENT
+// ==========================================
+
+async function verifyAgentVersion(agentId, agentName) {
+    try {
+        const response = await fetch(`/api/v1/agents/${agentId}/verify-version`);
+        const data = await response.json();
+        
+        if (data.success) {
+            let message = `📋 Verifica Agent: ${agentName}\n\n`;
+            message += `🔌 Online: ${data.agent_online ? '✅ Sì' : '❌ No'}\n`;
+            message += `📦 Versione DB: ${data.db_version}\n`;
+            message += `🔄 Versione Reale: ${data.real_version}\n`;
+            message += `🆕 Ultima Disponibile: ${data.latest_version}\n\n`;
+            
+            if (data.needs_update) {
+                message += `⚠️ AGGIORNAMENTO DISPONIBILE`;
+            } else if (data.version_match) {
+                message += `✅ Versione aggiornata e confermata`;
+            } else {
+                message += `⚠️ Versione DB non corrispondente (aggiornato a ${data.real_version})`;
+            }
+            
+            alert(message);
+            loadAgents(); // Ricarica per aggiornare versioni
+        } else {
+            alert(`❌ Verifica fallita per ${agentName}\n\n${data.error}`);
+        }
+    } catch (e) {
+        alert('Errore: ' + e.message);
+    }
+}
+
+// ==========================================
+// SERVER UPDATE SYSTEM
+// ==========================================
+
+async function loadServerVersion() {
+    try {
+        const response = await fetch('/api/v1/agents/server/version');
+        const data = await response.json();
+        
+        document.getElementById('server-version').textContent = `v${data.version}`;
+        document.getElementById('agent-version').textContent = `v${data.agent_version}`;
+    } catch (e) {
+        document.getElementById('server-version').textContent = 'Errore';
+    }
+}
+
+async function checkServerUpdate() {
+    const container = document.getElementById('update-status-container');
+    const upToDateContainer = document.getElementById('up-to-date-container');
+    
+    try {
+        container.style.display = 'none';
+        upToDateContainer.style.display = 'none';
+        
+        const response = await fetch('/api/v1/agents/server/check-update');
+        const data = await response.json();
+        
+        if (data.success) {
+            if (data.needs_update) {
+                container.style.display = 'flex';
+                document.getElementById('latest-version').textContent = `v${data.latest_version}`;
+                
+                if (data.release_name) {
+                    alert(`🆕 Aggiornamento disponibile!\n\n` +
+                          `Versione attuale: v${data.current_version}\n` +
+                          `Nuova versione: v${data.latest_version}\n` +
+                          `Nome: ${data.release_name}\n` +
+                          `Data: ${data.release_date ? new Date(data.release_date).toLocaleDateString('it-IT') : 'N/A'}\n\n` +
+                          `Note:\n${data.changelog || 'Nessuna nota'}`);
+                }
+            } else {
+                upToDateContainer.style.display = 'flex';
+                alert(`✅ Server aggiornato\n\nVersione: v${data.current_version}`);
+            }
+        } else {
+            alert('⚠️ Impossibile verificare aggiornamenti: ' + data.error);
+        }
+    } catch (e) {
+        alert('Errore: ' + e.message);
+    }
+}
+
+async function updateServer() {
+    if (!confirm('Aggiornare il server DaDude?\n\nQuesto eseguirà git pull e potrebbe richiedere un riavvio.')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/v1/agents/server/update', {
+            method: 'POST'
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+            if (data.already_up_to_date) {
+                alert('✅ Server già aggiornato');
+            } else {
+                alert(`✅ Server aggiornato!\n\n${data.output}\n\n` +
+                      (data.needs_restart ? '⚠️ Riavvio necessario per applicare le modifiche.' : ''));
+                
+                if (data.needs_restart) {
+                    if (confirm('Vuoi riavviare il server ora?')) {
+                        await restartServer();
+                    }
+                }
+            }
+        } else {
+            alert('❌ Aggiornamento fallito:\n\n' + data.error);
+        }
+        
+        loadServerVersion();
+        
+    } catch (e) {
+        alert('Errore: ' + e.message);
+    }
+}
+
+async function restartServer() {
+    try {
+        const response = await fetch('/api/v1/agents/server/restart', {
+            method: 'POST'
+        });
+        const data = await response.json();
+        
+        alert(data.message + (data.command ? `\n\nComando: ${data.command}` : ''));
+    } catch (e) {
+        // Il server potrebbe non rispondere durante il riavvio
+        alert('Comando di riavvio inviato. La pagina si ricaricherà tra 5 secondi...');
+        setTimeout(() => window.location.reload(), 5000);
+    }
+}
+
+async function viewRecentCommits() {
+    try {
+        const response = await fetch('/api/v1/agents/server/commits');
+        const data = await response.json();
+        
+        if (data.success) {
+            let message = '📜 Ultimi Commit su GitHub\n\n';
+            data.commits.forEach((c, i) => {
+                message += `${i+1}. [${c.sha}] ${c.message}\n   ${c.author} - ${new Date(c.date).toLocaleDateString('it-IT')}\n\n`;
+            });
+            alert(message);
+        } else {
+            alert('Errore: ' + data.error);
+        }
+    } catch (e) {
+        alert('Errore: ' + e.message);
+    }
+}
+
 // Carica al load
-document.addEventListener('DOMContentLoaded', loadAgents);
+document.addEventListener('DOMContentLoaded', () => {
+    loadAgents();
+    loadServerVersion();
+});
 </script>
 {% endblock %}
 
