@@ -95,13 +95,8 @@
         </a>
     </li>
     <li class="nav-item">
-        <a class="nav-link" data-bs-toggle="tab" href="#devices">
-            <i class="bi bi-router"></i> Device ({{ devices|length }})
-        </a>
-    </li>
-    <li class="nav-item">
         <a class="nav-link" data-bs-toggle="tab" href="#inventory" onclick="loadInventory()">
-            <i class="bi bi-collection"></i> Inventario <span id="inventoryCount" class="badge bg-secondary">0</span>
+            <i class="bi bi-hdd-network"></i> Dispositivi <span id="inventoryCount" class="badge bg-secondary">0</span>
         </a>
     </li>
 </ul>
@@ -352,59 +347,7 @@
         </div>
     </div>
     
-    <!-- Tab Device -->
-    <div class="tab-pane fade" id="devices">
-        <div class="d-flex justify-content-between mb-3">
-            <h5>Device Assegnati</h5>
-            <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#assignDeviceModal">
-                <i class="bi bi-plus"></i> Assegna Device
-            </button>
-        </div>
-        <div class="card table-modern">
-            <table class="table table-hover mb-0">
-                <thead>
-                    <tr>
-                        <th>Dude ID</th>
-                        <th>Nome</th>
-                        <th>Ruolo</th>
-                        <th>Location</th>
-                        <th>IP Management</th>
-                        <th>SLA</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for dev in devices %}
-                    <tr>
-                        <td><code>{{ dev.dude_device_id }}</code></td>
-                        <td><strong>{{ dev.local_name or dev.dude_device_name or '-' }}</strong></td>
-                        <td>
-                            {% if dev.role %}
-                            <span class="badge bg-info">{{ dev.role }}</span>
-                            {% else %}
-                            -
-                            {% endif %}
-                        </td>
-                        <td>{{ dev.location or '-' }}</td>
-                        <td><code>{{ dev.management_ip or '-' }}</code></td>
-                        <td>
-                            {% if dev.sla_level %}
-                            <span class="badge bg-{% if dev.sla_level == 'gold' %}warning{% elif dev.sla_level == 'silver' %}secondary{% else %}dark{% endif %}">
-                                {{ dev.sla_level }}
-                            </span>
-                            {% else %}
-                            -
-                            {% endif %}
-                        </td>
-                    </tr>
-                    {% else %}
-                    <tr><td colspan="6" class="text-center py-4 text-muted">Nessun device assegnato</td></tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </div>
-    
-    <!-- Tab Inventario -->
+    <!-- Tab Dispositivi (unificato) -->
     <div class="tab-pane fade" id="inventory">
         <!-- Card Discovery -->
         <div class="card mb-4">
@@ -551,23 +494,20 @@
                         <thead>
                             <tr>
                                 <th>Nome</th>
-                                <th>Hostname</th>
                                 <th>IP</th>
                                 <th>MAC</th>
                                 <th>Tipo</th>
                                 <th>Categoria</th>
                                 <th>OS</th>
-                                <th>Versione</th>
                                 <th>Vendor</th>
                                 <th>Servizi</th>
-                                <th>Credenziali</th>
-                                <th>Identificato</th>
+                                <th>Monitoraggio</th>
                                 <th>Stato</th>
                                 <th>Azioni</th>
                             </tr>
                         </thead>
                         <tbody id="inventoryBody">
-                            <tr><td colspan="13" class="text-center py-4 text-muted">Clicca su "Inventario" per caricare i dispositivi</td></tr>
+                            <tr><td colspan="11" class="text-center py-4 text-muted">Clicca su "Dispositivi" per caricare i dati</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -2471,19 +2411,25 @@ async function loadInventory() {
                     credOptions += `<option value="${cred.id}" ${selected}>${cred.name}${typeLabel}</option>`;
                 });
                 
-                const credSelect = `
-                    <select class="form-select form-select-sm" style="width: 130px; font-size: 0.8rem;" 
-                            onchange="updateDeviceCredential('${dev.id}', this.value)">
-                        ${credOptions}
-                    </select>
+                // Monitoraggio toggle
+                const isMonitored = dev.monitored || false;
+                const monitoringType = dev.monitoring_type || 'none'; // none, netwatch, agent
+                const monitoringHtml = `
+                    <div class="btn-group btn-group-sm" role="group">
+                        <button type="button" class="btn ${monitoringType === 'none' ? 'btn-secondary' : 'btn-outline-secondary'}" 
+                                onclick="setMonitoring('${dev.id}', 'none')" title="Monitoraggio disabilitato">
+                            <i class="bi bi-x-circle"></i>
+                        </button>
+                        <button type="button" class="btn ${monitoringType === 'netwatch' ? 'btn-success' : 'btn-outline-success'}" 
+                                onclick="setMonitoring('${dev.id}', 'netwatch')" title="Netwatch MikroTik">
+                            <i class="bi bi-router"></i>
+                        </button>
+                        <button type="button" class="btn ${monitoringType === 'agent' ? 'btn-primary' : 'btn-outline-primary'}" 
+                                onclick="setMonitoring('${dev.id}', 'agent')" title="Agent Probe">
+                            <i class="bi bi-broadcast"></i>
+                        </button>
+                    </div>
                 `;
-                
-                // Identificato da
-                let identifiedBadge = '<span class="text-muted small">-</span>';
-                if (dev.identified_by) {
-                    const method = dev.identified_by.replace('probe_', '').toUpperCase();
-                    identifiedBadge = `<span class="badge bg-success">${method}</span>`;
-                }
 
                 // Servizi aperti
                 let servicesDisplay = '<span class="text-muted small">-</span>';
@@ -2499,38 +2445,27 @@ async function loadInventory() {
                 }
 
                 tbody.innerHTML += `
-                    <tr>
+                    <tr data-device-id="${dev.id}">
                         <td>
                             <strong>${dev.name}</strong>
-                        </td>
-                        <td>
-                            ${dev.hostname || '-'}
-                            ${dev.domain ? '<br><small class="text-muted">.' + dev.domain + '</small>' : ''}
+                            ${dev.hostname ? '<br><small class="text-muted">' + dev.hostname + '</small>' : ''}
                         </td>
                         <td><code class="small">${dev.primary_ip || '-'}</code></td>
                         <td><code class="small">${dev.mac_address || '-'}</code></td>
                         <td>${typeIcon} <span class="small">${dev.device_type}</span></td>
                         <td><span class="small">${dev.category || '-'}</span></td>
                         <td><span class="small">${dev.os_family || '-'}</span></td>
-                        <td><span class="small">${dev.os_version || '-'}</span></td>
                         <td><span class="small">${dev.manufacturer || '-'}</span></td>
-                        <td style="min-width: 200px;">${servicesDisplay}</td>
-                        <td>${credSelect}</td>
-                        <td>${identifiedBadge}</td>
+                        <td style="min-width: 150px;">${servicesDisplay}</td>
+                        <td>${monitoringHtml}</td>
                         <td>${statusBadge}</td>
                         <td>
                             <div class="btn-group btn-group-sm">
                                 <button class="btn btn-outline-info" onclick="viewInventoryDevice('${dev.id}')" title="Dettagli">
                                     <i class="bi bi-eye"></i>
                                 </button>
-                                <button class="btn btn-warning" onclick="autoDetectDevice('${dev.id}', '${dev.primary_ip}')" title="Auto-Detect (usa credenziali default + porte)">
+                                <button class="btn btn-warning" onclick="autoDetectDevice('${dev.id}', '${dev.primary_ip}')" title="Auto-Detect">
                                     <i class="bi bi-bullseye"></i>
-                                </button>
-                                <button class="btn btn-outline-warning" onclick="probeDevice('${dev.id}', '${dev.primary_ip}')" title="Identifica (selezione manuale)">
-                                    <i class="bi bi-cpu"></i>
-                                </button>
-                                <button class="btn btn-outline-secondary" onclick="scanPorts('${dev.id}', '${dev.primary_ip}')" title="Scansiona Porte">
-                                    <i class="bi bi-router"></i>
                                 </button>
                                 <button class="btn btn-outline-danger" onclick="deleteInventoryDevice('${dev.id}')" title="Elimina">
                                     <i class="bi bi-trash"></i>
@@ -3003,6 +2938,87 @@ async function deleteInventoryDevice(deviceId) {
     } catch (e) {
         alert('Errore: ' + e.message);
     }
+}
+
+// ==========================================
+// MONITORAGGIO
+// ==========================================
+
+async function setMonitoring(deviceId, monitoringType) {
+    const btn = event.target.closest('button');
+    const originalHtml = btn.innerHTML;
+    
+    try {
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+        btn.disabled = true;
+        
+        const response = await fetch(`/api/v1/inventory/devices/${deviceId}/monitoring`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                monitoring_type: monitoringType,
+                customer_id: customerId
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            // Aggiorna visivamente i pulsanti nella riga
+            const row = document.querySelector(`tr[data-device-id="${deviceId}"]`);
+            if (row) {
+                const btnGroup = row.querySelector('.btn-group[role="group"]');
+                if (btnGroup) {
+                    btnGroup.querySelectorAll('button').forEach(b => {
+                        b.classList.remove('btn-secondary', 'btn-success', 'btn-primary');
+                        b.classList.add('btn-outline-secondary', 'btn-outline-success', 'btn-outline-primary');
+                    });
+                    // Attiva il pulsante corretto
+                    if (monitoringType === 'none') {
+                        btnGroup.children[0].classList.remove('btn-outline-secondary');
+                        btnGroup.children[0].classList.add('btn-secondary');
+                    } else if (monitoringType === 'netwatch') {
+                        btnGroup.children[1].classList.remove('btn-outline-success');
+                        btnGroup.children[1].classList.add('btn-success');
+                    } else if (monitoringType === 'agent') {
+                        btnGroup.children[2].classList.remove('btn-outline-primary');
+                        btnGroup.children[2].classList.add('btn-primary');
+                    }
+                }
+            }
+            
+            // Mostra messaggio se configurato Netwatch
+            if (result.netwatch_configured) {
+                console.log(`Netwatch configurato su ${result.mikrotik_name || 'MikroTik'} per ${result.device_ip}`);
+            }
+        } else {
+            alert('Errore: ' + (result.error || result.message || 'Configurazione fallita'));
+        }
+    } catch (e) {
+        alert('Errore: ' + e.message);
+    } finally {
+        btn.innerHTML = originalHtml;
+        btn.disabled = false;
+    }
+}
+
+// Configura monitoraggio per più dispositivi
+async function batchSetMonitoring(monitoringType) {
+    const checkboxes = document.querySelectorAll('#inventoryTable input[type="checkbox"]:checked');
+    if (checkboxes.length === 0) {
+        alert('Seleziona almeno un dispositivo');
+        return;
+    }
+    
+    const deviceIds = Array.from(checkboxes).map(cb => cb.dataset.deviceId);
+    
+    if (!confirm(`Configurare monitoraggio "${monitoringType}" per ${deviceIds.length} dispositivi?`)) return;
+    
+    for (const deviceId of deviceIds) {
+        await setMonitoring(deviceId, monitoringType);
+    }
+    
+    alert(`Monitoraggio configurato per ${deviceIds.length} dispositivi`);
 }
 
 async function addToDude(deviceId) {

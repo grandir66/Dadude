@@ -95,10 +95,15 @@ class InventoryDevice(Base):
     
     # Stato e monitoring
     status = Column(String(20), default="unknown")
+    monitored = Column(Boolean, default=False)  # Monitoraggio attivo
+    monitoring_type = Column(String(20), default="none")  # none, netwatch, agent
     monitor_source = Column(String(20), nullable=True)  # dude, agent, snmp, etc
+    monitoring_agent_id = Column(String(8), nullable=True)  # ID sonda per monitoring
+    netwatch_id = Column(String(50), nullable=True)  # ID entry Netwatch su MikroTik
     dude_device_id = Column(String(50), nullable=True)  # ID in The Dude se presente
     last_seen = Column(DateTime, nullable=True)
     last_scan = Column(DateTime, nullable=True)
+    last_check = Column(DateTime, nullable=True)  # Ultimo check monitoring
     
     # Sistema operativo (generico)
     os_family = Column(String(50), nullable=True)  # Windows, Linux, RouterOS, IOS

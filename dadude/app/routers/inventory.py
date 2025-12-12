@@ -1217,6 +1217,162 @@ async def update_inventory_device(device_id: str, updates: dict):
         session.close()
 
 
+@router.post("/devices/{device_id}/monitoring")
+async def configure_device_monitoring(device_id: str, config: dict):
+    """
+    Configura il monitoraggio per un dispositivo.
+    
+    monitoring_type: none, netwatch, agent
+    """
+    from ..models.database import init_db, get_session
+    from ..models.inventory import InventoryDevice
+    from ..config import get_settings
+    from ..services.customer_service import get_customer_service
+    from ..services.mikrotik_service import get_mikrotik_service
+    
+    settings = get_settings()
+    db_url = settings.database_url.replace("+aiosqlite", "")
+    engine = init_db(db_url)
+    session = get_session(engine)
+    
+    try:
+        device = session.query(InventoryDevice).filter(
+            InventoryDevice.id == device_id
+        ).first()
+        
+        if not device:
+            raise HTTPException(status_code=404, detail="Dispositivo non trovato")
+        
+        monitoring_type = config.get("monitoring_type", "none")
+        customer_id = config.get("customer_id", device.customer_id)
+        
+        # Risultato operazione
+        result = {
+            "success": True,
+            "device_id": device_id,
+            "device_ip": device.primary_ip,
+            "monitoring_type": monitoring_type,
+            "netwatch_configured": False,
+            "agent_configured": False,
+        }
+        
+        # Ottieni servizio clienti per sonde
+        customer_service = get_customer_service()
+        
+        # Se disabilito il monitoraggio, rimuovi eventuali configurazioni
+        if monitoring_type == "none":
+            # Rimuovi Netwatch se configurato
+            if device.netwatch_id and device.monitoring_agent_id:
+                try:
+                    agent = customer_service.get_agent(device.monitoring_agent_id, include_password=True)
+                    if agent and agent.agent_type == "mikrotik":
+                        mikrotik_service = get_mikrotik_service()
+                        mikrotik_service.remove_netwatch(
+                            address=agent.address,
+                            port=agent.port or 8728,
+                            username=agent.username or "admin",
+                            password=agent.password or "",
+                            netwatch_id=device.netwatch_id,
+                            use_ssl=agent.use_ssl or False,
+                        )
+                        logger.info(f"Rimosso Netwatch {device.netwatch_id} da {agent.name}")
+                except Exception as e:
+                    logger.warning(f"Errore rimozione Netwatch: {e}")
+            
+            device.monitored = False
+            device.monitoring_type = "none"
+            device.monitoring_agent_id = None
+            device.netwatch_id = None
+            
+        elif monitoring_type == "netwatch":
+            # Configura Netwatch su MikroTik
+            # Cerca una sonda MikroTik per questo cliente
+            agents = customer_service.list_agents(customer_id=customer_id, active_only=True)
+            mikrotik_agent = None
+            for ag in agents:
+                if ag.agent_type == "mikrotik":
+                    mikrotik_agent = customer_service.get_agent(ag.id, include_password=True)
+                    break
+            
+            if not mikrotik_agent:
+                return {
+                    "success": False,
+                    "error": "Nessuna sonda MikroTik configurata per questo cliente"
+                }
+            
+            mikrotik_service = get_mikrotik_service()
+            
+            try:
+                # Aggiungi o aggiorna Netwatch
+                netwatch_result = mikrotik_service.add_netwatch(
+                    address=mikrotik_agent.address,
+                    port=mikrotik_agent.port or 8728,
+                    username=mikrotik_agent.username or "admin",
+                    password=mikrotik_agent.password or "",
+                    target_ip=device.primary_ip,
+                    target_name=device.name or device.hostname or device.primary_ip,
+                    interval="30s",
+                    use_ssl=mikrotik_agent.use_ssl or False,
+                )
+                
+                if netwatch_result.get("success"):
+                    device.monitored = True
+                    device.monitoring_type = "netwatch"
+                    device.monitoring_agent_id = mikrotik_agent.id
+                    device.netwatch_id = netwatch_result.get("netwatch_id")
+                    result["netwatch_configured"] = True
+                    result["mikrotik_name"] = mikrotik_agent.name
+                    logger.info(f"Netwatch configurato per {device.primary_ip} su {mikrotik_agent.name}")
+                else:
+                    result["success"] = False
+                    result["error"] = netwatch_result.get("error", "Errore configurazione Netwatch")
+                    
+            except Exception as e:
+                logger.error(f"Errore configurazione Netwatch: {e}")
+                result["success"] = False
+                result["error"] = str(e)
+                
+        elif monitoring_type == "agent":
+            # Configura monitoring via Docker agent
+            agents = customer_service.list_agents(customer_id=customer_id, active_only=True)
+            docker_agent = None
+            for ag in agents:
+                if ag.agent_type == "docker":
+                    docker_agent = customer_service.get_agent(ag.id, include_password=True)
+                    break
+            
+            if not docker_agent:
+                # Fallback a MikroTik se non c'è Docker
+                for ag in agents:
+                    if ag.agent_type == "mikrotik":
+                        docker_agent = customer_service.get_agent(ag.id, include_password=True)
+                        break
+            
+            if not docker_agent:
+                return {
+                    "success": False,
+                    "error": "Nessuna sonda configurata per questo cliente"
+                }
+            
+            device.monitored = True
+            device.monitoring_type = "agent"
+            device.monitoring_agent_id = docker_agent.id
+            result["agent_configured"] = True
+            result["agent_name"] = docker_agent.name
+            logger.info(f"Agent monitoring configurato per {device.primary_ip} via {docker_agent.name}")
+        
+        session.commit()
+        return result
+        
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Errore configurazione monitoring: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+        
+    finally:
+        session.close()
+
+
 @router.post("/devices/{device_id}/identify")
 async def identify_inventory_device(
     device_id: str,

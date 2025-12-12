@@ -148,9 +148,32 @@ def migrate_database(db_path: str = "./data/dadude.db"):
             print("Aggiungo colonna is_global a credentials...")
             cursor.execute("ALTER TABLE credentials ADD COLUMN is_global BOOLEAN DEFAULT 0")
         
-        # Rendi customer_id nullable (non possibile in SQLite, ma almeno possiamo inserire NULL)
-        # In SQLite non è possibile modificare le constraint, quindi per le nuove credenziali globali
-        # il customer_id sarà NULL
+        # Verifica colonne esistenti in inventory_devices
+        cursor.execute("PRAGMA table_info(inventory_devices)")
+        columns = [row[1] for row in cursor.fetchall()]
+        
+        print(f"Colonne esistenti in inventory_devices: {columns}")
+        
+        # Aggiungi colonne monitoring se mancanti
+        if 'monitored' not in columns:
+            print("Aggiungo colonna monitored a inventory_devices...")
+            cursor.execute("ALTER TABLE inventory_devices ADD COLUMN monitored BOOLEAN DEFAULT 0")
+        
+        if 'monitoring_type' not in columns:
+            print("Aggiungo colonna monitoring_type a inventory_devices...")
+            cursor.execute("ALTER TABLE inventory_devices ADD COLUMN monitoring_type VARCHAR(20) DEFAULT 'none'")
+        
+        if 'monitoring_agent_id' not in columns:
+            print("Aggiungo colonna monitoring_agent_id a inventory_devices...")
+            cursor.execute("ALTER TABLE inventory_devices ADD COLUMN monitoring_agent_id VARCHAR(8)")
+        
+        if 'netwatch_id' not in columns:
+            print("Aggiungo colonna netwatch_id a inventory_devices...")
+            cursor.execute("ALTER TABLE inventory_devices ADD COLUMN netwatch_id VARCHAR(50)")
+        
+        if 'last_check' not in columns:
+            print("Aggiungo colonna last_check a inventory_devices...")
+            cursor.execute("ALTER TABLE inventory_devices ADD COLUMN last_check DATETIME")
         
         conn.commit()
         print("✓ Migrazione completata con successo!")
