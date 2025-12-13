@@ -900,9 +900,17 @@ async def trigger_agent_update(agent_db_id: str):
     from ..services.websocket_hub import get_websocket_hub, CommandType
     hub = get_websocket_hub()
     
+    # Trova connessione WebSocket per questo agent
+    def normalize(s: str) -> str:
+        return s.lower().replace(" ", "").replace("-", "").replace("_", "")
+    
     ws_agent_id = None
+    agent_name_norm = normalize(agent.name) if agent.name else ""
+    
     for conn_id in hub._connections.keys():
-        if agent.name and agent.name in conn_id:
+        conn_id_norm = normalize(conn_id)
+        # Match se i nomi normalizzati corrispondono o uno contiene l'altro
+        if agent_name_norm and (agent_name_norm in conn_id_norm or conn_id_norm in agent_name_norm):
             ws_agent_id = conn_id
             break
     
