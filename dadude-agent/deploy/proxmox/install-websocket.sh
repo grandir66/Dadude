@@ -118,6 +118,15 @@ fi
 # Genera agent ID
 AGENT_ID="agent-ws-${AGENT_NAME}-$(date +%s | tail -c 5)"
 
+# Elimina container esistente se presente
+if pct status $CTID &>/dev/null; then
+    echo -e "${YELLOW}Container $CTID esiste già. Lo elimino...${NC}"
+    pct stop $CTID 2>/dev/null || true
+    sleep 2
+    pct destroy $CTID --force 2>/dev/null || true
+    echo -e "${GREEN}Container $CTID eliminato${NC}"
+fi
+
 echo ""
 echo -e "${GREEN}Configurazione:${NC}"
 echo "  CTID:        $CTID"
