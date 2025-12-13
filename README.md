@@ -1,36 +1,40 @@
 # DaDude - Network Inventory & Monitoring System
 
-Sistema di inventario e monitoraggio reti multi-tenant con supporto per MikroTik The Dude e agent distribuiti.
+Sistema di inventario e monitoraggio reti multi-tenant con supporto per agent WebSocket distribuiti e integrazione MikroTik.
 
 ## 🚀 Installazione Rapida
 
-### Server DaDude (Docker)
+### Server DaDude (Proxmox LXC + Docker)
 
 ```bash
-# Installazione one-liner
-curl -sSL https://raw.githubusercontent.com/grandir66/dadude/main/dadude/deploy/docker/install-server.sh | bash
-
-# Con parametri personalizzati
-curl -sSL https://raw.githubusercontent.com/grandir66/dadude/main/dadude/deploy/docker/install-server.sh | bash -s -- \
-  --ip 192.168.4.45 \
-  --port 8000
+# Installazione su Proxmox (crea container LXC con Docker)
+bash <(curl -fsSL https://raw.githubusercontent.com/grandir66/dadude/main/dadude/deploy/proxmox/install-server.sh)
 ```
 
-### Agent DaDude (Docker)
+L'installer chiederà interattivamente:
+- CTID container
+- IP/Gateway/DNS
+- Storage e memoria
+
+### Agent DaDude WebSocket (Proxmox LXC + Docker)
 
 ```bash
-# Installazione one-liner (richiede server URL e token)
-curl -sSL https://raw.githubusercontent.com/grandir66/dadude/main/dadude-agent/deploy/docker/install-agent.sh | bash -s -- \
-  --server http://192.168.4.45:8000 \
-  --token YOUR_AGENT_TOKEN \
-  --name agent-rete1
-
-# Con DNS personalizzato
-curl -sSL https://raw.githubusercontent.com/grandir66/dadude/main/dadude-agent/deploy/docker/install-agent.sh | bash -s -- \
-  --server http://192.168.4.45:8000 \
-  --token YOUR_AGENT_TOKEN \
-  --dns 192.168.1.1
+# Installazione agent WebSocket (modalità agent-initiated, no porte in ascolto)
+bash <(curl -fsSL https://raw.githubusercontent.com/grandir66/dadude/main/dadude-agent/deploy/proxmox/install-websocket.sh)
 ```
+
+L'installer chiederà interattivamente:
+- URL Server DaDude (default: `http://dadude.domarc.it:8000`)
+- Nome agent
+- Configurazione rete (DHCP o statica)
+- CTID, storage, bridge, VLAN
+
+**Dopo l'installazione:**
+1. Vai su `http://<server>:8000/agents`
+2. Approva l'agent e assegnalo a un cliente
+3. L'agent si connetterà automaticamente via WebSocket
+
+---
 
 ## 📦 Installazione Manuale
 
@@ -42,17 +46,20 @@ git clone https://github.com/grandir66/dadude.git /opt/dadude
 cd /opt/dadude/dadude
 
 # Crea ambiente
-cp .env.example .env
-# Modifica .env con le tue configurazioni
+cat > .env << EOF
+DATABASE_URL=sqlite+aiosqlite:///./data/dadude.db
+SECRET_KEY=$(openssl rand -hex 32)
+ENCRYPTION_KEY=$(openssl rand -base64 32)
+EOF
 
 # Avvia con Docker
-docker compose up -d
+docker compose up -d --build
 
 # Verifica
 curl http://localhost:8000/health
 ```
 
-### Agent
+### Agent WebSocket
 
 ```bash
 # Clone repository
@@ -62,19 +69,37 @@ cd /opt/dadude-agent/dadude-agent
 # Crea ambiente
 cat > .env << EOF
 DADUDE_SERVER_URL=http://192.168.4.45:8000
-DADUDE_AGENT_TOKEN=your_token_here
-DADUDE_AGENT_ID=agent-001
+DADUDE_AGENT_ID=agent-$(hostname)-$(date +%s | tail -c 5)
 DADUDE_AGENT_NAME=my-agent
-DADUDE_AGENT_PORT=8080
+DADUDE_AGENT_TOKEN=$(openssl rand -base64 32 | tr -d '/+=' | head -c 32)
+DADUDE_CONNECTION_MODE=websocket
 DADUDE_DNS_SERVERS=8.8.8.8
 EOF
 
-# Avvia con Docker
-docker compose up -d
+# Crea docker-compose
+cat > docker-compose.yml << 'EOF'
+services:
+  dadude-agent:
+    build: .
+    container_name: dadude-agent-ws
+    restart: unless-stopped
+    env_file: .env
+    network_mode: host
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    volumes:
+      - ./data:/var/lib/dadude-agent
+      - /var/run/docker.sock:/var/run/docker.sock
+      - .:/opt/dadude-agent
+    command: ["python", "-m", "app.agent"]
+EOF
 
-# Verifica
-curl http://localhost:8080/health
+# Avvia
+docker compose up -d --build
 ```
+
+---
 
 ## 🔧 Configurazione
 
@@ -82,96 +107,167 @@ curl http://localhost:8080/health
 
 | Variabile | Descrizione | Default |
 |-----------|-------------|---------|
-| `DATABASE_URL` | URL database SQLite | `sqlite:///./data/dadude.db` |
+| `DATABASE_URL` | URL database SQLite | `sqlite+aiosqlite:///./data/dadude.db` |
 | `SECRET_KEY` | Chiave segreta per sessioni | (generata) |
 | `ENCRYPTION_KEY` | Chiave per crittografia credenziali | (generata) |
 | `DUDE_HOST` | Host MikroTik The Dude (opzionale) | - |
 | `DUDE_PORT` | Porta API The Dude | `8728` |
-| `DUDE_USERNAME` | Username The Dude | - |
-| `DUDE_PASSWORD` | Password The Dude | - |
 
-### Variabili Agent (.env)
+### Variabili Agent WebSocket (.env)
 
 | Variabile | Descrizione | Default |
 |-----------|-------------|---------|
 | `DADUDE_SERVER_URL` | URL server DaDude | (richiesto) |
-| `DADUDE_AGENT_TOKEN` | Token autenticazione | (richiesto) |
 | `DADUDE_AGENT_ID` | ID univoco agent | (generato) |
 | `DADUDE_AGENT_NAME` | Nome agent | hostname |
-| `DADUDE_AGENT_PORT` | Porta API agent | `8080` |
+| `DADUDE_AGENT_TOKEN` | Token autenticazione | (generato) |
+| `DADUDE_CONNECTION_MODE` | Modalità connessione | `websocket` |
 | `DADUDE_DNS_SERVERS` | Server DNS per lookup | `8.8.8.8` |
 
-## 🌐 Architettura
+---
+
+## 🌐 Architettura WebSocket
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    DaDude Server                        │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐     │
-│  │  Dashboard  │  │   API REST  │  │  Database   │     │
-│  │   (Web UI)  │  │  (FastAPI)  │  │  (SQLite)   │     │
-│  └─────────────┘  └─────────────┘  └─────────────┘     │
-└─────────────────────────────────────────────────────────┘
-         │                    │
-         ▼                    ▼
-┌─────────────────┐  ┌─────────────────┐
-│ MikroTik Agent  │  │  Docker Agent   │
-│   (RouterOS)    │  │   (Linux/CT)    │
-│                 │  │                 │
-│ • ARP Scan      │  │ • Nmap Scan     │
-│ • Netwatch      │  │ • WMI Probe     │
-│ • DNS Lookup    │  │ • SSH Probe     │
-│                 │  │ • SNMP Probe    │
-└─────────────────┘  └─────────────────┘
-         │                    │
-         ▼                    ▼
-┌─────────────────────────────────────────────────────────┐
-│                   Rete Cliente                          │
-│  ┌─────┐  ┌─────┐  ┌─────┐  ┌─────┐  ┌─────┐          │
-│  │ PC  │  │ NAS │  │ AP  │  │ SW  │  │ SRV │          │
-│  └─────┘  └─────┘  └─────┘  └─────┘  └─────┘          │
-└─────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                     DaDude Server                            │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐    │
+│  │ Web UI   │  │ REST API │  │ WS Hub   │  │ Database │    │
+│  │ (HTML)   │  │(FastAPI) │  │(Async)   │  │ (SQLite) │    │
+│  └──────────┘  └──────────┘  └──────────┘  └──────────┘    │
+│                                    ▲                         │
+│                                    │ WebSocket               │
+└────────────────────────────────────┼─────────────────────────┘
+                                     │
+        ┌────────────────────────────┼────────────────────────┐
+        │                            │                        │
+        ▼                            ▼                        ▼
+┌───────────────┐          ┌───────────────┐         ┌───────────────┐
+│ Agent Site A  │          │ Agent Site B  │         │ Agent Site C  │
+│  (WebSocket)  │          │  (WebSocket)  │         │  (WebSocket)  │
+│               │          │               │         │               │
+│ • Nmap Scan   │          │ • Nmap Scan   │         │ • Nmap Scan   │
+│ • WMI Probe   │          │ • WMI Probe   │         │ • WMI Probe   │
+│ • SSH Probe   │          │ • SSH Probe   │         │ • SSH Probe   │
+│ • SNMP Probe  │          │ • SNMP Probe  │         │ • SNMP Probe  │
+│ • Port Scan   │          │ • Port Scan   │         │ • Port Scan   │
+└───────────────┘          └───────────────┘         └───────────────┘
+        │                            │                        │
+        ▼                            ▼                        ▼
+┌───────────────┐          ┌───────────────┐         ┌───────────────┐
+│  Rete Site A  │          │  Rete Site B  │         │  Rete Site C  │
+│ 192.168.1.0/24│          │ 10.0.0.0/24   │         │ 172.16.0.0/24 │
+└───────────────┘          └───────────────┘         └───────────────┘
 ```
+
+### Vantaggi WebSocket
+
+- ✅ **Agent-initiated**: l'agent si connette al server, non viceversa
+- ✅ **NAT-friendly**: funziona dietro firewall senza port forwarding
+- ✅ **Sicuro**: solo porta 443 in uscita richiesta
+- ✅ **Resiliente**: riconnessione automatica con exponential backoff
+- ✅ **Real-time**: comandi e risultati bidirezionali
+
+---
 
 ## 📋 Funzionalità
 
 ### Inventario
-- ✅ Scansione reti (ARP, Nmap)
+- ✅ Scansione reti (Nmap, ARP)
 - ✅ Riconoscimento vendor da MAC address
 - ✅ Reverse DNS lookup
 - ✅ Port scanning TCP/UDP
 - ✅ Identificazione OS
 
 ### Probing
-- ✅ WMI (Windows)
-- ✅ SSH (Linux/Unix)
-- ✅ SNMP (Network devices)
+- ✅ WMI (Windows) - CPU, RAM, dischi, servizi, software
+- ✅ SSH (Linux/Unix) - Sistema, Docker, VM
+- ✅ SNMP (Network devices) - Model, serial, firmware
 - ✅ Auto-detect basato su porte aperte
 
-### Monitoraggio
-- ✅ Integrazione MikroTik Netwatch
-- ✅ Agent distribuiti
-- ✅ Dashboard real-time
+### Agent WebSocket
+- ✅ Connessione persistente al server
+- ✅ Comandi remoti (scan, probe, update, restart)
+- ✅ Auto-registrazione e approvazione
+- ✅ Heartbeat e monitoraggio stato
+- ✅ Self-update remoto
 
 ### Multi-tenant
 - ✅ Gestione clienti separati
 - ✅ Credenziali globali e per cliente
 - ✅ Reti multiple per cliente
+- ✅ Agent dedicati per cliente
+
+---
 
 ## 🛠️ Comandi Utili
 
+### Server
+
 ```bash
 # Log server
-docker compose -f /opt/dadude/dadude/docker-compose.yml logs -f
+docker logs -f dadude-server
 
-# Log agent
-docker compose -f /opt/dadude-agent/dadude-agent/docker-compose.yml logs -f
-
-# Riavvio server
+# Riavvio
 docker compose -f /opt/dadude/dadude/docker-compose.yml restart
 
 # Aggiornamento
-cd /opt/dadude && git pull && docker compose -f dadude/docker-compose.yml up -d --build
+cd /opt/dadude && git pull && \
+  docker compose -f dadude/docker-compose.yml up -d --build
+
+# Verifica agent connessi
+curl -s http://localhost:8000/api/v1/agents/ws/connected | python3 -m json.tool
 ```
+
+### Agent
+
+```bash
+# Log agent
+docker logs -f dadude-agent-ws
+
+# Riavvio
+docker restart dadude-agent-ws
+
+# Aggiornamento (da dentro il container Proxmox)
+pct exec <CTID> -- bash -c "cd /opt/dadude-agent && git pull && docker compose up -d --build"
+```
+
+---
+
+## 🔒 Configurazione Traefik (Reverse Proxy)
+
+Per esporre solo gli endpoint agent su internet (senza UI):
+
+```yaml
+# /etc/traefik/conf.d/dadude.yaml
+http:
+  routers:
+    dadude-agents-ws:
+      rule: "Host(`dadude.tuodominio.it`) && PathPrefix(`/api/v1/agents/ws`)"
+      entryPoints:
+        - websecure
+      service: dadude
+      tls:
+        certResolver: letsencrypt
+      priority: 100
+
+    dadude-agents-api:
+      rule: "Host(`dadude.tuodominio.it`) && PathPrefix(`/api/v1/agents`)"
+      entryPoints:
+        - websecure
+      service: dadude
+      tls:
+        certResolver: letsencrypt
+      priority: 90
+
+  services:
+    dadude:
+      loadBalancer:
+        servers:
+          - url: "http://192.168.4.45:8000"
+```
+
+---
 
 ## 📄 Licenza
 
@@ -180,4 +276,3 @@ MIT License
 ## 🤝 Contributi
 
 Contributi benvenuti! Apri una issue o pull request.
-
