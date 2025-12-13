@@ -22,7 +22,7 @@ from .config import get_settings
 
 
 # Version
-AGENT_VERSION = "2.0.4"
+AGENT_VERSION = "2.0.5"
 
 
 class DaDudeAgent:
