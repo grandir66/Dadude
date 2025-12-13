@@ -312,9 +312,25 @@ fi
 # Genera agent ID univoco
 AGENT_ID="agent-${AGENT_NAME}-$(date +%s | tail -c 5)"
 
-# Elimina container esistente se presente
+# Verifica se container esiste già
 if pct status $CTID &>/dev/null; then
-    echo -e "\n${YELLOW}Container $CTID esiste già. Lo elimino...${NC}"
+    EXISTING_NAME=$(pct config $CTID 2>/dev/null | grep "^hostname:" | awk '{print $2}')
+    echo ""
+    echo -e "${RED}══════════════════════════════════════════════════════════${NC}"
+    echo -e "${RED}  ⚠️  ATTENZIONE: Container $CTID esiste già!${NC}"
+    echo -e "${RED}══════════════════════════════════════════════════════════${NC}"
+    echo ""
+    echo -e "  Hostname: ${YELLOW}${EXISTING_NAME:-sconosciuto}${NC}"
+    echo -e "  Status:   $(pct status $CTID 2>/dev/null | awk '{print $2}')"
+    echo ""
+    read -p "Vuoi ELIMINARE questo container e procedere? [y/N] " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo -e "${YELLOW}Installazione annullata. Scegli un CTID diverso.${NC}"
+        exit 1
+    fi
+    
+    echo -e "${YELLOW}Elimino container $CTID...${NC}"
     pct stop $CTID 2>/dev/null || true
     sleep 2
     pct destroy $CTID --force 2>/dev/null || true
