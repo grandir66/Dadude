@@ -1157,7 +1157,7 @@ class CustomerService:
             # Cerca per nome contenuto nell'agent_unique_id (es: "agent-test1-3865" contiene "test1")
             # Estrai il nome base rimuovendo prefisso "agent-" e suffisso numerico
             import re
-            name_match = re.match(r'^agent-(.+?)-\d+$', agent_unique_id)
+            name_match = re.match(r'^agent-(.+?)(-\d+)?$', agent_unique_id)
             if name_match:
                 base_name = name_match.group(1)
                 agent = session.query(AgentAssignmentDB).filter(
@@ -1166,6 +1166,16 @@ class CustomerService:
                 
                 if agent:
                     return self._to_agent_safe(agent)
+                
+                # Prova match normalizzato: "rete99" vs "Rete 99"
+                def normalize(s: str) -> str:
+                    return s.lower().replace(" ", "").replace("-", "").replace("_", "")
+                
+                base_name_norm = normalize(base_name)
+                all_agents = session.query(AgentAssignmentDB).all()
+                for a in all_agents:
+                    if normalize(a.name) == base_name_norm:
+                        return self._to_agent_safe(a)
             
             # Cerca per indirizzo IP (se fornito)
             if address:
