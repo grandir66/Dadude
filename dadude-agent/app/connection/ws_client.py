@@ -217,8 +217,16 @@ class AgentWebSocketClient:
         await self._set_state(ConnectionState.CONNECTING)
         
         try:
-            # Costruisci URL WebSocket
-            ws_url = f"{self.server_url}/api/v1/agents/ws/{self.agent_id}"
+            # Costruisci URL WebSocket (converti http->ws, https->wss)
+            base_url = self.server_url
+            if base_url.startswith("http://"):
+                base_url = "ws://" + base_url[7:]
+            elif base_url.startswith("https://"):
+                base_url = "wss://" + base_url[8:]
+            elif not base_url.startswith("ws://") and not base_url.startswith("wss://"):
+                base_url = "ws://" + base_url
+            
+            ws_url = f"{base_url}/api/v1/agents/ws/{self.agent_id}"
             
             # SSL context
             ssl_context = self._create_ssl_context()
