@@ -333,155 +333,67 @@ class CommandHandler:
     async def _update_agent(self, params: Dict) -> CommandResult:
         """
         Self-update agent.
-        Per agent Docker WebSocket, esegue git pull nella directory montata
-        e poi usa Docker socket per rebuild e restart.
+        Per agent Docker WebSocket, esegue git pull nella directory montata.
+        Il restart deve essere fatto manualmente perché il container non può
+        riavviarsi in modo affidabile da solo.
         """
         logger.info("Update agent requested")
         
-        # Check se siamo in Docker
-        is_docker = os.path.exists("/.dockerenv")
         agent_dir = "/opt/dadude-agent"
         
-        if is_docker:
-            # Strategia Docker: git pull + docker restart via socket
-            try:
-                import shutil
-                
-                # Step 1: Prova git pull (directory deve essere montata come volume)
-                if os.path.exists(os.path.join(agent_dir, ".git")):
-                    logger.info("Performing git pull...")
-                    result = subprocess.run(
-                        ["git", "pull", "--rebase", "origin", "main"],
-                        cwd=agent_dir,
-                        capture_output=True,
-                        text=True,
-                        timeout=120,
-                    )
-                    if result.returncode != 0:
-                        logger.warning(f"Git pull failed: {result.stderr}")
-                        # Prova comunque il fallback
-                    else:
-                        logger.info(f"Git pull success: {result.stdout}")
-                else:
-                    # Directory non è un repo git, facciamo un fresh clone
-                    logger.info("Directory is not a git repo, doing fresh clone...")
-                    temp_dir = "/tmp/dadude-update"
-                    subprocess.run(["rm", "-rf", temp_dir], check=False)
-                    
-                    clone_result = subprocess.run(
-                        ["git", "clone", "--depth", "1", "https://github.com/grandir66/dadude.git", temp_dir],
-                        capture_output=True,
-                        text=True,
-                        timeout=120,
-                    )
-                    
-                    if clone_result.returncode == 0:
-                        # Copia i file necessari (preservando .env e docker-compose.yml locali)
-                        src_app = os.path.join(temp_dir, "dadude-agent", "app")
-                        if os.path.exists(src_app):
-                            dst_app = os.path.join(agent_dir, "app")
-                            if os.path.exists(dst_app):
-                                shutil.rmtree(dst_app)
-                            shutil.copytree(src_app, dst_app)
-                            logger.info("Updated app directory from fresh clone")
-                        
-                        # Copia requirements.txt e Dockerfile
-                        for f in ["requirements.txt", "Dockerfile"]:
-                            src = os.path.join(temp_dir, "dadude-agent", f)
-                            if os.path.exists(src):
-                                shutil.copy2(src, os.path.join(agent_dir, f))
-                        
-                        subprocess.run(["rm", "-rf", temp_dir], check=False)
-                    else:
-                        logger.error(f"Clone failed: {clone_result.stderr}")
-                
-                # Step 2: Trigger rebuild usando Docker socket
-                docker_sock = "/var/run/docker.sock"
-                if os.path.exists(docker_sock):
-                    logger.info("Triggering Docker rebuild in background...")
-                    
-                    # Esegui build e restart in background per non bloccare la risposta
-                    def do_rebuild():
-                        try:
-                            build_result = subprocess.run(
-                                ["docker", "compose", "build"],
-                                cwd=agent_dir,
-                                capture_output=True,
-                                text=True,
-                                timeout=600,
-                            )
-                            if build_result.returncode == 0:
-                                logger.info("Docker build successful, restarting...")
-                                subprocess.run(
-                                    ["docker", "compose", "up", "-d", "--force-recreate"],
-                                    cwd=agent_dir,
-                                    capture_output=True,
-                                    timeout=60,
-                                )
-                            else:
-                                logger.error(f"Docker build failed: {build_result.stderr}")
-                        except Exception as e:
-                            logger.error(f"Rebuild error: {e}")
-                    
-                    import threading
-                    rebuild_thread = threading.Thread(target=do_rebuild, daemon=True)
-                    rebuild_thread.start()
-                    
-                    # Risponde subito senza aspettare il build
-                    return CommandResult(
-                        success=True,
-                        status="success",
-                        data={"message": "Update started in background, container will restart soon..."},
-                    )
-                else:
-                    logger.warning("Docker socket not available, requesting manual restart")
-                    return CommandResult(
-                        success=True,
-                        status="partial",
-                        data={
-                            "message": "Code updated, manual restart required",
-                            "instructions": "Run: docker compose up -d --build",
-                        },
-                    )
-                    
-            except subprocess.TimeoutExpired:
-                return CommandResult(success=False, status="error", error="Update timed out")
-            except Exception as e:
-                logger.error(f"Docker update error: {e}")
-                return CommandResult(success=False, status="error", error=str(e))
-        
-        # Non-Docker: usa callback o update.sh
-        if self._update_callback:
-            try:
-                download_url = params.get("download_url", "")
-                expected_checksum = params.get("checksum", "")
-                success = await self._update_callback(download_url, expected_checksum)
-                if success:
-                    return CommandResult(
-                        success=True,
-                        status="success",
-                        data={"message": "Update initiated, agent will restart"},
-                    )
-                else:
-                    return CommandResult(success=False, status="error", error="Update callback failed")
-            except Exception as e:
-                return CommandResult(success=False, status="error", error=str(e))
-        
-        # Fallback: esegui update.sh
         try:
-            script_path = "/opt/dadude-agent/update.sh"
-            if os.path.exists(script_path):
-                subprocess.Popen(["/bin/bash", script_path], 
-                               stdout=subprocess.DEVNULL, 
-                               stderr=subprocess.DEVNULL)
-                return CommandResult(
-                    success=True,
-                    status="success",
-                    data={"message": "Update script started"},
+            import shutil
+            
+            # Prova git pull (directory deve essere montata come volume)
+            if os.path.exists(os.path.join(agent_dir, ".git")):
+                logger.info("Performing git pull...")
+                result = subprocess.run(
+                    ["git", "pull", "--rebase", "origin", "main"],
+                    cwd=agent_dir,
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
                 )
+                if result.returncode != 0:
+                    logger.warning(f"Git pull failed: {result.stderr}")
+                    return CommandResult(
+                        success=False,
+                        status="error",
+                        error=f"Git pull failed: {result.stderr[:200]}",
+                    )
+                else:
+                    logger.info(f"Git pull success: {result.stdout}")
+                    
+                    # Copia app files se struttura diversa
+                    src_app = os.path.join(agent_dir, "dadude-agent", "app")
+                    if os.path.exists(src_app):
+                        dst_app = os.path.join(agent_dir, "app")
+                        if os.path.exists(dst_app):
+                            shutil.rmtree(dst_app)
+                        shutil.copytree(src_app, dst_app)
+                        logger.info("Copied app files to correct location")
             else:
-                return CommandResult(success=False, status="error", error="No update method available")
+                logger.warning("Directory is not a git repo")
+                return CommandResult(
+                    success=False,
+                    status="error",
+                    error="Agent directory is not a git repository",
+                )
+            
+            return CommandResult(
+                success=True,
+                status="success",
+                data={
+                    "message": "Code updated via git pull. Restart container to apply changes.",
+                    "needs_restart": True,
+                },
+            )
+            
+        except subprocess.TimeoutExpired:
+            return CommandResult(success=False, status="error", error="Update timed out")
         except Exception as e:
+            logger.error(f"Update error: {e}")
+            return CommandResult(success=False, status="error", error=str(e))
             return CommandResult(success=False, status="error", error=str(e))
     
     async def _restart(self) -> CommandResult:
