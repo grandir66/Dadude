@@ -517,11 +517,24 @@ apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
 echo -e "\n${BLUE}[5/6] Clono repository e configuro...${NC}"
 
 pct exec $CTID -- bash -c "
-mkdir -p /opt/dadude-agent
+# Clona repo completo per supportare git pull updates
 cd /opt
-git clone https://github.com/grandir66/dadude.git dadude-temp
-cp -r dadude-temp/dadude-agent/* /opt/dadude-agent/
-rm -rf dadude-temp
+git clone https://github.com/grandir66/dadude.git dadude-repo
+
+# Copia i file dell'agent nella directory operativa
+mkdir -p /opt/dadude-agent
+cp -r dadude-repo/dadude-agent/* /opt/dadude-agent/
+
+# Inizializza git nella directory agent per futuri update
+cd /opt/dadude-agent
+git init
+git remote add origin https://github.com/grandir66/dadude.git
+git fetch origin main
+git checkout -b main
+git reset --soft origin/main
+
+# Cleanup repo temporaneo
+rm -rf /opt/dadude-repo
 "
 
 # Crea .env per modalità WebSocket
