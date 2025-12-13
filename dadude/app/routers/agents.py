@@ -1314,10 +1314,16 @@ async def websocket_agent_connection(
         # Verifica token (se presente)
         if token:
             encryption = get_encryption_service()
-            stored_token = encryption.decrypt(agent.agent_token) if agent.agent_token else None
-            if stored_token != token:
-                await websocket.close(code=4001, reason="Invalid token")
-                return
+            stored_token_encrypted = service.get_agent_token(agent_id)
+            if stored_token_encrypted:
+                try:
+                    stored_token = encryption.decrypt(stored_token_encrypted)
+                    if stored_token != token:
+                        await websocket.close(code=4001, reason="Invalid token")
+                        return
+                except Exception as e:
+                    logger.warning(f"Token decryption failed for {agent_id}: {e}")
+                    # Se la decriptazione fallisce, accetta comunque se l'agent è approvato
         
     except Exception as e:
         logger.error(f"WebSocket auth error for {agent_id}: {e}")

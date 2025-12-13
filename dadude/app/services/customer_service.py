@@ -1197,6 +1197,46 @@ class CustomerService:
         finally:
             session.close()
     
+    def get_agent_token(self, agent_unique_id: str) -> Optional[str]:
+        """Ottiene il token criptato dell'agent per autenticazione WebSocket"""
+        session = self._get_session()
+        try:
+            # Cerca per ID database diretto
+            agent = session.query(AgentAssignmentDB).filter(
+                AgentAssignmentDB.id == agent_unique_id
+            ).first()
+            
+            if not agent:
+                # Cerca per nome esatto
+                agent = session.query(AgentAssignmentDB).filter(
+                    AgentAssignmentDB.name == agent_unique_id
+                ).first()
+            
+            if not agent:
+                # Cerca per pattern agent-name-timestamp
+                import re
+                name_match = re.match(r'^agent-(.+?)-\d+$', agent_unique_id)
+                if name_match:
+                    base_name = name_match.group(1)
+                    agent = session.query(AgentAssignmentDB).filter(
+                        AgentAssignmentDB.name == base_name
+                    ).first()
+            
+            if not agent:
+                # Cerca per nome parziale
+                all_agents = session.query(AgentAssignmentDB).filter(
+                    AgentAssignmentDB.active == True
+                ).all()
+                for a in all_agents:
+                    if a.name and a.name in agent_unique_id:
+                        agent = a
+                        break
+            
+            return agent.agent_token if agent else None
+            
+        finally:
+            session.close()
+    
     def update_agent_address(self, agent_id: str, new_address: str) -> bool:
         """Aggiorna l'indirizzo IP di un agent"""
         session = self._get_session()
