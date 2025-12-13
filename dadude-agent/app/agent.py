@@ -253,6 +253,80 @@ class DaDudeAgent:
             logger.error(f"Enrollment error: {e}")
             return False
     
+    async def _auto_register(self) -> bool:
+        """
+        Auto-registrazione dell'agent al server.
+        Deve essere fatto PRIMA di tentare la connessione WebSocket.
+        """
+        logger.info("Attempting auto-registration with server...")
+        
+        try:
+            import httpx
+            import platform
+            import socket
+            
+            # Rileva IP locale
+            detected_ip = None
+            try:
+                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                s.connect(("8.8.8.8", 80))
+                detected_ip = s.getsockname()[0]
+                s.close()
+            except Exception:
+                pass
+            
+            registration_data = {
+                "agent_id": self.agent_id,
+                "agent_name": self.agent_name,
+                "agent_type": "docker",
+                "version": AGENT_VERSION,
+                "detected_ip": detected_ip,
+                "detected_hostname": platform.node(),
+                "capabilities": ["ssh", "snmp", "wmi", "nmap", "dns"],
+                "os_info": platform.platform(),
+                "python_version": platform.python_version(),
+            }
+            
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{self.server_url}/api/v1/agents/register",
+                    json=registration_data,
+                    headers={"Authorization": f"Bearer {self.settings.agent_token}"},
+                    timeout=30.0,
+                )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    
+                    if data.get("registered"):
+                        # Nuovo agent registrato
+                        new_token = data.get("agent_token")
+                        if new_token:
+                            logger.info(f"New token received from server")
+                            # Aggiorna token in memoria (il .env va aggiornato manualmente o via update)
+                            self._ws_client.agent_token = new_token
+                        
+                        logger.success(f"Agent registered: {data.get('agent_db_id')}")
+                        logger.warning("Agent is pending approval - waiting for admin to approve")
+                        return True
+                    
+                    elif data.get("updated"):
+                        # Agent già esistente, info aggiornate
+                        logger.info(f"Agent info updated: {data.get('agent_db_id')}")
+                        return True
+                    
+                    else:
+                        logger.info("Registration response: " + str(data))
+                        return True
+                
+                else:
+                    logger.warning(f"Registration failed: {response.status_code} - {response.text}")
+                    return False
+                    
+        except Exception as e:
+            logger.error(f"Auto-registration error: {e}")
+            return False
+    
     async def run(self):
         """Loop principale dell'agent"""
         self._setup_logging()
@@ -271,7 +345,12 @@ class DaDudeAgent:
         
         self._running = True
         
-        # Prova enrollment certificati
+        # Step 1: Auto-registrazione (HTTP)
+        registered = await self._auto_register()
+        if not registered:
+            logger.warning("Auto-registration failed, will retry on reconnect")
+        
+        # Step 2: Prova enrollment certificati (se approvato)
         enrolled = await self._enrollment_if_needed()
         if not enrolled:
             logger.warning("Running without mTLS certificates (token auth only)")
