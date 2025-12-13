@@ -253,7 +253,7 @@ class CommandHandler:
         target = params.get("target")
         username = params.get("username")
         password = params.get("password")
-        domain = params.get("domain", "")
+        domain = params.get("domain") or ""  # Handle None explicitly
         
         if not all([target, username, password]):
             return CommandResult(
