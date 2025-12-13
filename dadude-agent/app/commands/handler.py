@@ -398,41 +398,41 @@ class CommandHandler:
                 # Step 2: Trigger rebuild usando Docker socket
                 docker_sock = "/var/run/docker.sock"
                 if os.path.exists(docker_sock):
-                    logger.info("Triggering Docker rebuild via socket...")
+                    logger.info("Triggering Docker rebuild in background...")
                     
-                    # Usa docker compose tramite subprocess (più affidabile)
-                    # Prima build, poi restart
-                    build_result = subprocess.run(
-                        ["docker", "compose", "build", "--no-cache"],
-                        cwd=agent_dir,
-                        capture_output=True,
-                        text=True,
-                        timeout=600,
+                    # Esegui build e restart in background per non bloccare la risposta
+                    def do_rebuild():
+                        try:
+                            build_result = subprocess.run(
+                                ["docker", "compose", "build"],
+                                cwd=agent_dir,
+                                capture_output=True,
+                                text=True,
+                                timeout=600,
+                            )
+                            if build_result.returncode == 0:
+                                logger.info("Docker build successful, restarting...")
+                                subprocess.run(
+                                    ["docker", "compose", "up", "-d", "--force-recreate"],
+                                    cwd=agent_dir,
+                                    capture_output=True,
+                                    timeout=60,
+                                )
+                            else:
+                                logger.error(f"Docker build failed: {build_result.stderr}")
+                        except Exception as e:
+                            logger.error(f"Rebuild error: {e}")
+                    
+                    import threading
+                    rebuild_thread = threading.Thread(target=do_rebuild, daemon=True)
+                    rebuild_thread.start()
+                    
+                    # Risponde subito senza aspettare il build
+                    return CommandResult(
+                        success=True,
+                        status="success",
+                        data={"message": "Update started in background, container will restart soon..."},
                     )
-                    
-                    if build_result.returncode == 0:
-                        logger.info("Docker build successful")
-                        
-                        # Avvia restart in background (il container corrente terminerà)
-                        subprocess.Popen(
-                            ["docker", "compose", "up", "-d", "--force-recreate"],
-                            cwd=agent_dir,
-                            stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL,
-                        )
-                        
-                        return CommandResult(
-                            success=True,
-                            status="success",
-                            data={"message": "Update complete, container restarting..."},
-                        )
-                    else:
-                        logger.error(f"Docker build failed: {build_result.stderr}")
-                        return CommandResult(
-                            success=False,
-                            status="error",
-                            error=f"Docker build failed: {build_result.stderr[:200]}",
-                        )
                 else:
                     logger.warning("Docker socket not available, requesting manual restart")
                     return CommandResult(
