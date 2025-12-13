@@ -32,7 +32,7 @@ VLAN=""
 IP=""
 GATEWAY=""
 DNS="8.8.8.8"
-SERVER_URL=""
+SERVER_URL="http://dadude.domarc.it:8000"
 AGENT_NAME=""
 AGENT_TOKEN=""
 
@@ -73,8 +73,9 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Interattivo se mancano parametri
-if [ -z "$SERVER_URL" ]; then
-    read -p "URL Server DaDude (es: http://192.168.4.45:8000): " SERVER_URL
+if [ "$SERVER_URL" = "http://dadude.domarc.it:8000" ]; then
+    read -p "URL Server DaDude [http://dadude.domarc.it:8000]: " input_url
+    SERVER_URL=${input_url:-http://dadude.domarc.it:8000}
 fi
 
 if [ -z "$AGENT_NAME" ]; then
