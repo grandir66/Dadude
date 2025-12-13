@@ -129,8 +129,39 @@ if [ -z "$HOSTNAME" ]; then
 fi
 
 if [ -z "$STORAGE" ]; then
-    read -p "Storage LXC [local-lvm]: " STORAGE
-    STORAGE=${STORAGE:-local-lvm}
+    echo ""
+    echo -e "${YELLOW}Storage disponibili per container:${NC}"
+    AVAILABLE_STORAGES=$(pvesm status 2>/dev/null | grep -E "active.*rootdir|active.*images" | awk '{print $1}')
+    if [ -z "$AVAILABLE_STORAGES" ]; then
+        # Fallback: mostra tutti gli storage attivi
+        AVAILABLE_STORAGES=$(pvesm status 2>/dev/null | grep "active" | awk '{print $1}')
+    fi
+    
+    i=1
+    declare -a STORAGE_OPTIONS
+    for s in $AVAILABLE_STORAGES; do
+        SIZE=$(pvesm status 2>/dev/null | grep "^$s " | awk '{print $5}')
+        USED=$(pvesm status 2>/dev/null | grep "^$s " | awk '{print $4}')
+        echo "  $i) $s (usato: ${USED:-?}, totale: ${SIZE:-?})"
+        STORAGE_OPTIONS[$i]=$s
+        ((i++))
+    done
+    
+    if [ ${#STORAGE_OPTIONS[@]} -eq 0 ]; then
+        echo "  (nessuno trovato, uso default)"
+        STORAGE="local-lvm"
+    elif [ ${#STORAGE_OPTIONS[@]} -eq 1 ]; then
+        STORAGE="${STORAGE_OPTIONS[1]}"
+        echo -e "${GREEN}Selezionato automaticamente: $STORAGE${NC}"
+    else
+        read -p "Scegli storage [1-$((i-1))]: " STORAGE_CHOICE
+        if [ -n "$STORAGE_CHOICE" ] && [ -n "${STORAGE_OPTIONS[$STORAGE_CHOICE]}" ]; then
+            STORAGE="${STORAGE_OPTIONS[$STORAGE_CHOICE]}"
+        else
+            STORAGE="${STORAGE_OPTIONS[1]}"
+        fi
+    fi
+    echo -e "${GREEN}Storage selezionato: $STORAGE${NC}"
 fi
 
 if [ -z "$MEMORY" ]; then
@@ -147,35 +178,114 @@ fi
 echo -e "\n${BLUE}--- Configurazione Rete ---${NC}"
 
 if [ -z "$BRIDGE" ]; then
-    read -p "Bridge di rete (es: vmbr0): " BRIDGE
+    echo ""
+    echo -e "${YELLOW}Bridge di rete disponibili:${NC}"
+    AVAILABLE_BRIDGES=$(ip link show type bridge 2>/dev/null | grep -oP '^\d+: \K[^:]+' | grep -E '^vmbr')
+    
+    i=1
+    declare -a BRIDGE_OPTIONS
+    for b in $AVAILABLE_BRIDGES; do
+        # Cerca info dalla configurazione
+        BRIDGE_IP=$(ip -4 addr show $b 2>/dev/null | grep -oP 'inet \K[\d.]+' | head -1)
+        if [ -n "$BRIDGE_IP" ]; then
+            echo "  $i) $b (IP: $BRIDGE_IP)"
+        else
+            echo "  $i) $b"
+        fi
+        BRIDGE_OPTIONS[$i]=$b
+        ((i++))
+    done
+    
+    if [ ${#BRIDGE_OPTIONS[@]} -eq 0 ]; then
+        read -p "Nessun bridge trovato. Inserisci nome bridge: " BRIDGE
+    elif [ ${#BRIDGE_OPTIONS[@]} -eq 1 ]; then
+        BRIDGE="${BRIDGE_OPTIONS[1]}"
+        echo -e "${GREEN}Selezionato automaticamente: $BRIDGE${NC}"
+    else
+        read -p "Scegli bridge [1-$((i-1))]: " BRIDGE_CHOICE
+        if [ -n "$BRIDGE_CHOICE" ] && [ -n "${BRIDGE_OPTIONS[$BRIDGE_CHOICE]}" ]; then
+            BRIDGE="${BRIDGE_OPTIONS[$BRIDGE_CHOICE]}"
+        else
+            BRIDGE="${BRIDGE_OPTIONS[1]}"
+        fi
+    fi
+    
     if [ -z "$BRIDGE" ]; then
         echo -e "${RED}Errore: Bridge è obbligatorio${NC}"
         exit 1
     fi
+    echo -e "${GREEN}Bridge selezionato: $BRIDGE${NC}"
 fi
 
+# Cerca VLAN configurate su questo bridge
 if [ -z "$VLAN" ]; then
+    echo ""
+    # Prova a trovare le VLAN dal file di rete Proxmox
+    CONFIGURED_VLANS=$(grep -oP "bridge-vlan-aware.*|bridge-vids \K[\d\s-]+" /etc/network/interfaces 2>/dev/null | tr ' ' '\n' | grep -E "^[0-9]+$" | head -10)
+    
+    if [ -n "$CONFIGURED_VLANS" ]; then
+        echo -e "${YELLOW}VLAN rilevate sul sistema:${NC}"
+        echo "  $CONFIGURED_VLANS"
+    fi
     read -p "VLAN tag (lascia vuoto se non usi VLAN): " VLAN
 fi
 
+# Suggerisci rete basandosi su bridge e VLAN
+SUGGESTED_NETWORK=""
+if [ -n "$VLAN" ]; then
+    # Cerca interfaccia VLAN esistente
+    VLAN_IF=$(ip link show 2>/dev/null | grep -oP "${BRIDGE}\.\K${VLAN}" | head -1)
+    if [ -n "$VLAN_IF" ]; then
+        SUGGESTED_NETWORK=$(ip -4 addr show ${BRIDGE}.${VLAN} 2>/dev/null | grep -oP 'inet \K[\d.]+/\d+' | head -1)
+    fi
+else
+    SUGGESTED_NETWORK=$(ip -4 addr show $BRIDGE 2>/dev/null | grep -oP 'inet \K[\d.]+/\d+' | head -1)
+fi
+
+# Estrai subnet per suggerimento
+if [ -n "$SUGGESTED_NETWORK" ]; then
+    SUGGESTED_PREFIX=$(echo $SUGGESTED_NETWORK | grep -oP '[\d.]+' | head -1 | sed 's/\.[0-9]*$//')
+    SUGGESTED_MASK=$(echo $SUGGESTED_NETWORK | grep -oP '/\d+')
+    echo ""
+    echo -e "${YELLOW}Rete rilevata: ${SUGGESTED_PREFIX}.0${SUGGESTED_MASK}${NC}"
+fi
+
 if [ -z "$IP" ]; then
-    read -p "IP/Netmask (es: 192.168.1.100/24): " IP
+    if [ -n "$SUGGESTED_PREFIX" ]; then
+        read -p "IP/Netmask (es: ${SUGGESTED_PREFIX}.100${SUGGESTED_MASK:-/24}): " IP
+    else
+        read -p "IP/Netmask (es: 192.168.1.100/24): " IP
+    fi
     if [ -z "$IP" ]; then
         echo -e "${RED}Errore: IP è obbligatorio${NC}"
         exit 1
     fi
 fi
 
+# Suggerisci gateway basandosi sull'IP inserito
+SUGGESTED_GW=""
+if [ -n "$IP" ]; then
+    IP_PREFIX=$(echo $IP | grep -oP '[\d.]+' | head -1 | sed 's/\.[0-9]*$//')
+    SUGGESTED_GW="${IP_PREFIX}.254"
+fi
+
 if [ -z "$GATEWAY" ]; then
-    read -p "Gateway: " GATEWAY
+    if [ -n "$SUGGESTED_GW" ]; then
+        read -p "Gateway [$SUGGESTED_GW]: " GATEWAY
+        GATEWAY=${GATEWAY:-$SUGGESTED_GW}
+    else
+        read -p "Gateway: " GATEWAY
+    fi
     if [ -z "$GATEWAY" ]; then
         echo -e "${RED}Errore: Gateway è obbligatorio${NC}"
         exit 1
     fi
 fi
 
+# Suggerisci DNS = gateway (comune per reti aziendali)
 if [ -z "$DNS" ]; then
-    read -p "Server DNS: " DNS
+    read -p "Server DNS [$GATEWAY]: " DNS
+    DNS=${DNS:-$GATEWAY}
     if [ -z "$DNS" ]; then
         echo -e "${RED}Errore: DNS è obbligatorio${NC}"
         exit 1
@@ -241,28 +351,54 @@ fi
 # Trova template
 echo -e "\n${BLUE}[1/6] Verifico template...${NC}"
 
-TEMPLATE=""
-for t in "debian-12-standard" "debian-11-standard" "ubuntu-24.04-standard" "ubuntu-22.04-standard"; do
-    if pveam list $TEMPLATE_STORAGE 2>/dev/null | grep -q "$t"; then
-        TEMPLATE=$(pveam list $TEMPLATE_STORAGE | grep "$t" | head -1 | awk '{print $1}')
-        break
+# Trova storage per template (tipo 'dir' con contenuto 'vztmpl')
+TEMPLATE_STORAGE_FOUND=""
+for ts in $(pvesm status 2>/dev/null | awk '{print $1}' | tail -n +2); do
+    if pvesm status 2>/dev/null | grep "^$ts " | grep -q "active"; then
+        # Verifica se supporta vztmpl
+        if pvesm list $ts 2>/dev/null | head -1 | grep -q "vztmpl"; then
+            TEMPLATE_STORAGE_FOUND=$ts
+            break
+        fi
     fi
 done
 
+# Se non trovato, usa 'local' come fallback
+TEMPLATE_STORAGE=${TEMPLATE_STORAGE_FOUND:-local}
+echo "Storage template: $TEMPLATE_STORAGE"
+
+# Cerca template già scaricati
+TEMPLATE=""
+echo -e "${YELLOW}Template disponibili:${NC}"
+AVAILABLE_TEMPLATES=$(pveam list $TEMPLATE_STORAGE 2>/dev/null | grep -E "debian|ubuntu" | head -5)
+if [ -n "$AVAILABLE_TEMPLATES" ]; then
+    echo "$AVAILABLE_TEMPLATES"
+    
+    for t in "debian-12-standard" "debian-11-standard" "ubuntu-24.04-standard" "ubuntu-22.04-standard"; do
+        if echo "$AVAILABLE_TEMPLATES" | grep -q "$t"; then
+            TEMPLATE=$(echo "$AVAILABLE_TEMPLATES" | grep "$t" | head -1 | awk '{print $1}')
+            break
+        fi
+    done
+fi
+
 if [ -z "$TEMPLATE" ]; then
-    echo "Scarico template Debian 12..."
-    pveam update
-    TEMPLATE_NAME=$(pveam available | grep "debian-12-standard" | head -1 | awk '{print $2}')
+    echo -e "${YELLOW}Nessun template trovato localmente. Scarico Debian 12...${NC}"
+    pveam update 2>/dev/null || true
+    TEMPLATE_NAME=$(pveam available 2>/dev/null | grep "debian-12-standard" | head -1 | awk '{print $2}')
     if [ -n "$TEMPLATE_NAME" ]; then
+        echo "Download: $TEMPLATE_NAME"
         pveam download $TEMPLATE_STORAGE $TEMPLATE_NAME
         TEMPLATE="${TEMPLATE_STORAGE}:vztmpl/${TEMPLATE_NAME}"
     else
-        echo -e "${RED}Errore: nessun template disponibile${NC}"
+        echo -e "${RED}Errore: impossibile trovare template Debian 12${NC}"
+        echo "Template disponibili online:"
+        pveam available 2>/dev/null | grep -E "debian|ubuntu" | head -5
         exit 1
     fi
 fi
 
-echo -e "${GREEN}Usando template: $TEMPLATE${NC}"
+echo -e "${GREEN}Template selezionato: $TEMPLATE${NC}"
 
 # Configura rete
 NET_CONFIG="name=eth0,bridge=${BRIDGE}"
