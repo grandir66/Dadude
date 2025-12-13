@@ -94,3 +94,31 @@ async def scan(
     
     return open_ports
 
+
+# Alias per compatibilità con handler
+def scan_ports(target: str, ports: Optional[List[int]] = None, timeout: float = 1.0) -> Dict[str, Any]:
+    """
+    Wrapper sincrono per scan().
+    Ritorna dict con open_ports e metadata.
+    """
+    import asyncio
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # Siamo già in un loop asincrono, usa thread
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                future = pool.submit(asyncio.run, scan(target, ports, timeout))
+                open_ports = future.result()
+        else:
+            open_ports = loop.run_until_complete(scan(target, ports, timeout))
+    except RuntimeError:
+        open_ports = asyncio.run(scan(target, ports, timeout))
+    
+    return {
+        "target": target,
+        "open_ports": open_ports,
+        "total_scanned": len(ports or DEFAULT_PORTS),
+        "open_count": len(open_ports),
+    }
+
