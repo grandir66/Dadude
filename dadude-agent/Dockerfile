@@ -11,7 +11,7 @@ LABEL version="1.1.0"
 # Create app directory
 WORKDIR /app
 
-# Install system dependencies + network tools + nmap
+# Install system dependencies + network tools + nmap + git + docker-cli
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libffi-dev \
@@ -22,7 +22,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     nmap \
     procps \
     curl \
+    git \
     && rm -rf /var/lib/apt/lists/*
+
+# Install docker-compose for self-update capability
+RUN curl -SL "https://github.com/docker/compose/releases/download/v2.24.0/docker-compose-linux-x86_64" \
+    -o /usr/local/bin/docker-compose && chmod +x /usr/local/bin/docker-compose
 
 # Copy requirements first for caching
 COPY requirements.txt .

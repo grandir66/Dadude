@@ -13,9 +13,16 @@ services:
     env_file:
       - .env
     
-    # Volumes per config (opzionale)
+    # Volumes per config e auto-update
     volumes:
       - ./config:/app/config:ro
+      # Monta socket Docker per permettere auto-update
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Monta directory agent per aggiornare il codice
+      - .:/opt/dadude-agent
+    
+    # Working directory per update
+    working_dir: /app
     
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]

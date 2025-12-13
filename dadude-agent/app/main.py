@@ -23,7 +23,7 @@ from .config import get_settings, Settings
 # ==========================================
 # VERSION
 # ==========================================
-AGENT_VERSION = "1.2.0"
+AGENT_VERSION = "1.2.1"
 
 
 # ==========================================
@@ -668,8 +668,11 @@ async def trigger_update(
 ):
     """
     Riceve comando di aggiornamento dal server.
-    Scarica la nuova versione e si riavvia.
+    Esegue l'update scaricando il codice da GitHub e ricostruendo il container.
+    Richiede che il socket Docker sia montato nel container.
     """
+    import subprocess
+    
     current_version = AGENT_VERSION
     
     logger.info(f"Update requested: {current_version} -> {request.version}")
@@ -681,37 +684,104 @@ async def trigger_update(
             "current_version": current_version,
         }
     
-    # In un ambiente Docker, l'aggiornamento viene fatto dal container manager
-    # Qui segnaliamo che l'aggiornamento è richiesto
-    
     try:
-        # Crea flag file per segnalare aggiornamento necessario
-        update_info = {
-            "requested_version": request.version,
-            "download_url": request.download_url,
-            "requested_at": datetime.utcnow().isoformat(),
-        }
+        # Verifica se possiamo accedere a Docker
+        docker_available = os.path.exists("/var/run/docker.sock")
+        agent_dir = "/opt/dadude-agent"
+        agent_dir_available = os.path.exists(agent_dir)
         
-        with open("/tmp/dadude-agent-update.json", "w") as f:
-            json.dump(update_info, f)
+        logger.info(f"Docker socket available: {docker_available}, Agent dir available: {agent_dir_available}")
         
-        logger.info(f"Update flag created for version {request.version}")
+        if not docker_available or not agent_dir_available:
+            # Fallback: segnala che l'update deve essere fatto manualmente
+            return {
+                "success": False,
+                "message": "Auto-update not available. Docker socket or agent directory not mounted.",
+                "current_version": current_version,
+                "manual_update_required": True,
+                "update_command": f"cd {agent_dir} && git pull && docker compose build --no-cache && docker compose up -d"
+            }
         
-        # In Docker, il container manager (docker-compose) può essere configurato
-        # per controllare questo file e fare pull della nuova immagine
+        # Esegue l'update in background
+        async def do_update():
+            await asyncio.sleep(2)  # Attendi che la risposta sia inviata
+            
+            try:
+                logger.info("Starting auto-update process...")
+                
+                # 1. Scarica nuova versione
+                temp_dir = "/tmp/dadude-update"
+                subprocess.run(["rm", "-rf", temp_dir], check=False)
+                
+                result = subprocess.run(
+                    ["git", "clone", "--depth", "1", "https://github.com/grandir66/dadude.git", temp_dir],
+                    capture_output=True, text=True, timeout=60
+                )
+                
+                if result.returncode != 0:
+                    logger.error(f"Git clone failed: {result.stderr}")
+                    return
+                
+                logger.info("Git clone successful")
+                
+                # 2. Copia nuovi file
+                src_dir = f"{temp_dir}/dadude-agent"
+                for item in ["app", "Dockerfile", "requirements.txt", "docker-compose.yml", "update.sh"]:
+                    src = f"{src_dir}/{item}"
+                    dst = f"{agent_dir}/{item}"
+                    if os.path.exists(src):
+                        if os.path.isdir(src):
+                            subprocess.run(["rm", "-rf", dst], check=False)
+                            subprocess.run(["cp", "-r", src, dst], check=True)
+                        else:
+                            subprocess.run(["cp", src, dst], check=True)
+                
+                logger.info("Files copied successfully")
+                
+                # 3. Cleanup
+                subprocess.run(["rm", "-rf", temp_dir], check=False)
+                
+                # 4. Rebuild e restart container
+                logger.info("Rebuilding container...")
+                os.chdir(agent_dir)
+                
+                # Usa docker-compose per rebuild
+                result = subprocess.run(
+                    ["docker-compose", "build", "--no-cache"],
+                    capture_output=True, text=True, timeout=300, cwd=agent_dir
+                )
+                
+                if result.returncode != 0:
+                    logger.error(f"Docker build failed: {result.stderr}")
+                    # Prova con docker compose (senza trattino)
+                    result = subprocess.run(
+                        ["docker", "compose", "build", "--no-cache"],
+                        capture_output=True, text=True, timeout=300, cwd=agent_dir
+                    )
+                
+                logger.info("Build completed, restarting...")
+                
+                # 5. Restart (questo terminerà il container corrente)
+                subprocess.Popen(
+                    ["docker", "compose", "up", "-d", "--force-recreate"],
+                    cwd=agent_dir, start_new_session=True
+                )
+                
+            except Exception as e:
+                logger.error(f"Auto-update failed: {e}")
         
-        # Per ora, programmiamo un riavvio
-        asyncio.create_task(_delayed_restart(5))
+        # Avvia update in background
+        asyncio.create_task(do_update())
         
         return {
             "success": True,
-            "message": f"Update to {request.version} scheduled. Agent will restart in 5 seconds.",
+            "message": f"Update to {request.version} started. Agent will restart automatically.",
             "current_version": current_version,
             "target_version": request.version,
         }
         
     except Exception as e:
-        logger.error(f"Update failed: {e}")
+        logger.error(f"Update trigger failed: {e}")
         return {
             "success": False,
             "error": str(e),
