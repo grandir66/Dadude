@@ -256,54 +256,68 @@ class DeviceProbeService:
                 client.connect(**connect_kwargs)
                 
                 info = {}
-                
-                # Get hostname
-                stdin, stdout, stderr = client.exec_command("hostname", timeout=5)
-                info["hostname"] = stdout.read().decode().strip()
-                
-                # Get kernel/uname first to detect device type
-                stdin, stdout, stderr = client.exec_command("uname -a", timeout=5)
-                uname_all = stdout.read().decode().strip().lower()
-                info["uname"] = uname_all
-                
-                # Try to identify OS - check multiple sources
-                stdin, stdout, stderr = client.exec_command("cat /etc/os-release 2>/dev/null || cat /etc/redhat-release 2>/dev/null", timeout=5)
-                os_info = stdout.read().decode()
+                device_detected = False
+                uname_all = ""
+                os_info = ""
                 
                 # ==== DEVICE TYPE DETECTION ====
-                device_detected = False
+                # Prima prova MikroTik (non supporta comandi Linux standard)
+                # 1. Check for MikroTik RouterOS FIRST
+                stdin, stdout, stderr = client.exec_command("/system resource print", timeout=5)
+                ros_out = stdout.read().decode()
+                if "routeros" in ros_out.lower() or "uptime:" in ros_out.lower() or "version:" in ros_out.lower():
+                    info["os_family"] = "RouterOS"
+                    info["device_type"] = "mikrotik"
+                    info["category"] = "router"
+                    info["manufacturer"] = "MikroTik"
+                    device_detected = True
+                    # Extract RouterOS specific info
+                    for line in ros_out.split('\n'):
+                        ll = line.lower().strip()
+                        if ll.startswith('version:'):
+                            info["os_version"] = line.split(':', 1)[1].strip()
+                        elif ll.startswith('board-name:'):
+                            info["model"] = line.split(':', 1)[1].strip()
+                        elif ll.startswith('cpu:') and 'cpu-count' not in ll:
+                            info["cpu_model"] = line.split(':', 1)[1].strip()
+                        elif ll.startswith('cpu-count:'):
+                            try:
+                                info["cpu_cores"] = int(line.split(':', 1)[1].strip())
+                            except:
+                                pass
+                        elif ll.startswith('total-memory:'):
+                            try:
+                                mem_str = line.split(':', 1)[1].strip()
+                                if 'MiB' in mem_str:
+                                    info["memory_total_mb"] = int(float(mem_str.replace('MiB', '').strip()))
+                                elif 'GiB' in mem_str:
+                                    info["memory_total_mb"] = int(float(mem_str.replace('GiB', '').strip()) * 1024)
+                            except:
+                                pass
+                        elif ll.startswith('architecture-name:'):
+                            info["arch"] = line.split(':', 1)[1].strip()
+                    # Get hostname
+                    stdin, stdout, stderr = client.exec_command("/system identity print", timeout=5)
+                    for line in stdout.read().decode().split('\n'):
+                        if 'name:' in line.lower():
+                            info["hostname"] = line.split(':', 1)[1].strip()
+                    # Get serial
+                    stdin, stdout, stderr = client.exec_command("/system routerboard print", timeout=5)
+                    for line in stdout.read().decode().split('\n'):
+                        ll = line.lower().strip()
+                        if ll.startswith('serial-number:'):
+                            info["serial_number"] = line.split(':', 1)[1].strip()
+                        elif ll.startswith('model:') and not info.get("model"):
+                            info["model"] = line.split(':', 1)[1].strip()
                 
-                # 1. Check for MikroTik RouterOS
+                # Per device non-MikroTik, leggi info OS standard
                 if not device_detected:
-                    stdin, stdout, stderr = client.exec_command("/system resource print", timeout=5)
-                    ros_out = stdout.read().decode()
-                    if "routeros" in ros_out.lower() or "uptime:" in ros_out.lower():
-                        info["os_family"] = "RouterOS"
-                        info["device_type"] = "mikrotik"
-                        info["category"] = "router"
-                        device_detected = True
-                        # Extract RouterOS specific info
-                        for line in ros_out.split('\n'):
-                            if 'version:' in line.lower():
-                                info["os_version"] = line.split(':', 1)[1].strip()
-                            elif 'board-name:' in line.lower():
-                                info["model"] = line.split(':', 1)[1].strip()
-                            elif 'cpu:' in line.lower():
-                                info["cpu_model"] = line.split(':', 1)[1].strip()
-                            elif 'cpu-count:' in line.lower():
-                                try:
-                                    info["cpu_cores"] = int(line.split(':', 1)[1].strip())
-                                except:
-                                    pass
-                            elif 'total-memory:' in line.lower():
-                                try:
-                                    mem_str = line.split(':', 1)[1].strip()
-                                    if 'MiB' in mem_str:
-                                        info["memory_total_mb"] = int(float(mem_str.replace('MiB', '')))
-                                    elif 'GiB' in mem_str:
-                                        info["memory_total_mb"] = int(float(mem_str.replace('GiB', '')) * 1024)
-                                except:
-                                    pass
+                    stdin, stdout, stderr = client.exec_command("uname -a 2>/dev/null", timeout=5)
+                    uname_all = stdout.read().decode().strip().lower()
+                    stdin, stdout, stderr = client.exec_command("cat /etc/os-release 2>/dev/null || cat /etc/redhat-release 2>/dev/null", timeout=5)
+                    os_info = stdout.read().decode()
+                    stdin, stdout, stderr = client.exec_command("hostname 2>/dev/null", timeout=5)
+                    info["hostname"] = stdout.read().decode().strip()
                 
                 # 2. Check for Ubiquiti UniFi/EdgeOS
                 if not device_detected:
@@ -410,15 +424,27 @@ class DeviceProbeService:
                         elif line.startswith('PRETTY_NAME='):
                             info["os_pretty_name"] = line.split('=')[1].strip().strip('"')
                 
-                # Get kernel version
-                stdin, stdout, stderr = client.exec_command("uname -r", timeout=5)
-                info["kernel"] = stdout.read().decode().strip()
+                # ==== HARDWARE INFO (for Linux/BSD/NAS - not MikroTik) ====
+                if info.get("device_type") not in ["mikrotik"]:
+                    # Get kernel version
+                    try:
+                        stdin, stdout, stderr = client.exec_command("uname -r 2>/dev/null", timeout=5)
+                        kernel = stdout.read().decode().strip()
+                        if kernel and 'bad command' not in kernel.lower():
+                            info["kernel"] = kernel
+                    except:
+                        pass
+                    
+                    # Get architecture
+                    try:
+                        stdin, stdout, stderr = client.exec_command("uname -m 2>/dev/null", timeout=5)
+                        arch = stdout.read().decode().strip()
+                        if arch and 'bad command' not in arch.lower():
+                            info["arch"] = arch
+                    except:
+                        pass
                 
-                # Get architecture
-                stdin, stdout, stderr = client.exec_command("uname -m", timeout=5)
-                info["arch"] = stdout.read().decode().strip()
-                
-                # ==== HARDWARE INFO (for Linux/BSD) ====
+                # ==== DETAILED HARDWARE INFO (for Linux/BSD) ====
                 if info.get("device_type") in ["linux", "bsd", "hypervisor"]:
                     # Get Memory
                     try:
