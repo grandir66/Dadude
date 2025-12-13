@@ -263,8 +263,8 @@ class CommandHandler:
             )
         
         try:
-            result = await asyncio.to_thread(
-                self._wmi_probe.probe,
+            # wmi_probe.probe è già async, chiamalo direttamente
+            result = await self._wmi_probe.probe(
                 target, username, password, domain
             )
             return CommandResult(success=True, status="success", data=result)
@@ -294,8 +294,8 @@ class CommandHandler:
             )
         
         try:
-            result = await asyncio.to_thread(
-                self._ssh_probe.probe,
+            # ssh_probe.probe è già async, chiamalo direttamente
+            result = await self._ssh_probe.probe(
                 target, username, password, private_key, port
             )
             return CommandResult(success=True, status="success", data=result)
@@ -313,8 +313,8 @@ class CommandHandler:
             return CommandResult(success=False, status="error", error="Missing 'target' parameter")
         
         try:
-            result = await asyncio.to_thread(
-                self._snmp_probe.probe,
+            # snmp_probe.probe è già async, chiamalo direttamente
+            result = await self._snmp_probe.probe(
                 target, community, version, port
             )
             return CommandResult(success=True, status="success", data=result)
