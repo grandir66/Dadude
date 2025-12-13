@@ -1302,28 +1302,41 @@ async def websocket_agent_connection(
     
     # Verifica che agent esista
     try:
+        logger.info(f"WebSocket: Looking up agent {agent_id}")
         agent = service.get_agent_by_unique_id(agent_id)
+        
         if not agent:
+            logger.warning(f"WebSocket: Agent {agent_id} not found")
             await websocket.close(code=4004, reason="Agent not found")
             return
         
+        logger.info(f"WebSocket: Found agent {agent.name} (id={agent.id}, active={agent.active})")
+        
         if not agent.active:
+            logger.warning(f"WebSocket: Agent {agent_id} not approved")
             await websocket.close(code=4003, reason="Agent not approved")
             return
         
-        # Verifica token (se presente)
+        # Verifica token (se presente nell'header)
         if token:
+            logger.info(f"WebSocket: Verifying token for {agent_id}")
             encryption = get_encryption_service()
             stored_token_encrypted = service.get_agent_token(agent_id)
             if stored_token_encrypted:
                 try:
                     stored_token = encryption.decrypt(stored_token_encrypted)
                     if stored_token != token:
+                        logger.warning(f"WebSocket: Token mismatch for {agent_id}")
                         await websocket.close(code=4001, reason="Invalid token")
                         return
+                    logger.info(f"WebSocket: Token verified for {agent_id}")
                 except Exception as e:
                     logger.warning(f"Token decryption failed for {agent_id}: {e}")
                     # Se la decriptazione fallisce, accetta comunque se l'agent è approvato
+            else:
+                logger.warning(f"WebSocket: No stored token for {agent_id}, skipping verification")
+        else:
+            logger.info(f"WebSocket: No token in header for {agent_id}, skipping verification")
         
     except Exception as e:
         logger.error(f"WebSocket auth error for {agent_id}: {e}")
