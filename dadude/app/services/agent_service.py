@@ -120,11 +120,21 @@ class AgentService:
         hub = get_websocket_hub()
         agent_name = agent_info.get("name", "")
         
-        # Cerca connessione WebSocket che contiene il nome agent
+        # Normalizza per matching: lowercase, spazi -> trattini
+        def normalize(s: str) -> str:
+            return s.lower().replace(" ", "-").replace("_", "-")
+        
+        agent_name_norm = normalize(agent_name) if agent_name else ""
+        
+        # Cerca connessione WebSocket
         for conn_id in hub._connections.keys():
-            if agent_name and agent_name in conn_id:
+            conn_id_norm = normalize(conn_id)
+            # Match esatto normalizzato o contenimento
+            if agent_name_norm and (agent_name_norm == conn_id_norm or agent_name_norm in conn_id_norm or conn_id_norm in agent_name_norm):
+                logger.debug(f"WebSocket agent matched: {conn_id} for {agent_name}")
                 return conn_id
         
+        logger.warning(f"WebSocket agent not found for: {agent_name}")
         return None
     
     async def _execute_via_websocket(
