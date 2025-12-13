@@ -1167,14 +1167,19 @@ class CustomerService:
                 if agent:
                     return self._to_agent_safe(agent)
                 
-                # Prova match normalizzato: "rete99" vs "Rete 99"
+                # Prova match normalizzato: "rete99" vs "Agent Rete 99"
                 def normalize(s: str) -> str:
-                    return s.lower().replace(" ", "").replace("-", "").replace("_", "")
+                    # Rimuovi prefisso "agent" e tutti i separatori
+                    s = s.lower().replace("agent", "").replace(" ", "").replace("-", "").replace("_", "")
+                    return s.strip()
                 
                 base_name_norm = normalize(base_name)
                 all_agents = session.query(AgentAssignmentDB).all()
                 for a in all_agents:
                     if normalize(a.name) == base_name_norm:
+                        return self._to_agent_safe(a)
+                    # Prova anche match parziale
+                    if base_name_norm in normalize(a.name) or normalize(a.name) in base_name_norm:
                         return self._to_agent_safe(a)
             
             # Cerca per indirizzo IP (se fornito)
