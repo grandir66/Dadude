@@ -1246,7 +1246,9 @@ async def scan_customer_networks(
         session.flush()  # Per ottenere l'ID
         
         # Salva dispositivi trovati
-        if scan_result.get("success") and scan_result.get("results"):
+        # Supporta sia "results" (vecchio formato) che "devices" (nuovo formato WebSocket)
+        devices_list = scan_result.get("results") or scan_result.get("devices") or []
+        if scan_result.get("success") and devices_list:
             from ..services.device_probe_service import get_device_probe_service, MikroTikAgent
             from ..services.mikrotik_service import get_mikrotik_service
             
@@ -1273,13 +1275,13 @@ async def scan_customer_networks(
                     dns_server=dns_servers[0] if dns_servers else None,
                 )
             
-            logger.info(f"Processing {len(scan_result['results'])} devices, DNS servers: {dns_servers}, agent: {mikrotik_agent.address if mikrotik_agent else 'local'}")
+            logger.info(f"Processing {len(devices_list)} devices, DNS servers: {dns_servers}, agent: {mikrotik_agent.address if mikrotik_agent else 'local'}")
             
             # Prova batch reverse DNS tramite MikroTik se abbiamo un agente
             mikrotik_dns_results = {}
             if mikrotik_agent:
                 try:
-                    target_ips = [d.get("address", "") for d in scan_result["results"] if d.get("address")]
+                    target_ips = [d.get("address", "") for d in devices_list if d.get("address")]
                     
                     mikrotik_dns_results = mikrotik_service.batch_reverse_dns_lookup(
                         address=mikrotik_agent.address,
@@ -1293,7 +1295,7 @@ async def scan_customer_networks(
                 except Exception as e:
                     logger.warning(f"MikroTik batch DNS lookup failed: {e}")
             
-            for device in scan_result["results"]:
+            for device in devices_list:
                 device_ip = device.get("address", "")
                 device_mac = device.get("mac_address", "")
                 
@@ -1443,7 +1445,7 @@ async def scan_customer_networks(
             "network_cidr": network.ip_network,
             "success": scan_result.get("success", False),
             "devices_found": scan_result.get("devices_found", 0),
-            "devices": scan_result.get("results", []),  # Includi i dispositivi!
+            "devices": devices_list,  # Includi i dispositivi!
             "error": scan_result.get("error"),
         }],
         "message": scan_result.get("message", ""),
