@@ -244,6 +244,114 @@ async def probe(
             model = exec_cmd("cat /sys/class/dmi/id/product_name 2>/dev/null")
             if model and model != "To Be Filled By O.E.M.":
                 info["model"] = model
+            
+            # ===== INFORMAZIONI DETTAGLIATE LINUX =====
+            
+            # RAM dettagli
+            mem_free = exec_cmd("free -m | grep Mem | awk '{print $4}'")
+            if mem_free.isdigit():
+                info["ram_free_mb"] = int(mem_free)
+            
+            # CPU speed
+            cpu_speed = exec_cmd("lscpu 2>/dev/null | grep 'CPU MHz' | awk '{print $3}'")
+            if cpu_speed:
+                try:
+                    info["cpu_speed_mhz"] = int(float(cpu_speed))
+                except:
+                    pass
+            
+            # All disks
+            disks_out = exec_cmd("df -BG -x tmpfs -x devtmpfs 2>/dev/null | tail -n +2")
+            if disks_out:
+                disks = []
+                for line in disks_out.split('\n'):
+                    parts = line.split()
+                    if len(parts) >= 6:
+                        try:
+                            disks.append({
+                                "device": parts[0],
+                                "mount": parts[5],
+                                "size_gb": int(parts[1].replace('G', '')),
+                                "free_gb": int(parts[3].replace('G', '')),
+                            })
+                        except:
+                            pass
+                if disks:
+                    info["disks"] = disks
+            
+            # Network interfaces
+            ifaces_out = exec_cmd("ip -o addr show 2>/dev/null | grep -v '127.0.0.1' | awk '{print $2, $4}'")
+            if ifaces_out:
+                interfaces = []
+                for line in ifaces_out.split('\n'):
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        interfaces.append({
+                            "name": parts[0],
+                            "address": parts[1].split('/')[0],
+                        })
+                if interfaces:
+                    info["network_interfaces"] = interfaces
+            
+            # MAC addresses
+            macs_out = exec_cmd("ip link show 2>/dev/null | grep 'link/ether' | awk '{print $2}'")
+            if macs_out:
+                macs = [m for m in macs_out.split('\n') if m]
+                if macs:
+                    info["mac_addresses"] = macs
+            
+            # Docker installed?
+            docker_ver = exec_cmd("docker --version 2>/dev/null")
+            if docker_ver:
+                info["docker_version"] = docker_ver.replace('Docker version ', '').split(',')[0]
+                # Docker containers count
+                containers = exec_cmd("docker ps -q 2>/dev/null | wc -l")
+                if containers.isdigit():
+                    info["docker_containers_running"] = int(containers)
+            
+            # LXC/LXD containers (Proxmox)
+            lxc_count = exec_cmd("pct list 2>/dev/null | tail -n +2 | wc -l")
+            if lxc_count.isdigit() and int(lxc_count) > 0:
+                info["lxc_containers"] = int(lxc_count)
+            
+            # VMs (Proxmox)
+            vm_count = exec_cmd("qm list 2>/dev/null | tail -n +2 | wc -l")
+            if vm_count.isdigit() and int(vm_count) > 0:
+                info["vms"] = int(vm_count)
+            
+            # Important services
+            services_out = exec_cmd("systemctl list-units --type=service --state=running --no-pager --no-legend 2>/dev/null | head -30 | awk '{print $1}'")
+            if services_out:
+                services = [s.replace('.service', '') for s in services_out.split('\n') if s]
+                # Filtra solo servizi interessanti
+                important = ["nginx", "apache", "httpd", "mysql", "mariadb", "postgresql", "redis", 
+                           "mongodb", "docker", "sshd", "postfix", "dovecot", "named", "bind", 
+                           "haproxy", "squid", "samba", "nfs", "pve", "ceph"]
+                filtered = [s for s in services if any(imp in s.lower() for imp in important)]
+                if filtered:
+                    info["important_services"] = filtered
+            
+            # Timezone
+            tz = exec_cmd("timedatectl show --property=Timezone --value 2>/dev/null || cat /etc/timezone 2>/dev/null")
+            if tz:
+                info["timezone"] = tz
+            
+            # Users with shell access
+            users_out = exec_cmd("grep -E '/bin/(ba)?sh$' /etc/passwd | cut -d: -f1")
+            if users_out:
+                users = [u for u in users_out.split('\n') if u and u not in ['root']]
+                if users:
+                    info["shell_users"] = users
+            
+            # Last login
+            last_login = exec_cmd("last -1 -w 2>/dev/null | head -1")
+            if last_login and 'wtmp' not in last_login:
+                info["last_login"] = last_login
+            
+            # Virtualization type
+            virt = exec_cmd("systemd-detect-virt 2>/dev/null")
+            if virt and virt != "none":
+                info["virtualization"] = virt
         
         client.close()
         
