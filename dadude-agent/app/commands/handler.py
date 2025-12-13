@@ -640,7 +640,7 @@ class CommandHandler:
             return False
     
     async def _nmap_network_scan(self, network: str, scan_type: str) -> list:
-        """Scansione rete con nmap"""
+        """Scansione rete con nmap (asincrono per non bloccare heartbeat)"""
         try:
             # Scan veloce per discovery
             cmd = ["nmap", "-sn", "-n", network]
@@ -650,18 +650,25 @@ class CommandHandler:
             elif scan_type == "all":
                 cmd = ["nmap", "-sS", "-sV", "-O", "--top-ports", "100", network]
             
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=600
+            # Usa subprocess asincrono per non bloccare l'event loop
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
             )
+            
+            try:
+                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=600)
+                output = stdout.decode('utf-8', errors='replace')
+            except asyncio.TimeoutError:
+                proc.kill()
+                raise TimeoutError("Nmap scan timed out after 600 seconds")
             
             # Parse output
             hosts = []
             current_host = None
             
-            for line in result.stdout.split("\n"):
+            for line in output.split("\n"):
                 if "Nmap scan report for" in line:
                     if current_host:
                         hosts.append(current_host)
