@@ -886,6 +886,7 @@ async def trigger_agent_update(agent_db_id: str):
     """
     Invia comando di aggiornamento all'agent.
     L'agent scaricherà la nuova versione e si riavvierà.
+    Supporta sia agent WebSocket che HTTP.
     """
     service = get_customer_service()
     encryption = get_encryption_service()
@@ -894,8 +895,54 @@ async def trigger_agent_update(agent_db_id: str):
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
     
+    # Prima prova via WebSocket
+    from ..services.websocket_hub import get_websocket_hub, CommandType
+    hub = get_websocket_hub()
+    
+    ws_agent_id = None
+    for conn_id in hub._connections.keys():
+        if agent.name and agent.name in conn_id:
+            ws_agent_id = conn_id
+            break
+    
+    if ws_agent_id and ws_agent_id in hub._connections:
+        # Agent connesso via WebSocket - invia comando UPDATE_AGENT
+        logger.info(f"Triggering update for agent {agent.name} via WebSocket")
+        try:
+            result = await hub.send_command(
+                ws_agent_id,
+                CommandType.UPDATE_AGENT,
+                params={
+                    "version": AGENT_VERSION,
+                    "download_url": f"https://github.com/grandir66/dadude.git",
+                },
+                timeout=60.0
+            )
+            
+            if result.status == "success":
+                return {
+                    "success": True,
+                    "message": "Update triggered successfully via WebSocket",
+                    "connection_type": "websocket",
+                    "agent_response": result.data,
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": f"WebSocket command failed: {result.error}",
+                    "connection_type": "websocket",
+                }
+        except Exception as e:
+            logger.error(f"WebSocket update failed for agent {agent_db_id}: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "connection_type": "websocket",
+            }
+    
+    # Fallback a HTTP per agent legacy
     if not agent.agent_url:
-        raise HTTPException(status_code=400, detail="Agent URL not configured")
+        raise HTTPException(status_code=400, detail="Agent not connected (WebSocket) and no URL configured (HTTP)")
     
     # Decripta token
     agent_token = None
@@ -922,13 +969,15 @@ async def trigger_agent_update(agent_db_id: str):
                 result = response.json()
                 return {
                     "success": True,
-                    "message": "Update triggered successfully",
+                    "message": "Update triggered successfully via HTTP",
+                    "connection_type": "http",
                     "agent_response": result,
                 }
             else:
                 return {
                     "success": False,
                     "error": f"Agent returned {response.status_code}: {response.text}",
+                    "connection_type": "http",
                 }
                 
     except Exception as e:
