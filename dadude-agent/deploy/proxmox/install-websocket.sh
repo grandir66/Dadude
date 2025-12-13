@@ -313,8 +313,10 @@ fi
 AGENT_ID="agent-${AGENT_NAME}-$(date +%s | tail -c 5)"
 
 # Verifica se container esiste già
-if pct status $CTID &>/dev/null; then
+while pct status $CTID &>/dev/null; do
     EXISTING_NAME=$(pct config $CTID 2>/dev/null | grep "^hostname:" | awk '{print $2}')
+    NEXT_FREE=$(pvesh get /cluster/nextid 2>/dev/null || echo "$((CTID + 1))")
+    
     echo ""
     echo -e "${RED}══════════════════════════════════════════════════════════${NC}"
     echo -e "${RED}  ⚠️  ATTENZIONE: Container $CTID esiste già!${NC}"
@@ -323,19 +325,38 @@ if pct status $CTID &>/dev/null; then
     echo -e "  Hostname: ${YELLOW}${EXISTING_NAME:-sconosciuto}${NC}"
     echo -e "  Status:   $(pct status $CTID 2>/dev/null | awk '{print $2}')"
     echo ""
-    read -p "Vuoi ELIMINARE questo container e procedere? [y/N] " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        echo -e "${YELLOW}Installazione annullata. Scegli un CTID diverso.${NC}"
-        exit 1
-    fi
+    echo -e "Opzioni:"
+    echo -e "  1) Usa un altro ID (prossimo libero: ${GREEN}$NEXT_FREE${NC})"
+    echo -e "  2) Elimina container $CTID e continua"
+    echo -e "  3) Annulla installazione"
+    echo ""
+    read -p "Scegli [1]: " CONFLICT_CHOICE
+    CONFLICT_CHOICE=${CONFLICT_CHOICE:-1}
     
-    echo -e "${YELLOW}Elimino container $CTID...${NC}"
-    pct stop $CTID 2>/dev/null || true
-    sleep 2
-    pct destroy $CTID --force 2>/dev/null || true
-    echo -e "${GREEN}Container $CTID eliminato${NC}"
-fi
+    case $CONFLICT_CHOICE in
+        1)
+            read -p "Nuovo CTID [$NEXT_FREE]: " NEW_CTID
+            CTID=${NEW_CTID:-$NEXT_FREE}
+            echo -e "${GREEN}Usando CTID: $CTID${NC}"
+            ;;
+        2)
+            echo -e "${YELLOW}Elimino container $CTID...${NC}"
+            pct stop $CTID 2>/dev/null || true
+            sleep 2
+            pct destroy $CTID --force 2>/dev/null || true
+            echo -e "${GREEN}Container $CTID eliminato${NC}"
+            ;;
+        3)
+            echo -e "${YELLOW}Installazione annullata.${NC}"
+            exit 1
+            ;;
+        *)
+            read -p "Nuovo CTID [$NEXT_FREE]: " NEW_CTID
+            CTID=${NEW_CTID:-$NEXT_FREE}
+            echo -e "${GREEN}Usando CTID: $CTID${NC}"
+            ;;
+    esac
+done
 
 # Riepilogo configurazione
 echo ""
