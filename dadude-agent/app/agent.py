@@ -272,6 +272,7 @@ class DaDudeAgent:
                 "agent_name": self.agent_name,
                 "agent_type": "docker",
                 "version": AGENT_VERSION,
+                "agent_token": self.settings.agent_token,  # Invia token per sincronizzazione
                 "detected_ip": None,  # Server userà request.client.host
                 "detected_hostname": platform.node(),
                 "capabilities": ["ssh", "snmp", "wmi", "nmap", "dns"],

@@ -25,6 +25,9 @@ class AgentRegistration(BaseModel):
     agent_type: str = "docker"  # docker, mikrotik
     version: str = "1.0.0"
     
+    # Token generato dall'agent durante l'installazione
+    agent_token: Optional[str] = None
+    
     # Info rete rilevate dall'agent
     detected_ip: Optional[str] = None
     detected_hostname: Optional[str] = None
@@ -149,9 +152,14 @@ async def register_agent(
         engine = init_db(db_url)
         session = get_session(engine)
         
-        # Genera token per l'agent
+        # Usa token dall'agent se fornito, altrimenti genera uno nuovo
         import secrets
-        agent_token = secrets.token_urlsafe(32)
+        if data.agent_token:
+            agent_token = data.agent_token
+            logger.info(f"Using token provided by agent {data.agent_id}")
+        else:
+            agent_token = secrets.token_urlsafe(32)
+            logger.info(f"Generated new token for agent {data.agent_id}")
         
         agent = AgentAssignment(
             id=generate_uuid(),
