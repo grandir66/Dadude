@@ -230,65 +230,82 @@ if [ -z "$VLAN" ]; then
     read -p "VLAN tag (lascia vuoto se non usi VLAN): " VLAN
 fi
 
-# Suggerisci rete basandosi su bridge e VLAN
-SUGGESTED_NETWORK=""
-if [ -n "$VLAN" ]; then
-    # Cerca interfaccia VLAN esistente
-    VLAN_IF=$(ip link show 2>/dev/null | grep -oP "${BRIDGE}\.\K${VLAN}" | head -1)
-    if [ -n "$VLAN_IF" ]; then
-        SUGGESTED_NETWORK=$(ip -4 addr show ${BRIDGE}.${VLAN} 2>/dev/null | grep -oP 'inet \K[\d.]+/\d+' | head -1)
-    fi
+# Chiedi se usare DHCP o IP statico
+echo ""
+echo -e "${YELLOW}Configurazione IP:${NC}"
+echo "  1) DHCP (automatico)"
+echo "  2) IP Statico"
+read -p "Scegli [1]: " IP_MODE
+IP_MODE=${IP_MODE:-1}
+
+USE_DHCP=false
+if [ "$IP_MODE" == "1" ]; then
+    USE_DHCP=true
+    IP="dhcp"
+    GATEWAY=""
+    DNS="8.8.8.8"  # Default DNS per DHCP
+    echo -e "${GREEN}Modalità DHCP selezionata${NC}"
 else
-    SUGGESTED_NETWORK=$(ip -4 addr show $BRIDGE 2>/dev/null | grep -oP 'inet \K[\d.]+/\d+' | head -1)
-fi
-
-# Estrai subnet per suggerimento
-if [ -n "$SUGGESTED_NETWORK" ]; then
-    SUGGESTED_PREFIX=$(echo $SUGGESTED_NETWORK | grep -oP '[\d.]+' | head -1 | sed 's/\.[0-9]*$//')
-    SUGGESTED_MASK=$(echo $SUGGESTED_NETWORK | grep -oP '/\d+')
-    echo ""
-    echo -e "${YELLOW}Rete rilevata: ${SUGGESTED_PREFIX}.0${SUGGESTED_MASK}${NC}"
-fi
-
-if [ -z "$IP" ]; then
-    if [ -n "$SUGGESTED_PREFIX" ]; then
-        read -p "IP/Netmask (es: ${SUGGESTED_PREFIX}.100${SUGGESTED_MASK:-/24}): " IP
+    # Suggerisci rete basandosi su bridge e VLAN
+    SUGGESTED_NETWORK=""
+    if [ -n "$VLAN" ]; then
+        # Cerca interfaccia VLAN esistente
+        VLAN_IF=$(ip link show 2>/dev/null | grep -oP "${BRIDGE}\.\K${VLAN}" | head -1)
+        if [ -n "$VLAN_IF" ]; then
+            SUGGESTED_NETWORK=$(ip -4 addr show ${BRIDGE}.${VLAN} 2>/dev/null | grep -oP 'inet \K[\d.]+/\d+' | head -1)
+        fi
     else
-        read -p "IP/Netmask (es: 192.168.1.100/24): " IP
+        SUGGESTED_NETWORK=$(ip -4 addr show $BRIDGE 2>/dev/null | grep -oP 'inet \K[\d.]+/\d+' | head -1)
     fi
-    if [ -z "$IP" ]; then
-        echo -e "${RED}Errore: IP è obbligatorio${NC}"
-        exit 1
-    fi
-fi
 
-# Suggerisci gateway basandosi sull'IP inserito
-SUGGESTED_GW=""
-if [ -n "$IP" ]; then
-    IP_PREFIX=$(echo $IP | grep -oP '[\d.]+' | head -1 | sed 's/\.[0-9]*$//')
-    SUGGESTED_GW="${IP_PREFIX}.254"
-fi
-
-if [ -z "$GATEWAY" ]; then
-    if [ -n "$SUGGESTED_GW" ]; then
-        read -p "Gateway [$SUGGESTED_GW]: " GATEWAY
-        GATEWAY=${GATEWAY:-$SUGGESTED_GW}
-    else
-        read -p "Gateway: " GATEWAY
+    # Estrai subnet per suggerimento
+    if [ -n "$SUGGESTED_NETWORK" ]; then
+        SUGGESTED_PREFIX=$(echo $SUGGESTED_NETWORK | grep -oP '[\d.]+' | head -1 | sed 's/\.[0-9]*$//')
+        SUGGESTED_MASK=$(echo $SUGGESTED_NETWORK | grep -oP '/\d+')
+        echo ""
+        echo -e "${YELLOW}Rete rilevata: ${SUGGESTED_PREFIX}.0${SUGGESTED_MASK}${NC}"
     fi
+
+    if [ -z "$IP" ] || [ "$IP" == "dhcp" ]; then
+        if [ -n "$SUGGESTED_PREFIX" ]; then
+            read -p "IP/Netmask (es: ${SUGGESTED_PREFIX}.100${SUGGESTED_MASK:-/24}): " IP
+        else
+            read -p "IP/Netmask (es: 192.168.1.100/24): " IP
+        fi
+        if [ -z "$IP" ]; then
+            echo -e "${RED}Errore: IP è obbligatorio per modalità statica${NC}"
+            exit 1
+        fi
+    fi
+
+    # Suggerisci gateway basandosi sull'IP inserito
+    SUGGESTED_GW=""
+    if [ -n "$IP" ]; then
+        IP_PREFIX=$(echo $IP | grep -oP '[\d.]+' | head -1 | sed 's/\.[0-9]*$//')
+        SUGGESTED_GW="${IP_PREFIX}.254"
+    fi
+
     if [ -z "$GATEWAY" ]; then
-        echo -e "${RED}Errore: Gateway è obbligatorio${NC}"
-        exit 1
+        if [ -n "$SUGGESTED_GW" ]; then
+            read -p "Gateway [$SUGGESTED_GW]: " GATEWAY
+            GATEWAY=${GATEWAY:-$SUGGESTED_GW}
+        else
+            read -p "Gateway: " GATEWAY
+        fi
+        if [ -z "$GATEWAY" ]; then
+            echo -e "${RED}Errore: Gateway è obbligatorio${NC}"
+            exit 1
+        fi
     fi
-fi
 
-# Suggerisci DNS = gateway (comune per reti aziendali)
-if [ -z "$DNS" ]; then
-    read -p "Server DNS [$GATEWAY]: " DNS
-    DNS=${DNS:-$GATEWAY}
+    # Suggerisci DNS = gateway (comune per reti aziendali)
     if [ -z "$DNS" ]; then
-        echo -e "${RED}Errore: DNS è obbligatorio${NC}"
-        exit 1
+        read -p "Server DNS [$GATEWAY]: " DNS
+        DNS=${DNS:-$GATEWAY}
+        if [ -z "$DNS" ]; then
+            echo -e "${RED}Errore: DNS è obbligatorio${NC}"
+            exit 1
+        fi
     fi
 fi
 
@@ -330,8 +347,12 @@ echo "    Bridge:        $BRIDGE"
 if [ -n "$VLAN" ]; then
 echo "    VLAN:          $VLAN"
 fi
+if [ "$USE_DHCP" = true ]; then
+echo "    IP:            DHCP (automatico)"
+else
 echo "    IP:            $IP"
 echo "    Gateway:       $GATEWAY"
+fi
 echo "    DNS:           $DNS"
 echo ""
 echo -e "  ${BLUE}Modalità:${NC}          WebSocket mTLS (agent-initiated)"
@@ -405,7 +426,12 @@ NET_CONFIG="name=eth0,bridge=${BRIDGE}"
 if [ -n "$VLAN" ]; then
     NET_CONFIG="${NET_CONFIG},tag=${VLAN}"
 fi
-NET_CONFIG="${NET_CONFIG},ip=${IP},gw=${GATEWAY}"
+
+if [ "$USE_DHCP" = true ]; then
+    NET_CONFIG="${NET_CONFIG},ip=dhcp"
+else
+    NET_CONFIG="${NET_CONFIG},ip=${IP},gw=${GATEWAY}"
+fi
 
 # Crea container
 echo -e "\n${BLUE}[2/6] Creo container LXC...${NC}"
@@ -515,7 +541,19 @@ echo "  Agent ID:      $AGENT_ID"
 echo "  Agent Name:    $AGENT_NAME"
 echo "  Agent Token:   $AGENT_TOKEN"
 echo "  Server URL:    $SERVER_URL"
-echo "  IP:            $IP"
+
+if [ "$USE_DHCP" = true ]; then
+    # Ottieni IP assegnato via DHCP
+    sleep 3
+    ASSIGNED_IP=$(pct exec $CTID -- ip -4 addr show eth0 2>/dev/null | grep -oP 'inet \K[\d.]+' | head -1)
+    if [ -n "$ASSIGNED_IP" ]; then
+        echo "  IP (DHCP):     $ASSIGNED_IP"
+    else
+        echo "  IP:            DHCP (in attesa di assegnazione)"
+    fi
+else
+    echo "  IP:            $IP"
+fi
 echo ""
 echo -e "${YELLOW}NOTA: L'agent opera in modalità WebSocket${NC}"
 echo "  - Nessuna porta in ascolto"
