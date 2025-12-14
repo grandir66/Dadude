@@ -613,25 +613,44 @@ class CommandHandler:
         try:
             import shutil
             
-            # Prova git pull (directory deve essere montata come volume)
+            # Prova git fetch + reset (più robusto con file locali)
             if os.path.exists(os.path.join(agent_dir, ".git")):
-                logger.info("Performing git pull...")
-                result = subprocess.run(
-                    ["git", "pull", "--rebase", "origin", "main"],
+                logger.info("Fetching latest code...")
+                
+                # Fetch
+                fetch_result = subprocess.run(
+                    ["git", "fetch", "origin", "main"],
                     cwd=agent_dir,
                     capture_output=True,
                     text=True,
-                    timeout=120,
+                    timeout=60,
                 )
-                if result.returncode != 0:
-                    logger.warning(f"Git pull failed: {result.stderr}")
+                if fetch_result.returncode != 0:
+                    logger.warning(f"Git fetch failed: {fetch_result.stderr}")
                     return CommandResult(
                         success=False,
                         status="error",
-                        error=f"Git pull failed: {result.stderr[:200]}",
+                        error=f"Git fetch failed: {fetch_result.stderr[:200]}",
+                    )
+                
+                # Reset hard to origin/main (ignora modifiche locali)
+                logger.info("Resetting to origin/main...")
+                result = subprocess.run(
+                    ["git", "reset", "--hard", "origin/main"],
+                    cwd=agent_dir,
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
+                if result.returncode != 0:
+                    logger.warning(f"Git reset failed: {result.stderr}")
+                    return CommandResult(
+                        success=False,
+                        status="error",
+                        error=f"Git reset failed: {result.stderr[:200]}",
                     )
                 else:
-                    logger.info(f"Git pull success: {result.stdout}")
+                    logger.info(f"Git update success: {result.stdout}")
                     
                     # Copia app files se struttura diversa
                     src_app = os.path.join(agent_dir, "dadude-agent", "app")
