@@ -2371,25 +2371,41 @@ async function runCustomerDiscovery() {
             scanResults = scanData.results || [];
         }
         
-        // Filtra solo device con MAC
-        const devicesWithMac = scanResults.filter(d => d.mac_address && d.mac_address.trim() !== '');
-        
-        if (devicesWithMac.length === 0) {
-            alert('Nessun dispositivo con MAC address trovato');
+        // Usa tutti i device trovati (MAC opzionale)
+        if (scanResults.length === 0) {
+            alert('Nessun dispositivo trovato nella rete');
             loading.style.display = 'none';
             return;
         }
         
-        // Enrich con vendor info
-        loadingText.textContent = 'Identificazione vendor...';
-        const enrichResponse = await fetch('/api/v1/inventory/enrich-devices', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ devices: devicesWithMac })
-        });
-        const enrichData = await enrichResponse.json();
+        // Conta device con e senza MAC
+        const devicesWithMac = scanResults.filter(d => d.mac_address && d.mac_address.trim() !== '');
+        console.log(`Trovati ${scanResults.length} dispositivi (${devicesWithMac.length} con MAC)`);
+        
+        // Enrich con vendor info (solo per quelli con MAC)
+        loadingText.textContent = `Trovati ${scanResults.length} dispositivi, identificazione...`;
+        let enrichedDevices = scanResults;
+        
+        if (devicesWithMac.length > 0) {
+            try {
+                const enrichResponse = await fetch('/api/v1/inventory/enrich-devices', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ devices: devicesWithMac })
+                });
+                const enrichData = await enrichResponse.json();
+                
+                if (enrichData.success) {
+                    // Merge enriched devices con quelli senza MAC
+                    const enrichedMap = new Map(enrichData.devices.map(d => [d.address, d]));
+                    enrichedDevices = scanResults.map(d => enrichedMap.get(d.address) || d);
+                }
+            } catch (e) {
+                console.warn('Enrich failed:', e);
+            }
+        }
 
-        discoveredDevices = enrichData.success ? enrichData.devices : devicesWithMac;
+        discoveredDevices = enrichedDevices;
 
         // Scansiona porte, reverse DNS e suggerisci credenziali per ogni device
         loadingText.textContent = 'Scansione porte TCP/UDP e reverse DNS...';
