@@ -726,7 +726,7 @@ async def update_agent_config(
 # ==========================================
 
 # Versione corrente dell'agent (da aggiornare ad ogni release)
-AGENT_VERSION = "2.1.6"
+AGENT_VERSION = "2.2.0"
 
 @router.get("/version")
 async def get_current_agent_version():
@@ -991,6 +991,103 @@ async def trigger_agent_update(agent_db_id: str):
                 
     except Exception as e:
         logger.error(f"Failed to trigger update for agent {agent_db_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{agent_db_id}/exec")
+async def exec_command_on_agent(
+    agent_db_id: str,
+    command: str = Query(..., description="Comando da eseguire"),
+    target_host: Optional[str] = Query(None, description="Host remoto (se vuoto, esegue sull'agent)"),
+    username: Optional[str] = Query("root", description="Username SSH per host remoto"),
+    password: Optional[str] = Query(None, description="Password SSH (opzionale)"),
+    port: int = Query(22, description="Porta SSH"),
+    timeout: int = Query(60, description="Timeout in secondi"),
+):
+    """
+    Esegue un comando sull'agent o su un host remoto via SSH.
+    
+    Se target_host è specificato, l'agent si connette via SSH all'host ed esegue il comando.
+    Altrimenti il comando viene eseguito localmente sull'agent.
+    """
+    service = get_customer_service()
+    
+    agent = service.get_agent(agent_db_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    
+    from ..services.websocket_hub import get_websocket_hub, CommandType
+    hub = get_websocket_hub()
+    
+    # Trova connessione WebSocket
+    def normalize(s: str) -> str:
+        return s.lower().replace(" ", "").replace("-", "").replace("_", "")
+    
+    ws_agent_id = None
+    agent_name_norm = normalize(agent.name) if agent.name else ""
+    
+    for conn_id in hub._connections.keys():
+        conn_id_norm = normalize(conn_id)
+        if agent_name_norm and (agent_name_norm in conn_id_norm or conn_id_norm in agent_name_norm):
+            ws_agent_id = conn_id
+            break
+    
+    if not ws_agent_id:
+        raise HTTPException(
+            status_code=400, 
+            detail="Agent not connected via WebSocket. Cannot execute remote commands."
+        )
+    
+    try:
+        if target_host:
+            # Esegui su host remoto via SSH
+            result = await hub.send_command(
+                ws_agent_id,
+                CommandType.PROBE_SSH,  # Usiamo un tipo generico
+                {
+                    "action": "exec_ssh",
+                    "host": target_host,
+                    "command": command,
+                    "username": username,
+                    "password": password,
+                    "port": port,
+                    "timeout": timeout,
+                },
+                timeout=float(timeout + 10),
+            )
+        else:
+            # Esegui localmente sull'agent
+            result = await hub.send_command(
+                ws_agent_id,
+                CommandType.PROBE_SSH,  # Usiamo un tipo generico
+                {
+                    "action": "exec_command",
+                    "command": command,
+                    "timeout": timeout,
+                },
+                timeout=float(timeout + 10),
+            )
+        
+        if result.status == "success":
+            return {
+                "success": True,
+                "agent_id": agent_db_id,
+                "target": target_host or "agent-local",
+                "command": command,
+                "stdout": result.data.get("stdout", ""),
+                "stderr": result.data.get("stderr", ""),
+                "exit_code": result.data.get("exit_code", -1),
+            }
+        else:
+            return {
+                "success": False,
+                "error": result.error,
+                "agent_id": agent_db_id,
+                "target": target_host or "agent-local",
+            }
+            
+    except Exception as e:
+        logger.error(f"Exec command failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

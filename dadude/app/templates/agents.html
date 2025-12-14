@@ -204,6 +204,102 @@
     </div>
 </div>
 
+<!-- Modal Console Remota -->
+<div class="modal fade" id="consoleModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header bg-dark text-white">
+                <h5 class="modal-title"><i class="bi bi-terminal"></i> Console Remota - <span id="console-agent-name"></span></h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="console-agent-id">
+                
+                <!-- Opzioni target -->
+                <div class="row mb-3">
+                    <div class="col-md-3">
+                        <label class="form-label">Esegui su</label>
+                        <select class="form-select form-select-sm" id="console-target-type" onchange="toggleSSHOptions()">
+                            <option value="agent">Agent locale</option>
+                            <option value="ssh">Host remoto (SSH)</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3" id="ssh-host-group" style="display:none;">
+                        <label class="form-label">Host</label>
+                        <input type="text" class="form-control form-control-sm" id="console-ssh-host" placeholder="192.168.1.100">
+                    </div>
+                    <div class="col-md-2" id="ssh-user-group" style="display:none;">
+                        <label class="form-label">Username</label>
+                        <input type="text" class="form-control form-control-sm" id="console-ssh-user" value="root">
+                    </div>
+                    <div class="col-md-2" id="ssh-pass-group" style="display:none;">
+                        <label class="form-label">Password</label>
+                        <input type="password" class="form-control form-control-sm" id="console-ssh-pass" placeholder="(opzionale)">
+                    </div>
+                    <div class="col-md-2" id="ssh-port-group" style="display:none;">
+                        <label class="form-label">Porta</label>
+                        <input type="number" class="form-control form-control-sm" id="console-ssh-port" value="22">
+                    </div>
+                </div>
+                
+                <!-- Comando -->
+                <div class="mb-3">
+                    <label class="form-label">Comando</label>
+                    <div class="input-group">
+                        <span class="input-group-text bg-dark text-success">$</span>
+                        <input type="text" class="form-control font-monospace" id="console-command" 
+                               placeholder="es: uptime, df -h, ip addr, ping -c 3 8.8.8.8"
+                               onkeypress="if(event.key==='Enter')execConsoleCommand()">
+                        <button class="btn btn-success" onclick="execConsoleCommand()">
+                            <i class="bi bi-play-fill"></i> Esegui
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Comandi rapidi -->
+                <div class="mb-3">
+                    <label class="form-label">Comandi rapidi</label>
+                    <div class="btn-group btn-group-sm flex-wrap">
+                        <button class="btn btn-outline-secondary" onclick="setCommand('uptime')">uptime</button>
+                        <button class="btn btn-outline-secondary" onclick="setCommand('df -h')">df -h</button>
+                        <button class="btn btn-outline-secondary" onclick="setCommand('free -m')">free -m</button>
+                        <button class="btn btn-outline-secondary" onclick="setCommand('ip addr')">ip addr</button>
+                        <button class="btn btn-outline-secondary" onclick="setCommand('ps aux --sort=-%mem | head -20')">top mem</button>
+                        <button class="btn btn-outline-secondary" onclick="setCommand('docker ps')">docker ps</button>
+                        <button class="btn btn-outline-secondary" onclick="setCommand('systemctl status')">systemctl</button>
+                        <button class="btn btn-outline-secondary" onclick="setCommand('cat /etc/os-release')">OS info</button>
+                        <button class="btn btn-outline-secondary" onclick="setCommand('netstat -tlnp')">netstat</button>
+                        <button class="btn btn-outline-secondary" onclick="setCommand('ls -la')">ls -la</button>
+                    </div>
+                </div>
+                
+                <!-- Output -->
+                <div class="mb-3">
+                    <label class="form-label">Output</label>
+                    <pre id="console-output" class="bg-dark text-light p-3 rounded" 
+                         style="min-height: 300px; max-height: 500px; overflow-y: auto; font-family: 'Courier New', monospace; font-size: 13px;">
+In attesa di comandi...
+                    </pre>
+                </div>
+                
+                <!-- Storico -->
+                <div class="mb-0">
+                    <label class="form-label">Storico comandi</label>
+                    <div id="console-history" class="d-flex flex-wrap gap-1">
+                        <span class="text-muted small">Nessun comando eseguito</span>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" onclick="clearConsole()">
+                    <i class="bi bi-trash"></i> Pulisci Output
+                </button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Chiudi</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
 let customers = [];
 
@@ -360,6 +456,9 @@ async function loadActiveAgents() {
                             <td>${a.version || 'N/A'}</td>
                             <td>
                                 <div class="btn-group btn-group-sm">
+                                    <button class="btn btn-outline-dark" onclick="showConsoleModal('${a.id}', '${a.name}')" title="Console remota">
+                                        <i class="bi bi-terminal"></i>
+                                    </button>
                                     <button class="btn btn-outline-secondary" onclick="showReassignModal('${a.id}', '${a.name}', '${a.customer_id}')" title="Riassegna a cliente">
                                         <i class="bi bi-arrow-left-right"></i>
                                     </button>
@@ -604,6 +703,132 @@ async function unassignAgent() {
     } catch (e) {
         alert('Errore: ' + e.message);
     }
+}
+
+// ==========================================
+// CONSOLE REMOTA
+// ==========================================
+
+let commandHistory = [];
+
+function showConsoleModal(agentId, agentName) {
+    document.getElementById('console-agent-id').value = agentId;
+    document.getElementById('console-agent-name').textContent = agentName;
+    document.getElementById('console-command').value = '';
+    document.getElementById('console-output').textContent = `Console remota per agent: ${agentName}\nIn attesa di comandi...\n`;
+    
+    new bootstrap.Modal(document.getElementById('consoleModal')).show();
+    
+    // Focus sul campo comando
+    setTimeout(() => document.getElementById('console-command').focus(), 500);
+}
+
+function toggleSSHOptions() {
+    const targetType = document.getElementById('console-target-type').value;
+    const show = targetType === 'ssh';
+    
+    document.getElementById('ssh-host-group').style.display = show ? 'block' : 'none';
+    document.getElementById('ssh-user-group').style.display = show ? 'block' : 'none';
+    document.getElementById('ssh-pass-group').style.display = show ? 'block' : 'none';
+    document.getElementById('ssh-port-group').style.display = show ? 'block' : 'none';
+}
+
+function setCommand(cmd) {
+    document.getElementById('console-command').value = cmd;
+    document.getElementById('console-command').focus();
+}
+
+function clearConsole() {
+    document.getElementById('console-output').textContent = 'Console pulita.\n';
+}
+
+async function execConsoleCommand() {
+    const agentId = document.getElementById('console-agent-id').value;
+    const command = document.getElementById('console-command').value.trim();
+    const targetType = document.getElementById('console-target-type').value;
+    
+    if (!command) {
+        alert('Inserisci un comando');
+        return;
+    }
+    
+    const output = document.getElementById('console-output');
+    const timestamp = new Date().toLocaleTimeString();
+    
+    // Aggiungi prompt
+    if (targetType === 'ssh') {
+        const host = document.getElementById('console-ssh-host').value;
+        output.textContent += `\n[${timestamp}] ${host}$ ${command}\n`;
+    } else {
+        output.textContent += `\n[${timestamp}] agent$ ${command}\n`;
+    }
+    output.textContent += '⏳ Esecuzione in corso...\n';
+    output.scrollTop = output.scrollHeight;
+    
+    try {
+        // Costruisci URL
+        let url = `/api/v1/agents/${agentId}/exec?command=${encodeURIComponent(command)}`;
+        
+        if (targetType === 'ssh') {
+            const host = document.getElementById('console-ssh-host').value;
+            const user = document.getElementById('console-ssh-user').value || 'root';
+            const pass = document.getElementById('console-ssh-pass').value;
+            const port = document.getElementById('console-ssh-port').value || 22;
+            
+            if (!host) {
+                output.textContent += '❌ Errore: Specificare host remoto\n';
+                return;
+            }
+            
+            url += `&target_host=${encodeURIComponent(host)}`;
+            url += `&username=${encodeURIComponent(user)}`;
+            url += `&port=${port}`;
+            if (pass) url += `&password=${encodeURIComponent(pass)}`;
+        }
+        
+        const response = await fetch(url, { method: 'POST' });
+        const data = await response.json();
+        
+        // Rimuovi "Esecuzione in corso..."
+        output.textContent = output.textContent.replace('⏳ Esecuzione in corso...\n', '');
+        
+        if (data.success) {
+            if (data.stdout) {
+                output.textContent += data.stdout;
+                if (!data.stdout.endsWith('\n')) output.textContent += '\n';
+            }
+            if (data.stderr) {
+                output.textContent += `⚠️ STDERR:\n${data.stderr}\n`;
+            }
+            output.textContent += `✅ Exit code: ${data.exit_code}\n`;
+        } else {
+            output.textContent += `❌ Errore: ${data.error || 'Comando fallito'}\n`;
+        }
+        
+        // Aggiungi a storico
+        addToHistory(command);
+        
+        // Pulisci campo comando
+        document.getElementById('console-command').value = '';
+        
+    } catch (e) {
+        output.textContent = output.textContent.replace('⏳ Esecuzione in corso...\n', '');
+        output.textContent += `❌ Errore: ${e.message}\n`;
+    }
+    
+    output.scrollTop = output.scrollHeight;
+}
+
+function addToHistory(cmd) {
+    if (!commandHistory.includes(cmd)) {
+        commandHistory.unshift(cmd);
+        if (commandHistory.length > 10) commandHistory.pop();
+    }
+    
+    const historyDiv = document.getElementById('console-history');
+    historyDiv.innerHTML = commandHistory.map(c => 
+        `<button class="btn btn-sm btn-outline-dark" onclick="setCommand('${c.replace(/'/g, "\\'")}')">${c.length > 30 ? c.substring(0,30)+'...' : c}</button>`
+    ).join('');
 }
 
 async function testAgent(agentId, address, port) {

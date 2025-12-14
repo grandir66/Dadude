@@ -45,6 +45,10 @@ class CommandAction(str, Enum):
     PING = "ping"
     TRACEROUTE = "traceroute"
     NMAP_SCAN = "nmap_scan"
+    
+    # Remote shell
+    EXEC_COMMAND = "exec_command"
+    EXEC_SSH = "exec_ssh"
 
 
 @dataclass
@@ -198,6 +202,13 @@ class CommandHandler:
         
         elif action == CommandAction.CHECK_UPDATES.value:
             return await self._check_updates(params)
+        
+        # Remote shell
+        elif action == CommandAction.EXEC_COMMAND.value:
+            return await self._exec_command(params)
+        
+        elif action == CommandAction.EXEC_SSH.value:
+            return await self._exec_ssh(params)
         
         else:
             return CommandResult(
@@ -1209,5 +1220,174 @@ class CommandHandler:
                     error="Not a git repository",
                 )
         except Exception as e:
+            return CommandResult(success=False, status="error", error=str(e))
+    
+    # ==========================================
+    # REMOTE SHELL / COMMAND EXECUTION
+    # ==========================================
+    
+    async def _exec_command(self, params: Dict) -> CommandResult:
+        """
+        Esegue un comando localmente sull'agent.
+        
+        Params:
+            command: str - comando da eseguire
+            timeout: int - timeout in secondi (default 60)
+            shell: bool - esegui in shell (default True)
+        """
+        command = params.get("command")
+        timeout = params.get("timeout", 60)
+        use_shell = params.get("shell", True)
+        
+        if not command:
+            return CommandResult(success=False, status="error", error="Missing 'command' parameter")
+        
+        # Limita comandi pericolosi
+        dangerous = ["rm -rf /", "mkfs", "dd if=", "> /dev/sd", "shutdown", "reboot", "init 0", "init 6"]
+        for d in dangerous:
+            if d in command.lower():
+                return CommandResult(
+                    success=False, 
+                    status="error", 
+                    error=f"Command contains dangerous pattern: {d}"
+                )
+        
+        logger.info(f"[EXEC] Running command: {command[:100]}...")
+        
+        try:
+            if use_shell:
+                proc = await asyncio.create_subprocess_shell(
+                    command,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+            else:
+                proc = await asyncio.create_subprocess_exec(
+                    *command.split(),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+            
+            try:
+                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+            except asyncio.TimeoutError:
+                proc.kill()
+                return CommandResult(
+                    success=False,
+                    status="timeout",
+                    error=f"Command timed out after {timeout}s",
+                )
+            
+            stdout_str = stdout.decode('utf-8', errors='replace') if stdout else ""
+            stderr_str = stderr.decode('utf-8', errors='replace') if stderr else ""
+            
+            return CommandResult(
+                success=proc.returncode == 0,
+                status="success" if proc.returncode == 0 else "error",
+                data={
+                    "stdout": stdout_str,
+                    "stderr": stderr_str,
+                    "exit_code": proc.returncode,
+                    "command": command,
+                },
+                error=stderr_str if proc.returncode != 0 else None,
+            )
+            
+        except Exception as e:
+            logger.error(f"[EXEC] Error: {e}")
+            return CommandResult(success=False, status="error", error=str(e))
+    
+    async def _exec_ssh(self, params: Dict) -> CommandResult:
+        """
+        Esegue un comando su un host remoto via SSH.
+        
+        Params:
+            host: str - indirizzo host
+            command: str - comando da eseguire
+            username: str - username SSH (default root)
+            password: str - password (opzionale)
+            port: int - porta SSH (default 22)
+            timeout: int - timeout in secondi (default 60)
+            key_file: str - path chiave privata (opzionale)
+        """
+        host = params.get("host")
+        command = params.get("command")
+        username = params.get("username", "root")
+        password = params.get("password")
+        port = params.get("port", 22)
+        timeout = params.get("timeout", 60)
+        key_file = params.get("key_file")
+        
+        if not host:
+            return CommandResult(success=False, status="error", error="Missing 'host' parameter")
+        if not command:
+            return CommandResult(success=False, status="error", error="Missing 'command' parameter")
+        
+        logger.info(f"[SSH] Executing on {host}: {command[:100]}...")
+        
+        try:
+            import paramiko
+            
+            # Crea client SSH
+            ssh = paramiko.SSHClient()
+            ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            
+            # Connetti
+            connect_kwargs = {
+                "hostname": host,
+                "port": port,
+                "username": username,
+                "timeout": 30,
+                "allow_agent": False,
+                "look_for_keys": False,
+            }
+            
+            if key_file and os.path.exists(key_file):
+                connect_kwargs["key_filename"] = key_file
+            elif password:
+                connect_kwargs["password"] = password
+            else:
+                # Prova senza autenticazione (chiavi di sistema)
+                connect_kwargs["allow_agent"] = True
+                connect_kwargs["look_for_keys"] = True
+            
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, lambda: ssh.connect(**connect_kwargs))
+            
+            # Esegui comando
+            stdin, stdout, stderr = await loop.run_in_executor(
+                None, 
+                lambda: ssh.exec_command(command, timeout=timeout)
+            )
+            
+            # Leggi output
+            stdout_str = await loop.run_in_executor(None, stdout.read)
+            stderr_str = await loop.run_in_executor(None, stderr.read)
+            exit_code = stdout.channel.recv_exit_status()
+            
+            ssh.close()
+            
+            stdout_decoded = stdout_str.decode('utf-8', errors='replace') if stdout_str else ""
+            stderr_decoded = stderr_str.decode('utf-8', errors='replace') if stderr_str else ""
+            
+            return CommandResult(
+                success=exit_code == 0,
+                status="success" if exit_code == 0 else "error",
+                data={
+                    "stdout": stdout_decoded,
+                    "stderr": stderr_decoded,
+                    "exit_code": exit_code,
+                    "host": host,
+                    "command": command,
+                },
+                error=stderr_decoded if exit_code != 0 else None,
+            )
+            
+        except paramiko.AuthenticationException:
+            return CommandResult(success=False, status="error", error="SSH authentication failed")
+        except paramiko.SSHException as e:
+            return CommandResult(success=False, status="error", error=f"SSH error: {e}")
+        except Exception as e:
+            logger.error(f"[SSH] Error: {e}")
             return CommandResult(success=False, status="error", error=str(e))
 
