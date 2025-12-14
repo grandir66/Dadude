@@ -156,11 +156,23 @@
                             {% endif %}
                         </td>
                         <td>
-                            <button class="btn btn-sm btn-outline-primary" 
-                                    onclick="configureGateway('{{ net.id }}', '{{ net.name }}', '{{ net.gateway_agent_id or '' }}', '{{ net.gateway_snmp_address or '' }}', '{{ net.gateway_snmp_community or '' }}', '{{ net.gateway_snmp_version or '2c' }}')"
-                                    title="Configura Gateway ARP">
-                                <i class="bi bi-diagram-3"></i>
-                            </button>
+                            <div class="btn-group btn-group-sm">
+                                <button class="btn btn-outline-secondary" 
+                                        onclick="editNetwork({{ net | tojson | e }})"
+                                        title="Modifica rete">
+                                    <i class="bi bi-pencil"></i>
+                                </button>
+                                <button class="btn btn-outline-primary" 
+                                        onclick="configureGateway('{{ net.id }}', '{{ net.name }}', '{{ net.gateway_agent_id or '' }}', '{{ net.gateway_snmp_address or '' }}', '{{ net.gateway_snmp_community or '' }}', '{{ net.gateway_snmp_version or '2c' }}')"
+                                        title="Gateway ARP">
+                                    <i class="bi bi-diagram-3"></i>
+                                </button>
+                                <button class="btn btn-outline-danger" 
+                                        onclick="deleteNetwork('{{ net.id }}', '{{ net.name }}')"
+                                        title="Elimina rete">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </div>
                         </td>
                     </tr>
                     {% else %}
@@ -691,6 +703,75 @@
     </div>
 </div>
 
+<!-- Modal Modifica Rete -->
+<div class="modal fade" id="editNetworkModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-pencil"></i> Modifica Rete</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="editNetworkForm">
+                <input type="hidden" id="edit_net_id">
+                <div class="modal-body">
+                    <div class="row">
+                        <div class="col-md-8 mb-3">
+                            <label class="form-label">Nome *</label>
+                            <input type="text" class="form-control" id="edit_net_name" required>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">Tipo</label>
+                            <select class="form-select" id="edit_net_type">
+                                <option value="lan">LAN</option>
+                                <option value="wan">WAN</option>
+                                <option value="dmz">DMZ</option>
+                                <option value="guest">Guest</option>
+                                <option value="management">Management</option>
+                                <option value="voip">VoIP</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Network CIDR *</label>
+                            <input type="text" class="form-control" id="edit_net_cidr" required placeholder="192.168.1.0/24">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Gateway</label>
+                            <input type="text" class="form-control" id="edit_net_gateway" placeholder="192.168.1.1">
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">VLAN ID</label>
+                            <input type="number" class="form-control" id="edit_net_vlan" min="1" max="4094">
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">DNS Primario</label>
+                            <input type="text" class="form-control" id="edit_net_dns">
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">Stato</label>
+                            <select class="form-select" id="edit_net_active">
+                                <option value="true">Attiva</option>
+                                <option value="false">Inattiva</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Descrizione</label>
+                        <textarea class="form-control" id="edit_net_desc" rows="2"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annulla</button>
+                    <button type="submit" class="btn btn-primary"><i class="bi bi-check"></i> Salva</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 <!-- Modal Nuova Credenziale -->
 <div class="modal fade" id="newCredentialModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
@@ -928,6 +1009,70 @@ function toggleCredentialFields() {
 function toggleSNMPv3Fields() {
     const version = document.getElementById('snmpVersion').value;
     document.getElementById('fieldsSNMPv3').style.display = version === '3' ? 'block' : 'none';
+}
+
+// Network Edit/Delete
+function editNetwork(net) {
+    document.getElementById('edit_net_id').value = net.id;
+    document.getElementById('edit_net_name').value = net.name || '';
+    document.getElementById('edit_net_type').value = net.network_type || 'lan';
+    document.getElementById('edit_net_cidr').value = net.ip_network || '';
+    document.getElementById('edit_net_gateway').value = net.gateway || '';
+    document.getElementById('edit_net_vlan').value = net.vlan_id || '';
+    document.getElementById('edit_net_dns').value = net.dns_primary || '';
+    document.getElementById('edit_net_active').value = net.active ? 'true' : 'false';
+    document.getElementById('edit_net_desc').value = net.description || '';
+    
+    new bootstrap.Modal(document.getElementById('editNetworkModal')).show();
+}
+
+document.getElementById('editNetworkForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const networkId = document.getElementById('edit_net_id').value;
+    
+    const data = {
+        name: document.getElementById('edit_net_name').value,
+        network_type: document.getElementById('edit_net_type').value,
+        ip_network: document.getElementById('edit_net_cidr').value,
+        gateway: document.getElementById('edit_net_gateway').value || null,
+        vlan_id: document.getElementById('edit_net_vlan').value ? parseInt(document.getElementById('edit_net_vlan').value) : null,
+        dns_primary: document.getElementById('edit_net_dns').value || null,
+        active: document.getElementById('edit_net_active').value === 'true',
+        description: document.getElementById('edit_net_desc').value || null
+    };
+    
+    try {
+        const response = await fetch(`/api/customers/networks/${networkId}`, {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data)
+        });
+        if (response.ok) {
+            location.reload();
+        } else {
+            const err = await response.json();
+            alert('Errore: ' + (err.detail || 'Salvataggio fallito'));
+        }
+    } catch (err) {
+        alert('Errore: ' + err.message);
+    }
+});
+
+async function deleteNetwork(networkId, networkName) {
+    if (!confirm(`Eliminare la rete "${networkName}"?`)) return;
+    
+    try {
+        const response = await fetch(`/api/customers/networks/${networkId}`, {
+            method: 'DELETE'
+        });
+        if (response.ok) {
+            location.reload();
+        } else {
+            alert('Errore nella cancellazione');
+        }
+    } catch (err) {
+        alert('Errore: ' + err.message);
+    }
 }
 
 // Gateway ARP Configuration
