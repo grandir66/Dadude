@@ -1123,7 +1123,7 @@ document.getElementById('editNetworkForm').addEventListener('submit', async func
     };
     
     try {
-        const response = await fetch(`/api/customers/networks/${networkId}`, {
+        const response = await fetch(`/api/v1/customers/networks/${networkId}`, {
             method: 'PUT',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(data)
@@ -1143,7 +1143,7 @@ async function deleteNetwork(networkId, networkName) {
     if (!confirm(`Eliminare la rete "${networkName}"?`)) return;
     
     try {
-        const response = await fetch(`/api/customers/networks/${networkId}`, {
+        const response = await fetch(`/api/v1/customers/networks/${networkId}`, {
             method: 'DELETE'
         });
         if (response.ok) {
@@ -1205,7 +1205,7 @@ document.getElementById('gatewayForm').addEventListener('submit', async function
     }
     
     try {
-        const response = await fetch(`/api/customers/networks/${networkId}`, {
+        const response = await fetch(`/api/v1/customers/networks/${networkId}`, {
             method: 'PUT',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(data)
@@ -1213,7 +1213,8 @@ document.getElementById('gatewayForm').addEventListener('submit', async function
         if (response.ok) {
             location.reload();
         } else {
-            alert('Errore nel salvataggio');
+            const err = await response.json();
+            alert('Errore nel salvataggio: ' + (err.detail || response.status));
         }
     } catch (err) {
         alert('Errore: ' + err.message);
