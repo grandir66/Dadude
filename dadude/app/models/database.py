@@ -440,8 +440,9 @@ class DiscoveredDevice(Base):
     # Info dispositivo
     address = Column(String(50), nullable=True)
     mac_address = Column(String(20), nullable=True)
-    identity = Column(String(255), nullable=True)  # Nome/identity dal protocollo
-    hostname = Column(String(255), nullable=True)  # Hostname da reverse DNS
+    identity = Column(String(255), nullable=True)  # Nome/identity dal protocollo (SNMP, WMI, etc)
+    hostname = Column(String(255), nullable=True)  # Hostname reale (da probe del device)
+    reverse_dns = Column(String(255), nullable=True)  # Nome da reverse DNS lookup (PTR record)
     platform = Column(String(100), nullable=True)  # MikroTik, Cisco, etc
     board = Column(String(100), nullable=True)  # Modello
     interface = Column(String(100), nullable=True)  # Interfaccia di scoperta

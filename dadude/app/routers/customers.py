@@ -1385,32 +1385,32 @@ async def scan_customer_networks(
                 device_ip = device.get("address", "")
                 device_mac = device.get("mac_address", "")
                 
-                # Reverse DNS lookup per ottenere hostname
-                hostname = ""
+                # Reverse DNS lookup (PTR record) - salviamo separatamente dall'hostname reale
+                reverse_dns = ""
                 
                 # Prima prova con risultati batch MikroTik
                 if device_ip and device_ip in mikrotik_dns_results:
-                    hostname = mikrotik_dns_results[device_ip]
-                    logger.debug(f"Hostname from MikroTik DNS: {device_ip} -> {hostname}")
+                    reverse_dns = mikrotik_dns_results[device_ip]
+                    logger.debug(f"Reverse DNS from MikroTik: {device_ip} -> {reverse_dns}")
                 
                 # Fallback a lookup diretto/tramite agente se non trovato
-                if not hostname and device_ip:
+                if not reverse_dns and device_ip:
                     try:
-                        hostname = await probe_service.reverse_dns_lookup(
+                        reverse_dns = await probe_service.reverse_dns_lookup(
                             device_ip, 
                             dns_servers=dns_servers if dns_servers else None,
                             agent=mikrotik_agent,
                             use_agent=True
                         )
-                        if hostname:
-                            logger.info(f"Reverse DNS for {device_ip}: {hostname}")
+                        if reverse_dns:
+                            logger.info(f"Reverse DNS for {device_ip}: {reverse_dns}")
                     except Exception as e:
                         logger.debug(f"Reverse DNS lookup failed for {device_ip}: {e}")
                 
-                # Usa hostname da DNS se non c'è identity
+                # Usa nome da reverse DNS se non c'è identity (solo come fallback per display)
                 identity = device.get("identity", "")
-                if not identity and hostname:
-                    identity = hostname.split('.')[0]  # Prendi solo la parte prima del punto
+                if not identity and reverse_dns:
+                    identity = reverse_dns.split('.')[0]  # Prendi solo la parte prima del punto
                 
                 # Scansiona porte aperte tramite agente MikroTik
                 open_ports_data = []
@@ -1434,8 +1434,9 @@ async def scan_customer_networks(
                     customer_id=agent.customer_id,
                     address=device_ip,
                     mac_address=device_mac,
-                    identity=identity or hostname,  # Usa identity o hostname DNS
-                    hostname=hostname,  # Salva anche hostname completo
+                    identity=identity,  # Identity dal protocollo o nome breve da reverse DNS
+                    hostname=device.get("hostname", ""),  # Hostname reale (da probe)
+                    reverse_dns=reverse_dns,  # Nome da PTR record (separato)
                     platform=device.get("platform", ""),
                     board=device.get("board", ""),
                     interface=device.get("interface", ""),
