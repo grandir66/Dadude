@@ -137,6 +137,7 @@ class NetworkBase(BaseModel):
     dns_secondary: Optional[str] = None
     dhcp_start: Optional[str] = None
     dhcp_end: Optional[str] = None
+    gateway_agent_id: Optional[str] = Field(None, description="MikroTik agent ID per ARP lookup su reti remote")
     description: Optional[str] = None
     notes: Optional[str] = None
     active: bool = True
@@ -168,6 +169,7 @@ class NetworkUpdate(BaseModel):
     dns_secondary: Optional[str] = None
     dhcp_start: Optional[str] = None
     dhcp_end: Optional[str] = None
+    gateway_agent_id: Optional[str] = None
     description: Optional[str] = None
     notes: Optional[str] = None
     active: Optional[bool] = None

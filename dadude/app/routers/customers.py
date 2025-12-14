@@ -1081,123 +1081,162 @@ async def scan_customer_networks(
     logger.info(f"Scan request: agent_type={agent_type}, agent_id={agent.id}, address={agent.address}")
     
     if agent_type == "docker":
-        # Scansione tramite Docker Agent
-        # Strategia: se c'è un MikroTik nel cliente, usalo per ARP scan
+        # =====================================================
+        # STRATEGIA IBRIDA per Docker Agent:
+        # 1. Se la rete ha gateway_agent_id, usa MikroTik per ARP table
+        # 2. Esegui nmap scan via WebSocket
+        # 3. Merge: IP da nmap + MAC da ARP (se disponibile)
+        # =====================================================
         from ..services.agent_client import AgentClient, AgentConfig
+        from ..services.mikrotik_service import get_mikrotik_service
         
-        agent_url = agent.agent_url or f"http://{agent.address}:{agent.agent_api_port or 8080}"
-        agent_token = agent.agent_token or ""
+        # Step 1: Ottieni cache ARP da gateway MikroTik (se configurato)
+        arp_cache = {}  # {ip: mac}
+        gateway_agent_id = getattr(network, 'gateway_agent_id', None)
         
-        logger.info(f"Docker agent config: url={agent_url}, token={'***' if agent_token else 'MISSING'}")
+        if gateway_agent_id:
+            # Usa il gateway MikroTik specificato per la rete
+            gateway_agent = service.get_agent(gateway_agent_id, include_password=True)
+            if gateway_agent:
+                logger.info(f"[ARP CACHE] Using gateway MikroTik {gateway_agent.name} ({gateway_agent.address}) for network {network.ip_network}")
+                try:
+                    mikrotik_svc = get_mikrotik_service()
+                    arp_result = mikrotik_svc.get_arp_for_network(
+                        address=gateway_agent.address,
+                        port=gateway_agent.port or 8728,
+                        username=gateway_agent.username or "admin",
+                        password=gateway_agent.password or "",
+                        network_cidr=network.ip_network,
+                        use_ssl=gateway_agent.use_ssl or False,
+                    )
+                    if arp_result.get("success"):
+                        for entry in arp_result.get("entries", []):
+                            arp_cache[entry["ip"]] = entry["mac"]
+                        logger.info(f"[ARP CACHE] Got {len(arp_cache)} MAC addresses from gateway")
+                except Exception as e:
+                    logger.warning(f"[ARP CACHE] Failed to get ARP from gateway: {e}")
+        else:
+            # Fallback: cerca un MikroTik qualsiasi del cliente
+            all_agents = service.list_agents(customer_id=agent.customer_id, active_only=True)
+            for ag in all_agents:
+                ag_type = getattr(ag, 'agent_type', 'mikrotik') or 'mikrotik'
+                if ag_type == 'mikrotik':
+                    mikrotik_agent = service.get_agent(ag.id, include_password=True)
+                    if mikrotik_agent:
+                        logger.info(f"[ARP CACHE] Trying MikroTik {mikrotik_agent.name} for ARP lookup")
+                        try:
+                            mikrotik_svc = get_mikrotik_service()
+                            arp_result = mikrotik_svc.get_arp_for_network(
+                                address=mikrotik_agent.address,
+                                port=mikrotik_agent.port or 8728,
+                                username=mikrotik_agent.username or "admin",
+                                password=mikrotik_agent.password or "",
+                                network_cidr=network.ip_network,
+                                use_ssl=mikrotik_agent.use_ssl or False,
+                            )
+                            if arp_result.get("success") and arp_result.get("count", 0) > 0:
+                                for entry in arp_result.get("entries", []):
+                                    arp_cache[entry["ip"]] = entry["mac"]
+                                logger.info(f"[ARP CACHE] Got {len(arp_cache)} MAC addresses from {mikrotik_agent.name}")
+                                break  # Trovato, esci dal loop
+                        except Exception as e:
+                            logger.debug(f"[ARP CACHE] MikroTik {mikrotik_agent.name} failed: {e}")
         
-        # Cerca un MikroTik agent per questo cliente (per ARP scan)
-        # Nota: list_agents non restituisce password, dobbiamo usare get_agent per ogni MikroTik
-        all_agents = service.list_agents(customer_id=agent.customer_id, active_only=True)
-        mikrotik_agent = None
-        for ag in all_agents:
-            ag_type = getattr(ag, 'agent_type', 'mikrotik') or 'mikrotik'
-            if ag_type == 'mikrotik' and ag.id != agent_id:
-                # Ottieni l'agent con password
-                mikrotik_agent = service.get_agent(ag.id, include_password=True)
+        # Step 2: Esegui nmap scan via WebSocket
+        scan_result = None
+        from ..services.websocket_hub import get_websocket_hub, CommandType
+        hub = get_websocket_hub()
+        
+        # Trova connessione WebSocket
+        def normalize(s: str) -> str:
+            return s.lower().replace(" ", "").replace("-", "").replace("_", "")
+        
+        ws_agent_id = None
+        agent_name_norm = normalize(agent.name) if agent.name else ""
+        
+        for conn_id in hub._connections.keys():
+            conn_id_norm = normalize(conn_id)
+            if agent_name_norm and (agent_name_norm in conn_id_norm or conn_id_norm in agent_name_norm):
+                ws_agent_id = conn_id
                 break
         
-        scan_result = None
-        
-        if mikrotik_agent:
-            # OPZIONE B: Usa MikroTik per ARP scan (ottiene MAC address)
-            logger.info(f"[SCAN VIA MIKROTIK] Using {mikrotik_agent.name} ({mikrotik_agent.address}) for ARP scan on {network.ip_network}")
+        if ws_agent_id and ws_agent_id in hub._connections:
+            # Agent connesso via WebSocket - invia scan
+            logger.info(f"[SCAN VIA WEBSOCKET] Scanning {network.ip_network} via {ws_agent_id}")
             try:
-                if mikrotik_agent.connection_type in ["api", "both"]:
-                    scan_result = scanner.scan_network_via_router(
-                        router_address=mikrotik_agent.address,
-                        router_port=mikrotik_agent.port or 8728,
-                        router_username=mikrotik_agent.username or "admin",
-                        router_password=mikrotik_agent.password or "",
-                        network=network.ip_network,
-                        scan_type="arp",  # Forza ARP per ottenere MAC
-                        use_ssl=mikrotik_agent.use_ssl or False,
-                    )
-                elif mikrotik_agent.connection_type == "ssh":
-                    scan_result = scanner.scan_network_via_ssh(
-                        router_address=mikrotik_agent.address,
-                        ssh_port=mikrotik_agent.ssh_port or 22,
-                        username=mikrotik_agent.username or "admin",
-                        password=mikrotik_agent.password or "",
-                        network=network.ip_network,
-                        ssh_key=mikrotik_agent.ssh_key,
-                    )
-                logger.info(f"[SCAN VIA MIKROTIK] ARP scan completed: {scan_result.get('devices_found', 0)} devices found")
-            except Exception as e:
-                logger.warning(f"[SCAN VIA MIKROTIK] ARP scan FAILED, falling back to Docker agent: {e}")
-                scan_result = None
-        
-        if not scan_result or not scan_result.get("success"):
-            # OPZIONE C: Nessun MikroTik o fallback - usa Docker agent
-            # Prima verifica se l'agent è connesso via WebSocket
-            from ..services.websocket_hub import get_websocket_hub, CommandType
-            hub = get_websocket_hub()
-            
-            ws_agent_id = None
-            for conn_id in hub._connections.keys():
-                if agent.name and agent.name in conn_id:
-                    ws_agent_id = conn_id
-                    break
-            
-            if ws_agent_id and ws_agent_id in hub._connections:
-                # Agent connesso via WebSocket - usa comando WS
-                logger.info(f"[SCAN VIA WEBSOCKET] Using WebSocket connection {ws_agent_id} for network scan on {network.ip_network}")
-                try:
-                    result = await hub.send_command(
-                        ws_agent_id,
-                        CommandType.SCAN_NETWORK,
-                        params={"network": network.ip_network, "scan_type": scan_type},
-                        timeout=120.0
-                    )
-                    
-                    if result.status == "success":
-                        scan_result = result.data or {}
-                        scan_result["success"] = True
-                        # L'agent restituisce "hosts" con campo "mac", normalizziamo
-                        hosts = scan_result.get("hosts", scan_result.get("devices", []))
-                        # Normalizza campi: mac -> mac_address, ip -> address
-                        normalized_devices = []
-                        for h in hosts:
-                            device = {
-                                "address": h.get("ip", h.get("address", "")),
-                                "mac_address": h.get("mac", h.get("mac_address", "")),
-                                "vendor": h.get("vendor", ""),
-                                "hostname": h.get("hostname", ""),
-                                "status": h.get("status", "up"),
-                            }
-                            normalized_devices.append(device)
-                        scan_result["devices"] = normalized_devices
-                        scan_result["devices_found"] = len(normalized_devices)
-                        logger.info(f"[SCAN VIA WEBSOCKET] Scan completed: {scan_result.get('devices_found', 0)} devices found")
-                    else:
-                        logger.error(f"WebSocket scan failed: {result.error}")
-                        raise HTTPException(status_code=500, detail=f"Errore scansione WebSocket: {result.error}")
-                except Exception as e:
-                    logger.error(f"WebSocket scan failed: {e}", exc_info=True)
-                    raise HTTPException(status_code=500, detail=f"Errore scansione WebSocket: {e}")
-            else:
-                # Fallback: agent non connesso via WebSocket, prova HTTP
-                logger.info(f"[SCAN VIA DOCKER AGENT HTTP] Using {agent.address}:{agent.agent_api_port} for network scan on {network.ip_network}")
-                agent_config = AgentConfig(
-                    agent_id=agent.id,
-                    agent_url=agent_url,
-                    agent_token=agent_token,
+                result = await hub.send_command(
+                    ws_agent_id,
+                    CommandType.SCAN_NETWORK,
+                    params={"network": network.ip_network, "scan_type": scan_type},
+                    timeout=300.0  # Timeout più lungo per reti grandi
                 )
                 
-                agent_client = AgentClient(agent_config)
-                try:
-                    logger.info(f"Starting network scan via Docker agent: network={network.ip_network}")
-                    scan_result = await agent_client.scan_network(network.ip_network, scan_type=scan_type)
-                    logger.info(f"[SCAN VIA DOCKER AGENT] Scan completed: {scan_result.get('devices_found', 0)} devices found")
-                except Exception as e:
-                    logger.error(f"Docker agent scan failed: {e}", exc_info=True)
-                    raise HTTPException(status_code=500, detail=f"Errore scansione Docker agent: {e}")
-                finally:
-                    await agent_client.close()
+                if result.status == "success":
+                    scan_result = result.data or {}
+                    scan_result["success"] = True
+                    
+                    # Normalizza e arricchisci con MAC da cache ARP
+                    hosts = scan_result.get("hosts", scan_result.get("devices", []))
+                    normalized_devices = []
+                    mac_found_count = 0
+                    
+                    for h in hosts:
+                        ip = h.get("ip", h.get("address", ""))
+                        # Prima prova MAC da scan nmap, poi da cache ARP
+                        mac = h.get("mac", h.get("mac_address", ""))
+                        if not mac and ip in arp_cache:
+                            mac = arp_cache[ip]
+                            mac_found_count += 1
+                        
+                        device = {
+                            "address": ip,
+                            "mac_address": mac,
+                            "vendor": h.get("vendor", ""),
+                            "hostname": h.get("hostname", ""),
+                            "status": h.get("status", "up"),
+                        }
+                        normalized_devices.append(device)
+                    
+                    scan_result["devices"] = normalized_devices
+                    scan_result["devices_found"] = len(normalized_devices)
+                    logger.info(f"[SCAN COMPLETED] {len(normalized_devices)} devices, {mac_found_count} MAC from ARP cache")
+                else:
+                    logger.error(f"WebSocket scan failed: {result.error}")
+                    raise HTTPException(status_code=500, detail=f"Errore scansione: {result.error}")
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"WebSocket scan failed: {e}", exc_info=True)
+                raise HTTPException(status_code=500, detail=f"Errore scansione WebSocket: {e}")
+        else:
+            # Fallback: agent non connesso via WebSocket, prova HTTP
+            agent_url = agent.agent_url or f"http://{agent.address}:{agent.agent_api_port or 8080}"
+            agent_token = agent.agent_token or ""
+            
+            logger.info(f"[SCAN VIA HTTP] Agent not on WebSocket, trying HTTP to {agent_url}")
+            agent_config = AgentConfig(
+                agent_id=agent.id,
+                agent_url=agent_url,
+                agent_token=agent_token,
+            )
+            
+            agent_client = AgentClient(agent_config)
+            try:
+                scan_result = await agent_client.scan_network(network.ip_network, scan_type=scan_type)
+                
+                # Arricchisci con MAC da cache ARP
+                devices = scan_result.get("devices", [])
+                for d in devices:
+                    ip = d.get("address", "")
+                    if not d.get("mac_address") and ip in arp_cache:
+                        d["mac_address"] = arp_cache[ip]
+                
+                logger.info(f"[SCAN VIA HTTP] Completed: {scan_result.get('devices_found', 0)} devices")
+            except Exception as e:
+                logger.error(f"HTTP agent scan failed: {e}", exc_info=True)
+                raise HTTPException(status_code=500, detail=f"Errore scansione agent: {e}")
+            finally:
+                await agent_client.close()
     
     # MikroTik agent - Usa API o SSH in base al tipo di connessione
     elif agent.connection_type in ["api", "both"]:

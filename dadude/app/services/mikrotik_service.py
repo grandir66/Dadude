@@ -105,6 +105,82 @@ class MikroTikRemoteService:
             return {"success": False, "error": str(e)}
     
     # ==========================================
+    # ARP TABLE - Per reti remote
+    # ==========================================
+    
+    def get_arp_for_network(
+        self,
+        address: str,
+        port: int,
+        username: str,
+        password: str,
+        network_cidr: str,
+        use_ssl: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        Ottiene la tabella ARP del router filtrata per una rete specifica.
+        Utile per ottenere MAC address di host su reti remote (dietro il router).
+        
+        Args:
+            address: IP del router MikroTik
+            port: Porta API
+            username: Username
+            password: Password
+            network_cidr: Rete da filtrare (es: 192.168.40.0/24)
+            use_ssl: Usa SSL
+            
+        Returns:
+            Dict con lista di {ip, mac, interface} per la rete specificata
+        """
+        try:
+            import ipaddress
+            
+            api = self._get_connection(address, port, username, password, use_ssl)
+            
+            # Leggi tabella ARP completa
+            arp_resource = api.get_resource('/ip/arp')
+            arps = arp_resource.get()
+            
+            # Filtra per network
+            try:
+                net = ipaddress.ip_network(network_cidr, strict=False)
+            except ValueError as e:
+                return {"success": False, "error": f"Invalid network: {e}"}
+            
+            results = []
+            for a in arps:
+                ip_str = a.get("address", "")
+                if not ip_str:
+                    continue
+                    
+                try:
+                    ip = ipaddress.ip_address(ip_str)
+                    if ip in net:
+                        mac = a.get("mac-address", "")
+                        if mac and mac != "00:00:00:00:00:00":
+                            results.append({
+                                "ip": ip_str,
+                                "mac": mac.upper(),
+                                "interface": a.get("interface", ""),
+                                "complete": a.get("complete", "") == "true",
+                            })
+                except ValueError:
+                    continue
+            
+            logger.info(f"MikroTik ARP for {network_cidr}: found {len(results)} entries")
+            
+            return {
+                "success": True,
+                "network": network_cidr,
+                "entries": results,
+                "count": len(results),
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting ARP for network {network_cidr}: {e}")
+            return {"success": False, "error": str(e)}
+    
+    # ==========================================
     # IP SCAN - Discovery attiva
     # ==========================================
     

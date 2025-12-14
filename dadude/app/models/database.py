@@ -75,6 +75,10 @@ class Network(Base):
     dhcp_start = Column(String(50), nullable=True)
     dhcp_end = Column(String(50), nullable=True)
     
+    # Gateway router per ARP lookup su reti remote
+    # Se specificato, usa questo MikroTik per leggere la tabella ARP
+    gateway_agent_id = Column(String(8), ForeignKey("agent_assignments.id"), nullable=True)
+    
     description = Column(Text, nullable=True)
     notes = Column(Text, nullable=True)
     active = Column(Boolean, default=True)
