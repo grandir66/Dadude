@@ -1094,10 +1094,10 @@ async def bulk_import_devices(
         
         for device in data.devices:
             try:
-                # Skip se non ha MAC address
-                if not device.mac_address or device.mac_address.strip() == '':
-                    skipped_no_mac += 1
-                    continue
+                # MAC address è opzionale - non bloccare se mancante
+                has_mac = device.mac_address and device.mac_address.strip() != ''
+                if not has_mac:
+                    skipped_no_mac += 1  # Conta ma non blocca
                 
                 # Skip se IP già presente
                 if device.address and device.address in existing_ips:
@@ -1147,9 +1147,9 @@ async def bulk_import_devices(
             "success": True,
             "imported": imported,
             "skipped": skipped,
-            "skipped_no_mac": skipped_no_mac,
+            "without_mac": skipped_no_mac,  # Info only, not skipped
             "errors": errors,
-            "message": f"Importati {imported} dispositivi, {skipped} duplicati, {skipped_no_mac} senza MAC",
+            "message": f"Importati {imported} dispositivi ({skipped_no_mac} senza MAC), {skipped} duplicati",
         }
         
     finally:

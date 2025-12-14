@@ -2765,7 +2765,7 @@ async function importDiscoveredDevices() {
         console.log('Risultato import:', result);
         
         if (result.success) {
-            alert(`✅ Importati ${result.imported} dispositivi\n${result.skipped} duplicati\n${result.skipped_no_mac || 0} senza MAC`);
+            alert(`✅ Importati ${result.imported} dispositivi\n${result.skipped} duplicati\n${result.without_mac || 0} senza MAC (importati comunque)`);
             
             // Rimuovi importati dalla lista
             const importedIps = devices.map(d => d.address);
