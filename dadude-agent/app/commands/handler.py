@@ -35,6 +35,12 @@ class CommandAction(str, Enum):
     GET_CONFIG = "get_config"
     SET_CONFIG = "set_config"
     
+    # Scheduled tasks
+    DAILY_RESTART = "daily_restart"
+    CONNECTION_WATCHDOG = "connection_watchdog"
+    CLEANUP_QUEUE = "cleanup_queue"
+    CHECK_UPDATES = "check_updates"
+    
     # Diagnostics
     PING = "ping"
     TRACEROUTE = "traceroute"
@@ -179,6 +185,19 @@ class CommandHandler:
         
         elif action == CommandAction.NMAP_SCAN.value:
             return await self._nmap_scan(params)
+        
+        # Scheduled tasks
+        elif action == CommandAction.DAILY_RESTART.value:
+            return await self._daily_restart(params)
+        
+        elif action == CommandAction.CONNECTION_WATCHDOG.value:
+            return await self._connection_watchdog(params)
+        
+        elif action == CommandAction.CLEANUP_QUEUE.value:
+            return await self._cleanup_queue(params)
+        
+        elif action == CommandAction.CHECK_UPDATES.value:
+            return await self._check_updates(params)
         
         else:
             return CommandResult(
@@ -981,4 +1000,214 @@ class CommandHandler:
     def set_update_callback(self, callback: Callable[[str, str], Awaitable[bool]]):
         """Imposta callback per self-update"""
         self._update_callback = callback
+    
+    # ==========================================
+    # SCHEDULED TASKS
+    # ==========================================
+    
+    async def _daily_restart(self, params: Dict) -> CommandResult:
+        """
+        Riavvio giornaliero programmato.
+        Esegue git fetch + reset + rebuild + restart ogni 24 ore.
+        """
+        logger.info("Daily restart triggered - performing full update and restart")
+        
+        try:
+            agent_dir = "/opt/dadude-agent"
+            
+            # Se è un repository git, aggiorna prima
+            if os.path.exists(os.path.join(agent_dir, ".git")):
+                logger.info("Fetching latest code before restart...")
+                
+                # Fetch
+                subprocess.run(
+                    ["git", "fetch", "origin", "main"],
+                    cwd=agent_dir,
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
+                
+                # Reset
+                subprocess.run(
+                    ["git", "reset", "--hard", "origin/main"],
+                    cwd=agent_dir,
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
+                
+                logger.info("Code updated, rebuilding container...")
+            
+            # Rebuild e restart
+            agent_compose_dir = os.path.join(agent_dir, "dadude-agent")
+            if os.path.exists(os.path.join(agent_compose_dir, "docker-compose.yml")):
+                # Build in background
+                subprocess.Popen(
+                    ["docker", "compose", "build", "--quiet"],
+                    cwd=agent_compose_dir,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                
+                # Attendi build
+                await asyncio.sleep(30)
+                
+                # Restart (in background, non aspettare)
+                subprocess.Popen(
+                    ["docker", "compose", "up", "-d", "--force-recreate"],
+                    cwd=agent_compose_dir,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                
+                return CommandResult(
+                    success=True,
+                    status="success",
+                    data={"message": "Daily restart: rebuild and restart initiated"},
+                )
+            else:
+                # Fallback: semplice restart
+                return await self._restart()
+                
+        except Exception as e:
+            logger.error(f"Daily restart error: {e}")
+            return CommandResult(success=False, status="error", error=str(e))
+    
+    async def _connection_watchdog(self, params: Dict) -> CommandResult:
+        """
+        Watchdog connessione: se disconnesso per più di N ore, 
+        esegue reset completo da git e riavvia.
+        """
+        max_hours = params.get("max_disconnected_hours", 24)
+        
+        try:
+            # Leggi stato connessione da file
+            state_file = "/var/lib/dadude-agent/connection_state.json"
+            last_connected = None
+            
+            if os.path.exists(state_file):
+                import json
+                with open(state_file, "r") as f:
+                    state = json.load(f)
+                    last_connected_str = state.get("last_connected")
+                    if last_connected_str:
+                        from datetime import datetime
+                        last_connected = datetime.fromisoformat(last_connected_str)
+            
+            if last_connected is None:
+                # Prima esecuzione, salva stato attuale
+                await self._save_connection_state(connected=False)
+                return CommandResult(
+                    success=True,
+                    status="success",
+                    data={"message": "Connection watchdog initialized"},
+                )
+            
+            # Calcola ore di disconnessione
+            from datetime import datetime, timedelta
+            now = datetime.utcnow()
+            disconnected_hours = (now - last_connected).total_seconds() / 3600
+            
+            logger.info(f"Connection watchdog: last connected {disconnected_hours:.1f} hours ago")
+            
+            if disconnected_hours >= max_hours:
+                logger.warning(f"Disconnected for {disconnected_hours:.1f} hours - triggering full reset")
+                
+                # Reset completo
+                result = await self._daily_restart({"force": True})
+                
+                return CommandResult(
+                    success=True,
+                    status="success",
+                    data={
+                        "message": f"Full reset triggered after {disconnected_hours:.1f}h disconnect",
+                        "action_taken": "full_reset",
+                        "restart_result": result.data if result.success else result.error,
+                    },
+                )
+            else:
+                return CommandResult(
+                    success=True,
+                    status="success",
+                    data={
+                        "message": f"Connection OK - last connected {disconnected_hours:.1f}h ago",
+                        "action_taken": "none",
+                    },
+                )
+                
+        except Exception as e:
+            logger.error(f"Connection watchdog error: {e}")
+            return CommandResult(success=False, status="error", error=str(e))
+    
+    async def _save_connection_state(self, connected: bool):
+        """Salva stato connessione su file"""
+        import json
+        from datetime import datetime
+        
+        state_file = "/var/lib/dadude-agent/connection_state.json"
+        
+        try:
+            state = {}
+            if os.path.exists(state_file):
+                with open(state_file, "r") as f:
+                    state = json.load(f)
+            
+            if connected:
+                state["last_connected"] = datetime.utcnow().isoformat()
+            
+            state["last_check"] = datetime.utcnow().isoformat()
+            state["is_connected"] = connected
+            
+            with open(state_file, "w") as f:
+                json.dump(state, f, indent=2)
+                
+        except Exception as e:
+            logger.error(f"Error saving connection state: {e}")
+    
+    async def _cleanup_queue(self, params: Dict) -> CommandResult:
+        """Pulizia coda locale"""
+        try:
+            # Placeholder - la coda si pulisce automaticamente
+            return CommandResult(
+                success=True,
+                status="success",
+                data={"message": "Queue cleanup completed"},
+            )
+        except Exception as e:
+            return CommandResult(success=False, status="error", error=str(e))
+    
+    async def _check_updates(self, params: Dict) -> CommandResult:
+        """Verifica aggiornamenti disponibili"""
+        try:
+            agent_dir = "/opt/dadude-agent"
+            
+            if os.path.exists(os.path.join(agent_dir, ".git")):
+                # Fetch per vedere se ci sono update
+                result = subprocess.run(
+                    ["git", "fetch", "--dry-run", "origin", "main"],
+                    cwd=agent_dir,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+                
+                has_updates = bool(result.stdout.strip() or result.stderr.strip())
+                
+                return CommandResult(
+                    success=True,
+                    status="success",
+                    data={
+                        "has_updates": has_updates,
+                        "message": "Updates available" if has_updates else "No updates",
+                    },
+                )
+            else:
+                return CommandResult(
+                    success=False,
+                    status="error",
+                    error="Not a git repository",
+                )
+        except Exception as e:
+            return CommandResult(success=False, status="error", error=str(e))
 

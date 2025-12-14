@@ -119,6 +119,20 @@ class LocalScheduler:
             cron="0 5 * * 0",  # Domenica alle 5
             action="check_updates",
         ),
+        ScheduledJob(
+            id="daily-restart",
+            name="Daily Restart",
+            cron="0 4 * * *",  # Ogni giorno alle 4 di mattina
+            action="daily_restart",
+            params={"force": True},
+        ),
+        ScheduledJob(
+            id="connection-watchdog",
+            name="Connection Watchdog",
+            cron="0 * * * *",  # Ogni ora
+            action="connection_watchdog",
+            params={"max_disconnected_hours": 24},
+        ),
     ]
     
     def __init__(

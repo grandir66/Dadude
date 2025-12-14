@@ -200,11 +200,41 @@ class AgentWebSocketClient:
             self._state = new_state
             logger.info(f"Connection state: {old_state.value} -> {new_state.value}")
             
+            # Salva stato connessione per watchdog
+            await self._save_connection_state(new_state == ConnectionState.CONNECTED)
+            
             if self._state_change_handler:
                 try:
                     await self._state_change_handler(new_state)
                 except Exception as e:
                     logger.error(f"State change handler error: {e}")
+    
+    async def _save_connection_state(self, connected: bool):
+        """Salva stato connessione su file per il watchdog"""
+        import json
+        from pathlib import Path
+        
+        state_file = Path("/var/lib/dadude-agent/connection_state.json")
+        
+        try:
+            state_file.parent.mkdir(parents=True, exist_ok=True)
+            
+            state = {}
+            if state_file.exists():
+                with open(state_file, "r") as f:
+                    state = json.load(f)
+            
+            if connected:
+                state["last_connected"] = datetime.utcnow().isoformat()
+            
+            state["last_state_change"] = datetime.utcnow().isoformat()
+            state["is_connected"] = connected
+            
+            with open(state_file, "w") as f:
+                json.dump(state, f, indent=2)
+                
+        except Exception as e:
+            logger.debug(f"Error saving connection state: {e}")
     
     async def connect(self) -> bool:
         """
