@@ -597,20 +597,63 @@ class CommandHandler:
                     error="Agent directory is not a git repository",
                 )
             
-            return CommandResult(
-                success=True,
-                status="success",
-                data={
-                    "message": "Code updated via git pull. Restart container to apply changes.",
-                    "needs_restart": True,
-                },
-            )
+            # Rebuild e restart Docker container
+            agent_compose_dir = os.path.join(agent_dir, "dadude-agent")
+            if os.path.exists(os.path.join(agent_compose_dir, "docker-compose.yml")):
+                logger.info("Rebuilding Docker image...")
+                
+                # Build
+                build_result = subprocess.run(
+                    ["docker", "compose", "build", "--quiet"],
+                    cwd=agent_compose_dir,
+                    capture_output=True,
+                    text=True,
+                    timeout=300,
+                )
+                if build_result.returncode != 0:
+                    logger.warning(f"Docker build failed: {build_result.stderr}")
+                    return CommandResult(
+                        success=True,
+                        status="success",
+                        data={
+                            "message": f"Git pull OK, but Docker build failed. Manual rebuild required.",
+                            "needs_restart": True,
+                            "build_error": build_result.stderr[:200],
+                        },
+                    )
+                
+                logger.info("Docker build completed. Restarting container...")
+                
+                # Restart in background (container will stop after this)
+                subprocess.Popen(
+                    ["docker", "compose", "up", "-d", "--force-recreate"],
+                    cwd=agent_compose_dir,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                
+                return CommandResult(
+                    success=True,
+                    status="success",
+                    data={
+                        "message": "Update complete. Container restarting...",
+                        "restarting": True,
+                    },
+                )
+            else:
+                return CommandResult(
+                    success=True,
+                    status="success",
+                    data={
+                        "message": "Code updated via git pull. Manual restart required.",
+                        "needs_restart": True,
+                    },
+                )
             
         except subprocess.TimeoutExpired:
             return CommandResult(success=False, status="error", error="Update timed out")
         except Exception as e:
             logger.error(f"Update error: {e}")
-            return CommandResult(success=False, status="error", error=str(e))
             return CommandResult(success=False, status="error", error=str(e))
     
     async def _restart(self) -> CommandResult:
