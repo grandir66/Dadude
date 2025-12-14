@@ -2,10 +2,12 @@
 DaDude - SNMP ARP Service
 Lettura tabella ARP da router generici via SNMP
 Supporta: Cisco, Ubiquiti, HP, Juniper, e qualsiasi device SNMP standard
+Compatibile con pysnmp 7.x (API async)
 """
 from typing import Optional, List, Dict, Any
 from loguru import logger
 import ipaddress
+import asyncio
 
 
 class SNMPArpService:
@@ -16,41 +18,33 @@ class SNMPArpService:
     
     # OID standard per ARP table (RFC 1213 - ipNetToMediaTable)
     # .1.3.6.1.2.1.4.22.1.2.{ifIndex}.{ipAddress} = MAC address
-    OID_ARP_TABLE = ".1.3.6.1.2.1.4.22.1.2"
+    OID_ARP_TABLE = "1.3.6.1.2.1.4.22.1.2"
     
     # OID alternativo per dispositivi più recenti (RFC 4293 - ipNetToPhysicalTable)
-    # .1.3.6.1.2.1.4.35.1.4.{ifIndex}.{addressType}.{ipAddress} = MAC
-    OID_ARP_TABLE_V2 = ".1.3.6.1.2.1.4.35.1.4"
+    OID_ARP_TABLE_V2 = "1.3.6.1.2.1.4.35.1.4"
     
     # OID per sysDescr (identificazione dispositivo)
-    OID_SYS_DESCR = ".1.3.6.1.2.1.1.1.0"
-    OID_SYS_NAME = ".1.3.6.1.2.1.1.5.0"
+    OID_SYS_DESCR = "1.3.6.1.2.1.1.1.0"
+    OID_SYS_NAME = "1.3.6.1.2.1.1.5.0"
     
     def __init__(self):
         self._pysnmp_available = self._check_pysnmp()
+        self._pysnmp_v7 = True  # Default to v7
     
     def _check_pysnmp(self) -> bool:
         """Verifica se pysnmp è disponibile"""
         try:
-            # pysnmp 7.x
             from pysnmp.hlapi.v3arch import (
-                getCmd, nextCmd, SnmpEngine, CommunityData,
+                walk_cmd, SnmpEngine, CommunityData,
                 UdpTransportTarget, ContextData, ObjectType, ObjectIdentity
             )
+            self._pysnmp_v7 = True
             return True
         except ImportError:
-            try:
-                # pysnmp 4.x fallback
-                from pysnmp.hlapi import (
-                    getCmd, nextCmd, SnmpEngine, CommunityData,
-                    UdpTransportTarget, ContextData, ObjectType, ObjectIdentity
-                )
-                return True
-            except ImportError:
-                logger.warning("pysnmp not available - SNMP ARP lookup disabled")
-                return False
+            logger.warning("pysnmp 7.x not available - SNMP ARP lookup disabled")
+            return False
     
-    def get_arp_table(
+    async def get_arp_table(
         self,
         address: str,
         community: str = "public",
@@ -61,7 +55,7 @@ class SNMPArpService:
         snmp_version: str = "2c",
     ) -> Dict[str, Any]:
         """
-        Legge la tabella ARP da un router via SNMP.
+        Legge la tabella ARP da un router via SNMP (async).
         
         Args:
             address: IP del router
@@ -79,17 +73,10 @@ class SNMPArpService:
             return {"success": False, "error": "pysnmp not installed"}
         
         try:
-            # pysnmp 7.x / 4.x compatibility
-            try:
-                from pysnmp.hlapi.v3arch import (
-                    nextCmd, SnmpEngine, CommunityData,
-                    UdpTransportTarget, ContextData, ObjectType, ObjectIdentity
-                )
-            except ImportError:
-                from pysnmp.hlapi import (
-                    nextCmd, SnmpEngine, CommunityData,
-                    UdpTransportTarget, ContextData, ObjectType, ObjectIdentity
-                )
+            from pysnmp.hlapi.v3arch import (
+                walk_cmd, SnmpEngine, CommunityData,
+                UdpTransportTarget, ContextData, ObjectType, ObjectIdentity
+            )
             
             # Parse network filter se specificato
             net_filter = None
@@ -101,16 +88,19 @@ class SNMPArpService:
             
             results = []
             
-            # Walk ARP table (RFC 1213)
-            logger.debug(f"SNMP walking ARP table on {address}:{port}")
+            # Crea transport target (async in pysnmp 7.x)
+            logger.debug(f"SNMP walking ARP table on {address}:{port} with community {community}")
+            transport = await UdpTransportTarget.create((address, port), timeout=timeout, retries=retries)
             
-            for (errorIndication, errorStatus, errorIndex, varBinds) in nextCmd(
+            mp_model = 0 if snmp_version == "1" else 1  # 0=SNMPv1, 1=SNMPv2c
+            
+            # Walk ARP table (RFC 1213) - async iterator in pysnmp 7.x
+            async for (errorIndication, errorStatus, errorIndex, varBinds) in walk_cmd(
                 SnmpEngine(),
-                CommunityData(community, mpModel=0 if snmp_version == "1" else 1),
-                UdpTransportTarget((address, port), timeout=timeout, retries=retries),
+                CommunityData(community, mpModel=mp_model),
+                transport,
                 ContextData(),
                 ObjectType(ObjectIdentity(self.OID_ARP_TABLE)),
-                lexicographicMode=False,
             ):
                 if errorIndication:
                     logger.debug(f"SNMP error: {errorIndication}")
@@ -124,7 +114,7 @@ class SNMPArpService:
                         value = varBind[1]
                         
                         # Parse OID per estrarre ifIndex e IP
-                        # Formato: .1.3.6.1.2.1.4.22.1.2.{ifIndex}.{ip1}.{ip2}.{ip3}.{ip4}
+                        # Formato: 1.3.6.1.2.1.4.22.1.2.{ifIndex}.{ip1}.{ip2}.{ip3}.{ip4}
                         try:
                             oid_parts = oid.split(".")
                             if len(oid_parts) >= 15:
@@ -152,7 +142,7 @@ class SNMPArpService:
                                         continue
                                 
                                 # Ignora MAC vuoti o broadcast
-                                if mac and mac not in ["00:00:00:00:00:00", "FF:FF:FF:FF:FF:FF"]:
+                                if mac and mac not in ["00:00:00:00:00:00", "FF:FF:FF:FF:FF:FF", ""]:
                                     results.append({
                                         "ip": ip_addr,
                                         "mac": mac,
@@ -175,7 +165,7 @@ class SNMPArpService:
             logger.error(f"SNMP ARP table read failed for {address}: {e}")
             return {"success": False, "error": str(e)}
     
-    def get_device_info(
+    async def get_device_info(
         self,
         address: str,
         community: str = "public",
@@ -192,33 +182,27 @@ class SNMPArpService:
             return {"success": False, "error": "pysnmp not installed"}
         
         try:
-            # pysnmp 7.x / 4.x compatibility
-            try:
-                from pysnmp.hlapi.v3arch import (
-                    getCmd, SnmpEngine, CommunityData,
-                    UdpTransportTarget, ContextData, ObjectType, ObjectIdentity
-                )
-            except ImportError:
-                from pysnmp.hlapi import (
-                    getCmd, SnmpEngine, CommunityData,
-                    UdpTransportTarget, ContextData, ObjectType, ObjectIdentity
-                )
+            from pysnmp.hlapi.v3arch import (
+                get_cmd, SnmpEngine, CommunityData,
+                UdpTransportTarget, ContextData, ObjectType, ObjectIdentity
+            )
             
+            transport = await UdpTransportTarget.create((address, port), timeout=timeout)
             result = {}
             
             # Get sysDescr e sysName
             for oid, key in [(self.OID_SYS_DESCR, "description"), (self.OID_SYS_NAME, "name")]:
-                errorIndication, errorStatus, errorIndex, varBinds = next(getCmd(
+                async for (errorIndication, errorStatus, errorIndex, varBinds) in get_cmd(
                     SnmpEngine(),
                     CommunityData(community),
-                    UdpTransportTarget((address, port), timeout=timeout),
+                    transport,
                     ContextData(),
                     ObjectType(ObjectIdentity(oid)),
-                ))
-                
-                if not errorIndication and not errorStatus:
-                    for varBind in varBinds:
-                        result[key] = str(varBind[1])
+                ):
+                    if not errorIndication and not errorStatus:
+                        for varBind in varBinds:
+                            result[key] = str(varBind[1])
+                    break  # Solo una risposta per get_cmd
             
             # Identifica vendor dal sysDescr
             desc = result.get("description", "").lower()
@@ -256,4 +240,3 @@ def get_snmp_arp_service() -> SNMPArpService:
     if _snmp_arp_service is None:
         _snmp_arp_service = SNMPArpService()
     return _snmp_arp_service
-

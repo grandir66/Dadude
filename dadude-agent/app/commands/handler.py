@@ -442,7 +442,7 @@ class CommandHandler:
             return CommandResult(success=False, status="error", error=str(e))
     
     async def _get_arp_snmp(self, params: Dict, network_cidr: str = None) -> CommandResult:
-        """Query ARP table via SNMP (generic router)"""
+        """Query ARP table via SNMP (generic router) - pysnmp 7.x async API"""
         import ipaddress
         
         address = params.get("address")
@@ -453,60 +453,16 @@ class CommandHandler:
             return CommandResult(success=False, status="error", error="Missing 'address' parameter")
         
         try:
-            # pysnmp 7.x usa v3arch invece di hlapi diretto
-            try:
-                from pysnmp.hlapi.v3arch import (
-                    SnmpEngine, CommunityData, UdpTransportTarget, ContextData,
-                    ObjectType, ObjectIdentity, bulkCmd
-                )
-            except ImportError:
-                # Fallback per pysnmp 4.x
-                from pysnmp.hlapi import (
-                    SnmpEngine, CommunityData, UdpTransportTarget, ContextData,
-                    ObjectType, ObjectIdentity, bulkCmd
-                )
+            # pysnmp 7.x usa v3arch con API async
+            from pysnmp.hlapi.v3arch import (
+                SnmpEngine, CommunityData, UdpTransportTarget, ContextData,
+                ObjectType, ObjectIdentity, walk_cmd
+            )
             
-            loop = asyncio.get_event_loop()
+            # OID per ipNetToMediaPhysAddress (ARP table)
+            OID_ARP_TABLE = "1.3.6.1.2.1.4.22.1.2"
             
-            def get_arp_via_snmp():
-                # OID per ipNetToMediaPhysAddress (ARP table)
-                # 1.3.6.1.2.1.4.22.1.2 = MAC address
-                # 1.3.6.1.2.1.4.22.1.3 = IP address
-                
-                arp_entries = {}
-                mp_model = 1 if version == "2c" else 0
-                
-                for (errorIndication, errorStatus, errorIndex, varBinds) in bulkCmd(
-                    SnmpEngine(),
-                    CommunityData(community, mpModel=mp_model),
-                    UdpTransportTarget((address, 161), timeout=2, retries=1),
-                    ContextData(),
-                    0, 25,  # non-repeaters, max-repetitions
-                    ObjectType(ObjectIdentity('1.3.6.1.2.1.4.22.1.2')),  # MAC
-                    lexicographicMode=False
-                ):
-                    if errorIndication or errorStatus:
-                        break
-                    
-                    for varBind in varBinds:
-                        oid = str(varBind[0])
-                        value = varBind[1]
-                        
-                        # Estrai IP dall'OID (ultimi 4 ottetti)
-                        # OID format: 1.3.6.1.2.1.4.22.1.2.<ifIndex>.<ip1>.<ip2>.<ip3>.<ip4>
-                        parts = oid.split('.')
-                        if len(parts) >= 4:
-                            ip = '.'.join(parts[-4:])
-                            # MAC è in formato ottetti
-                            mac = ':'.join(format(b, '02x') for b in bytes(value))
-                            arp_entries[ip] = mac
-                
-                return arp_entries
-            
-            arp_data = await loop.run_in_executor(None, get_arp_via_snmp)
-            
-            # Filtra per network se specificato
-            entries = []
+            # Parse network filter
             net = None
             if network_cidr:
                 try:
@@ -514,15 +470,67 @@ class CommandHandler:
                 except:
                     pass
             
-            for ip, mac in arp_data.items():
-                if net:
-                    try:
-                        if ipaddress.ip_address(ip) not in net:
-                            continue
-                    except:
-                        continue
+            mp_model = 1 if version == "2c" else 0
+            
+            # Crea transport target (async in pysnmp 7.x)
+            logger.debug(f"[ARP SNMP] Querying {address} with community {community}")
+            transport = await UdpTransportTarget.create((address, 161), timeout=5, retries=2)
+            
+            entries = []
+            
+            # Walk ARP table - async iterator in pysnmp 7.x
+            async for (errorIndication, errorStatus, errorIndex, varBinds) in walk_cmd(
+                SnmpEngine(),
+                CommunityData(community, mpModel=mp_model),
+                transport,
+                ContextData(),
+                ObjectType(ObjectIdentity(OID_ARP_TABLE)),
+            ):
+                if errorIndication:
+                    logger.debug(f"[ARP SNMP] Error: {errorIndication}")
+                    break
+                if errorStatus:
+                    logger.debug(f"[ARP SNMP] Status error: {errorStatus.prettyPrint()}")
+                    break
                 
-                entries.append({"ip": ip, "mac": mac})
+                for varBind in varBinds:
+                    oid = str(varBind[0])
+                    value = varBind[1]
+                    
+                    # Estrai IP dall'OID
+                    # OID format: 1.3.6.1.2.1.4.22.1.2.<ifIndex>.<ip1>.<ip2>.<ip3>.<ip4>
+                    try:
+                        parts = oid.split('.')
+                        if len(parts) >= 15:
+                            ip = '.'.join(parts[11:15])
+                            
+                            # MAC è in formato bytes
+                            mac_bytes = value.asOctets() if hasattr(value, 'asOctets') else bytes(value)
+                            if len(mac_bytes) == 6:
+                                mac = ':'.join(format(b, '02X') for b in mac_bytes)
+                            else:
+                                # Prova prettyPrint
+                                mac = value.prettyPrint() if hasattr(value, 'prettyPrint') else str(value)
+                                mac = mac.replace("0x", "").upper()
+                                if len(mac) == 12:
+                                    mac = ':'.join(mac[i:i+2] for i in range(0, 12, 2))
+                            
+                            # Ignora MAC invalidi
+                            if not mac or mac in ["00:00:00:00:00:00", "FF:FF:FF:FF:FF:FF", ""]:
+                                continue
+                            
+                            # Filtra per network se specificato
+                            if net:
+                                try:
+                                    if ipaddress.ip_address(ip) not in net:
+                                        continue
+                                except:
+                                    continue
+                            
+                            entries.append({"ip": ip, "mac": mac})
+                    except Exception as e:
+                        logger.debug(f"[ARP SNMP] Parse error: {e}")
+                        continue
             
             logger.info(f"[ARP SNMP] Got {len(entries)} entries from {address}")
             return CommandResult(
