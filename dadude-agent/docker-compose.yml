@@ -21,8 +21,8 @@ services:
       - ./config:/app/config:ro
       # Monta socket Docker per permettere auto-update
       - /var/run/docker.sock:/var/run/docker.sock
-      # Monta directory agent per aggiornare il codice
-      - .:/opt/dadude-agent
+      # Monta directory root del repo per git pull (parent di dadude-agent/)
+      - ../:/opt/dadude-agent
     
     # Working directory per update
     working_dir: /app
