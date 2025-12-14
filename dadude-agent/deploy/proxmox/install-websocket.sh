@@ -517,28 +517,19 @@ apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
 echo -e "\n${BLUE}[5/6] Clono repository e configuro...${NC}"
 
 pct exec $CTID -- bash -c "
-# Clona repo completo per supportare git pull updates
+# Clona repo completo - il .git rimane nel root del repo
 cd /opt
 git clone https://github.com/grandir66/dadude.git dadude-repo
 
-# Copia i file dell'agent nella directory operativa
-mkdir -p /opt/dadude-agent
-cp -r dadude-repo/dadude-agent/* /opt/dadude-agent/
+# Crea symlink alla directory agent
+ln -sf /opt/dadude-repo/dadude-agent /opt/dadude-agent
 
-# Inizializza git nella directory agent per futuri update
-cd /opt/dadude-agent
-git init
-git remote add origin https://github.com/grandir66/dadude.git
-git fetch origin main
-git checkout -b main
-git reset --soft origin/main
-
-# Cleanup repo temporaneo
-rm -rf /opt/dadude-repo
+# La directory operativa è /opt/dadude-repo/dadude-agent
+# Per gli update: cd /opt/dadude-repo && git pull
 "
 
-# Crea .env per modalità WebSocket
-pct exec $CTID -- bash -c "cat > /opt/dadude-agent/.env << 'EOF'
+# Crea .env per modalità WebSocket (nella directory reale, non symlink)
+pct exec $CTID -- bash -c "cat > /opt/dadude-repo/dadude-agent/.env << 'EOF'
 # DaDude Agent v2.0 - WebSocket Mode
 DADUDE_SERVER_URL=${SERVER_URL}
 DADUDE_AGENT_ID=${AGENT_ID}
@@ -551,7 +542,7 @@ DADUDE_DATA_DIR=/var/lib/dadude-agent
 EOF"
 
 # Crea docker-compose per modalità WebSocket
-pct exec $CTID -- bash -c 'cat > /opt/dadude-agent/docker-compose.yml << '"'"'EOF'"'"'
+pct exec $CTID -- bash -c 'cat > /opt/dadude-repo/dadude-agent/docker-compose.yml << '"'"'EOF'"'"'
 services:
   dadude-agent:
     build: .
@@ -569,11 +560,14 @@ services:
     
     volumes:
       - ./data:/var/lib/dadude-agent
-      # Per auto-update
+      # Per auto-update - monta il root del repo per avere .git
       - /var/run/docker.sock:/var/run/docker.sock
-      - .:/opt/dadude-agent
+      - /opt/dadude-repo:/opt/dadude-agent
     
     command: ["python", "-m", "app.agent"]
+    
+    # Working directory dentro il container
+    working_dir: /opt/dadude-agent/dadude-agent
     
     healthcheck:
       test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
@@ -583,12 +577,12 @@ services:
 EOF'
 
 # Crea directory dati
-pct exec $CTID -- mkdir -p /opt/dadude-agent/data
+pct exec $CTID -- mkdir -p /opt/dadude-repo/dadude-agent/data
 
 # Build e avvia
 echo -e "\n${BLUE}[6/6] Build e avvio container Docker...${NC}"
 
-pct exec $CTID -- bash -c "cd /opt/dadude-agent && docker compose build && docker compose up -d"
+pct exec $CTID -- bash -c "cd /opt/dadude-repo/dadude-agent && docker compose build && docker compose up -d"
 
 sleep 5
 
@@ -633,4 +627,7 @@ echo -e "${BLUE}Comandi utili:${NC}"
 echo "  pct exec $CTID -- docker logs -f dadude-agent-ws    # Log in tempo reale"
 echo "  pct exec $CTID -- docker restart dadude-agent-ws    # Riavvia agent"
 echo "  pct exec $CTID -- bash                              # Shell nel container"
+echo ""
+echo -e "${BLUE}Aggiornamento manuale:${NC}"
+echo "  pct exec $CTID -- bash -c 'cd /opt/dadude-repo && git pull && cd dadude-agent && docker compose build && docker compose up -d'"
 echo ""
