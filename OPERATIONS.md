@@ -15,17 +15,7 @@
 - **IP Container**: 192.168.4.193
 - **Agent ID**: agent-Domarc
 
-### Agent Rete 99
-- **Host Proxmox**: 192.168.99.10
-- **Container LXC**: 903
-- **IP Container**: 192.168.99.14
-- **Agent ID**: agent-rete99
-
-### Agent Test2
-- **Host Proxmox**: 192.168.99.10
-- **Container LXC**: 901
-- **IP Container**: 192.168.99.74
-- **Agent ID**: agent-test2
+<!-- Agent 901 e 903 eliminati -->
 
 ---
 
@@ -65,15 +55,6 @@ ssh root@192.168.40.3 "pct exec 610 -- docker logs dadude-agent --tail 50"
 ssh root@192.168.40.3 "pct exec 610 -- docker logs dadude-agent -f"
 ```
 
-### Agent Rete 99 (903)
-```bash
-# Ultimi 50 log
-ssh root@192.168.99.10 "pct exec 903 -- docker logs dadude-agent --tail 50"
-
-# Log in tempo reale
-ssh root@192.168.99.10 "pct exec 903 -- docker logs dadude-agent -f"
-```
-
 ---
 
 ## Deploy e Aggiornamenti
@@ -92,17 +73,6 @@ docker compose up -d
 ### Aggiornare Agent Domarc (610)
 ```bash
 ssh root@192.168.40.3 "pct exec 610 -- bash -c '
-cd /opt/dadude-agent && 
-git pull origin main && 
-cd dadude-agent && 
-docker compose build --quiet && 
-docker compose up -d
-'"
-```
-
-### Aggiornare Agent Rete 99 (903)
-```bash
-ssh root@192.168.99.10 "pct exec 903 -- bash -c '
 cd /opt/dadude-agent && 
 git pull origin main && 
 cd dadude-agent && 
