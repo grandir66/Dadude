@@ -51,9 +51,14 @@
                         {% endif %}
                     </td>
                     <td>
-                        <a href="/customers/{{ customer.id }}" class="btn btn-sm btn-outline-primary">
-                            <i class="bi bi-eye"></i>
-                        </a>
+                        <div class="btn-group btn-group-sm">
+                            <a href="/customers/{{ customer.id }}" class="btn btn-outline-primary" title="Visualizza">
+                                <i class="bi bi-eye"></i>
+                            </a>
+                            <button class="btn btn-outline-danger" onclick="deleteCustomer('{{ customer.id }}', '{{ customer.name }}')" title="Elimina">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </div>
                     </td>
                 </tr>
                 {% else %}
@@ -143,5 +148,32 @@ document.getElementById('newCustomerForm').addEventListener('submit', async (e) 
         alert('Errore di connessione');
     }
 });
+
+async function deleteCustomer(customerId, customerName) {
+    if (!confirm(`⚠️ Eliminare il cliente "${customerName}"?\n\nATTENZIONE: Verranno eliminati anche tutti gli agent, reti, credenziali e dispositivi associati!`)) {
+        return;
+    }
+    
+    // Doppia conferma per sicurezza
+    if (!confirm(`Conferma finale: eliminare definitivamente "${customerName}" e tutti i dati associati?`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/v1/customers/${customerId}`, {
+            method: 'DELETE'
+        });
+        
+        if (response.ok) {
+            alert('Cliente eliminato con successo');
+            location.reload();
+        } else {
+            const error = await response.json();
+            alert('Errore: ' + (error.detail || 'Eliminazione fallita'));
+        }
+    } catch (e) {
+        alert('Errore di connessione: ' + e.message);
+    }
+}
 </script>
 {% endblock %}

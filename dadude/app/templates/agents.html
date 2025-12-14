@@ -328,6 +328,9 @@ async function loadActiveAgents() {
                                     <button class="btn btn-outline-warning" onclick="restartAgent('${a.id}')" title="Riavvia">
                                         <i class="bi bi-arrow-clockwise"></i>
                                     </button>
+                                    <button class="btn btn-outline-danger" onclick="deleteAgent('${a.id}', '${a.name}')" title="Elimina">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
                                 </div>
                             </td>
                         </tr>
@@ -458,6 +461,28 @@ async function rejectAgent(agentId) {
             loadAgents();
         } else {
             alert('Errore nella cancellazione');
+        }
+    } catch (e) {
+        alert('Errore: ' + e.message);
+    }
+}
+
+async function deleteAgent(agentId, agentName) {
+    if (!confirm(`⚠️ Eliminare l'agent "${agentName}"?\n\nL'agent verrà rimosso dal sistema.`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/v1/customers/agents/${agentId}`, {
+            method: 'DELETE'
+        });
+        
+        if (response.ok) {
+            alert('Agent eliminato con successo');
+            loadAgents();
+        } else {
+            const error = await response.json();
+            alert('Errore: ' + (error.detail || 'Eliminazione fallita'));
         }
     } catch (e) {
         alert('Errore: ' + e.message);
