@@ -1440,69 +1440,6 @@ async def scan_customer_networks(
                     open_ports=open_ports_data if open_ports_data else None,
                 )
                 session.add(dev_record)
-                
-                # ==========================================
-                # AUTO-ADD TO INVENTORY
-                # ==========================================
-                from ..models.database import InventoryDevice
-                import json
-                
-                # Cerca se esiste già nell'inventario (per IP o MAC)
-                existing = None
-                if device_ip:
-                    existing = session.query(InventoryDevice).filter(
-                        InventoryDevice.customer_id == agent.customer_id,
-                        InventoryDevice.primary_ip == device_ip
-                    ).first()
-                if not existing and device_mac:
-                    existing = session.query(InventoryDevice).filter(
-                        InventoryDevice.customer_id == agent.customer_id,
-                        InventoryDevice.mac_address == device_mac
-                    ).first()
-                
-                if existing:
-                    # Aggiorna dispositivo esistente
-                    if device_mac and not existing.mac_address:
-                        existing.mac_address = device_mac
-                    if hostname and not existing.hostname:
-                        existing.hostname = hostname
-                    if open_ports_data:
-                        existing.open_ports = json.dumps(open_ports_data) if isinstance(open_ports_data, list) else open_ports_data
-                    existing.last_seen = datetime.now()
-                    logger.debug(f"Updated inventory device: {device_ip}")
-                else:
-                    # Crea nuovo dispositivo nell'inventario
-                    from ..services.mac_lookup_service import get_mac_lookup_service
-                    
-                    # Lookup vendor MAC
-                    vendor = ""
-                    device_type = ""
-                    if device_mac:
-                        try:
-                            mac_service = get_mac_lookup_service()
-                            mac_info = mac_service.lookup(device_mac)
-                            if mac_info:
-                                vendor = mac_info.get("vendor", "")
-                                device_type = mac_info.get("device_type", "")
-                        except Exception as e:
-                            logger.debug(f"MAC lookup failed: {e}")
-                    
-                    inv_device = InventoryDevice(
-                        customer_id=agent.customer_id,
-                        primary_ip=device_ip,
-                        mac_address=device_mac,
-                        hostname=hostname or identity,
-                        device_name=identity or hostname or device_ip,
-                        manufacturer=vendor,
-                        device_type=device_type or device.get("platform", ""),
-                        open_ports=json.dumps(open_ports_data) if open_ports_data else None,
-                        discovery_method="network_scan",
-                        first_seen=datetime.now(),
-                        last_seen=datetime.now(),
-                        status="discovered",
-                    )
-                    session.add(inv_device)
-                    logger.info(f"Added to inventory: {device_ip} ({device_mac}) - {vendor}")
         
         session.commit()
         scan_id = scan_record.id
