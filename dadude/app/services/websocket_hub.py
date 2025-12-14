@@ -41,6 +41,7 @@ class CommandType(str, Enum):
     PORT_SCAN = "port_scan"
     SCAN_PORTS = "port_scan"  # Alias per compatibilità
     DNS_REVERSE = "dns_reverse"
+    GET_ARP_TABLE = "get_arp_table"  # Query ARP da MikroTik o SNMP
     UPDATE_AGENT = "update_agent"
     RESTART = "restart"
     REBOOT = "reboot"

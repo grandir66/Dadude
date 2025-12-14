@@ -24,6 +24,9 @@ class CommandAction(str, Enum):
     PROBE_SSH = "probe_ssh"
     PROBE_SNMP = "probe_snmp"
     
+    # ARP table lookup (MikroTik API o SNMP)
+    GET_ARP_TABLE = "get_arp_table"
+    
     # Agent management
     UPDATE_AGENT = "update_agent"
     RESTART = "restart"
@@ -153,6 +156,9 @@ class CommandHandler:
         
         elif action == CommandAction.PROBE_SNMP.value:
             return await self._probe_snmp(params)
+        
+        elif action == CommandAction.GET_ARP_TABLE.value:
+            return await self._get_arp_table(params)
         
         # Agent management
         elif action == CommandAction.UPDATE_AGENT.value:
@@ -324,6 +330,201 @@ class CommandHandler:
             )
             return CommandResult(success=True, status="success", data=result)
         except Exception as e:
+            return CommandResult(success=False, status="error", error=str(e))
+    
+    async def _get_arp_table(self, params: Dict) -> CommandResult:
+        """
+        Ottiene tabella ARP da un gateway (MikroTik API o SNMP generico).
+        
+        Params:
+            method: "mikrotik" o "snmp"
+            network_cidr: es. "192.168.1.0/24" per filtrare
+            
+            Per MikroTik:
+                address, port, username, password, use_ssl
+                
+            Per SNMP:
+                address, community, version (1, 2c)
+        """
+        method = params.get("method", "mikrotik")
+        network_cidr = params.get("network_cidr")
+        
+        if method == "mikrotik":
+            return await self._get_arp_mikrotik(params, network_cidr)
+        elif method == "snmp":
+            return await self._get_arp_snmp(params, network_cidr)
+        else:
+            return CommandResult(
+                success=False, 
+                status="error", 
+                error=f"Unknown method: {method}. Use 'mikrotik' or 'snmp'"
+            )
+    
+    async def _get_arp_mikrotik(self, params: Dict, network_cidr: str = None) -> CommandResult:
+        """Query ARP table via MikroTik RouterOS API"""
+        import ipaddress
+        
+        address = params.get("address")
+        port = params.get("port", 8728)
+        username = params.get("username", "admin")
+        password = params.get("password", "")
+        use_ssl = params.get("use_ssl", False)
+        
+        if not address:
+            return CommandResult(success=False, status="error", error="Missing 'address' parameter")
+        
+        try:
+            import routeros_api
+            
+            loop = asyncio.get_event_loop()
+            
+            def connect_and_get_arp():
+                # Connessione MikroTik
+                connection = routeros_api.RouterOsApiPool(
+                    address,
+                    port=port,
+                    username=username,
+                    password=password,
+                    use_ssl=use_ssl,
+                    ssl_verify=False,
+                    plaintext_login=True,
+                )
+                api = connection.get_api()
+                
+                # Ottieni ARP table
+                arp_resource = api.get_resource('/ip/arp')
+                arps = arp_resource.get()
+                
+                connection.disconnect()
+                return arps
+            
+            arps = await loop.run_in_executor(None, connect_and_get_arp)
+            
+            # Filtra per network se specificato
+            entries = []
+            net = None
+            if network_cidr:
+                try:
+                    net = ipaddress.ip_network(network_cidr, strict=False)
+                except:
+                    pass
+            
+            for a in arps:
+                ip = a.get("address", "")
+                mac = a.get("mac-address", "")
+                
+                if not ip or not mac:
+                    continue
+                    
+                # Filtra per network
+                if net:
+                    try:
+                        if ipaddress.ip_address(ip) not in net:
+                            continue
+                    except:
+                        continue
+                
+                entries.append({
+                    "ip": ip,
+                    "mac": mac,
+                    "interface": a.get("interface", ""),
+                })
+            
+            logger.info(f"[ARP MikroTik] Got {len(entries)} entries from {address}")
+            return CommandResult(
+                success=True, 
+                status="success", 
+                data={"entries": entries, "count": len(entries), "source": f"mikrotik:{address}"}
+            )
+            
+        except Exception as e:
+            logger.error(f"[ARP MikroTik] Error: {e}")
+            return CommandResult(success=False, status="error", error=str(e))
+    
+    async def _get_arp_snmp(self, params: Dict, network_cidr: str = None) -> CommandResult:
+        """Query ARP table via SNMP (generic router)"""
+        import ipaddress
+        
+        address = params.get("address")
+        community = params.get("community", "public")
+        version = params.get("version", "2c")
+        
+        if not address:
+            return CommandResult(success=False, status="error", error="Missing 'address' parameter")
+        
+        try:
+            from pysnmp.hlapi import (
+                SnmpEngine, CommunityData, UdpTransportTarget, ContextData,
+                ObjectType, ObjectIdentity, bulkCmd
+            )
+            
+            loop = asyncio.get_event_loop()
+            
+            def get_arp_via_snmp():
+                # OID per ipNetToMediaPhysAddress (ARP table)
+                # 1.3.6.1.2.1.4.22.1.2 = MAC address
+                # 1.3.6.1.2.1.4.22.1.3 = IP address
+                
+                arp_entries = {}
+                mp_model = 1 if version == "2c" else 0
+                
+                for (errorIndication, errorStatus, errorIndex, varBinds) in bulkCmd(
+                    SnmpEngine(),
+                    CommunityData(community, mpModel=mp_model),
+                    UdpTransportTarget((address, 161), timeout=2, retries=1),
+                    ContextData(),
+                    0, 25,  # non-repeaters, max-repetitions
+                    ObjectType(ObjectIdentity('1.3.6.1.2.1.4.22.1.2')),  # MAC
+                    lexicographicMode=False
+                ):
+                    if errorIndication or errorStatus:
+                        break
+                    
+                    for varBind in varBinds:
+                        oid = str(varBind[0])
+                        value = varBind[1]
+                        
+                        # Estrai IP dall'OID (ultimi 4 ottetti)
+                        # OID format: 1.3.6.1.2.1.4.22.1.2.<ifIndex>.<ip1>.<ip2>.<ip3>.<ip4>
+                        parts = oid.split('.')
+                        if len(parts) >= 4:
+                            ip = '.'.join(parts[-4:])
+                            # MAC è in formato ottetti
+                            mac = ':'.join(format(b, '02x') for b in bytes(value))
+                            arp_entries[ip] = mac
+                
+                return arp_entries
+            
+            arp_data = await loop.run_in_executor(None, get_arp_via_snmp)
+            
+            # Filtra per network se specificato
+            entries = []
+            net = None
+            if network_cidr:
+                try:
+                    net = ipaddress.ip_network(network_cidr, strict=False)
+                except:
+                    pass
+            
+            for ip, mac in arp_data.items():
+                if net:
+                    try:
+                        if ipaddress.ip_address(ip) not in net:
+                            continue
+                    except:
+                        continue
+                
+                entries.append({"ip": ip, "mac": mac})
+            
+            logger.info(f"[ARP SNMP] Got {len(entries)} entries from {address}")
+            return CommandResult(
+                success=True, 
+                status="success", 
+                data={"entries": entries, "count": len(entries), "source": f"snmp:{address}"}
+            )
+            
+        except Exception as e:
+            logger.error(f"[ARP SNMP] Error: {e}")
             return CommandResult(success=False, status="error", error=str(e))
     
     # ==========================================
