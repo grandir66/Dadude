@@ -1138,7 +1138,7 @@ async def scan_customer_networks(
                         },
                         timeout=60.0
                     )
-                    if arp_result.success and arp_result.data:
+                    if arp_result.status == "success" and arp_result.data:
                         for entry in arp_result.data.get("entries", []):
                             arp_cache[entry["ip"]] = entry["mac"]
                         logger.info(f"[ARP CACHE] Got {len(arp_cache)} MAC addresses from MikroTik via agent")
@@ -1162,7 +1162,7 @@ async def scan_customer_networks(
                     },
                     timeout=60.0
                 )
-                if arp_result.success and arp_result.data:
+                if arp_result.status == "success" and arp_result.data:
                     for entry in arp_result.data.get("entries", []):
                         arp_cache[entry["ip"]] = entry["mac"]
                     logger.info(f"[ARP CACHE] Got {len(arp_cache)} MAC addresses from SNMP via agent")
@@ -1193,7 +1193,7 @@ async def scan_customer_networks(
                                 },
                                 timeout=60.0
                             )
-                            if arp_result.success and arp_result.data and arp_result.data.get("count", 0) > 0:
+                            if arp_result.status == "success" and arp_result.data and arp_result.data.get("count", 0) > 0:
                                 for entry in arp_result.data.get("entries", []):
                                     arp_cache[entry["ip"]] = entry["mac"]
                                 logger.info(f"[ARP CACHE] Got {len(arp_cache)} MAC addresses from {mikrotik_agent.name} via agent")
