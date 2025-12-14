@@ -497,26 +497,77 @@ class CommandHandler:
                     oid = str(varBind[0])
                     value = varBind[1]
                     
+                    # Debug: log raw values
+                    logger.debug(f"[ARP SNMP] OID: {oid}, Value type: {type(value).__name__}, Value: {value}")
+                    
                     # Estrai IP dall'OID
                     # OID format: 1.3.6.1.2.1.4.22.1.2.<ifIndex>.<ip1>.<ip2>.<ip3>.<ip4>
                     try:
                         parts = oid.split('.')
-                        if len(parts) >= 15:
-                            ip = '.'.join(parts[11:15])
+                        # L'OID base è 1.3.6.1.2.1.4.22.1.2 (10 parti), poi ifIndex (1), poi IP (4)
+                        # Quindi le ultime 4 parti sono l'IP
+                        if len(parts) >= 4:
+                            ip = '.'.join(parts[-4:])
                             
-                            # MAC è in formato bytes
-                            mac_bytes = value.asOctets() if hasattr(value, 'asOctets') else bytes(value)
-                            if len(mac_bytes) == 6:
-                                mac = ':'.join(format(b, '02X') for b in mac_bytes)
-                            else:
-                                # Prova prettyPrint
-                                mac = value.prettyPrint() if hasattr(value, 'prettyPrint') else str(value)
-                                mac = mac.replace("0x", "").upper()
-                                if len(mac) == 12:
-                                    mac = ':'.join(mac[i:i+2] for i in range(0, 12, 2))
+                            # Verifica che sia un IP valido
+                            try:
+                                ipaddress.ip_address(ip)
+                            except:
+                                logger.debug(f"[ARP SNMP] Invalid IP from OID: {ip}")
+                                continue
+                            
+                            # Estrai MAC address dal valore
+                            mac = None
+                            
+                            # Metodo 1: asOctets() per OctetString
+                            if hasattr(value, 'asOctets'):
+                                try:
+                                    mac_bytes = value.asOctets()
+                                    if len(mac_bytes) == 6:
+                                        mac = ':'.join(format(b, '02X') for b in mac_bytes)
+                                except:
+                                    pass
+                            
+                            # Metodo 2: hasValue e __bytes__
+                            if not mac and hasattr(value, '__bytes__'):
+                                try:
+                                    mac_bytes = bytes(value)
+                                    if len(mac_bytes) == 6:
+                                        mac = ':'.join(format(b, '02X') for b in mac_bytes)
+                                except:
+                                    pass
+                            
+                            # Metodo 3: prettyPrint per format 0x...
+                            if not mac and hasattr(value, 'prettyPrint'):
+                                try:
+                                    pretty = value.prettyPrint()
+                                    # Format: "0xAABBCCDDEEFF" o "AA:BB:CC:DD:EE:FF"
+                                    if pretty.startswith('0x'):
+                                        hex_str = pretty[2:].upper()
+                                        if len(hex_str) == 12:
+                                            mac = ':'.join(hex_str[i:i+2] for i in range(0, 12, 2))
+                                    elif ':' in pretty and len(pretty) == 17:
+                                        mac = pretty.upper()
+                                except:
+                                    pass
+                            
+                            # Metodo 4: raw string
+                            if not mac:
+                                try:
+                                    raw = str(value)
+                                    # Potrebbe essere in formato hex senza 0x
+                                    clean = raw.replace(':', '').replace('-', '').replace(' ', '').upper()
+                                    if len(clean) == 12 and all(c in '0123456789ABCDEF' for c in clean):
+                                        mac = ':'.join(clean[i:i+2] for i in range(0, 12, 2))
+                                except:
+                                    pass
+                            
+                            if not mac:
+                                logger.debug(f"[ARP SNMP] Could not parse MAC for IP {ip}: {value} (type: {type(value).__name__})")
+                                continue
                             
                             # Ignora MAC invalidi
-                            if not mac or mac in ["00:00:00:00:00:00", "FF:FF:FF:FF:FF:FF", ""]:
+                            if mac in ["00:00:00:00:00:00", "FF:FF:FF:FF:FF:FF"]:
                                 continue
                             
                             # Filtra per network se specificato
@@ -527,6 +578,7 @@ class CommandHandler:
                                 except:
                                     continue
                             
+                            logger.debug(f"[ARP SNMP] Found: {ip} -> {mac}")
                             entries.append({"ip": ip, "mac": mac})
                     except Exception as e:
                         logger.debug(f"[ARP SNMP] Parse error: {e}")
