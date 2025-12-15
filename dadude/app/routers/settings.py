@@ -64,7 +64,8 @@ def _write_env_file(env_vars: dict, env_path: str = ".env"):
     with open(env_path, "w") as f:
         for key, value in sorted(env_vars.items()):
             if value is not None:
-                f.write(f'{key}="{value}"\n')
+                # Non aggiungere virgolette ai valori
+                f.write(f'{key}={value}\n')
 
 
 @router.get("/current")

@@ -42,7 +42,9 @@ class SettingsService:
                 
                 if '=' in line:
                     key, value = line.split('=', 1)
-                    env_vars[key.strip()] = value.strip()
+                    # Rimuovi virgolette dal valore
+                    value = value.strip().strip('"').strip("'")
+                    env_vars[key.strip()] = value
         
         return env_vars
     
