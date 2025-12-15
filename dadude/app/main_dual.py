@@ -291,13 +291,19 @@ async def proxy_ws_connected_middleware(request: Request, call_next):
     This is necessary because Admin UI and Agent API run in separate processes,
     so they have separate WebSocket Hub instances.
     """
+    logger.debug(f"Middleware: {request.method} {request.url.path}")
+
     if request.url.path == "/api/v1/agents/ws/connected" and request.method == "GET":
+        logger.info("Middleware intercepting ws/connected - proxying to Agent API")
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
                 response = await client.get("http://localhost:8000/api/v1/agents/ws/connected")
+                logger.info(f"Proxy response: {response.status_code}")
 
                 if response.status_code == 200:
-                    return JSONResponse(content=response.json())
+                    data = response.json()
+                    logger.info(f"Proxy data: count={data.get('count', 0)}")
+                    return JSONResponse(content=data)
                 else:
                     logger.error(f"Proxy to Agent API failed: {response.status_code}")
                     return JSONResponse(content={"count": 0, "agents": [], "error": f"Agent API returned {response.status_code}"})
