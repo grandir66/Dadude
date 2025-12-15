@@ -357,6 +357,34 @@ async def admin_exec_command(agent_db_id: str, request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@admin_app.get("/api/v1/admin/agents/{agent_db_id}/verify-version", tags=["Admin"])
+async def admin_verify_version(agent_db_id: str):
+    """
+    Verify agent version (Admin UI proxy version).
+
+    This endpoint proxies the request to the Agent API's WebSocket Hub
+    since Admin UI runs in a separate process.
+    """
+    logger.info(f"Admin UI verifying version for agent {agent_db_id} via proxy")
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(f"http://localhost:8000/api/v1/agents/{agent_db_id}/verify-version")
+
+            if response.status_code == 200:
+                data = response.json()
+                logger.info(f"Verify-version proxy successful for agent {agent_db_id}")
+                return data
+            else:
+                logger.error(f"Verify-version proxy failed: {response.status_code}")
+                return JSONResponse(
+                    status_code=response.status_code,
+                    content=response.json() if response.content else {"error": "Proxy failed"}
+                )
+    except Exception as e:
+        logger.error(f"Verify-version proxy error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # Registra tutti gli altri router AFTER proxy endpoints
 admin_app.include_router(devices.router, prefix="/api/v1")
 admin_app.include_router(probes.router, prefix="/api/v1")

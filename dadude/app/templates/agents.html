@@ -862,7 +862,8 @@ function addToHistory(cmd) {
 async function testAgent(agentId, address, port) {
     try {
         // Usa l'API del server per verificare (supporta WebSocket e HTTP)
-        const response = await fetch(`/api/v1/agents/${agentId}/verify-version`);
+        // Use admin proxy endpoint for cross-process WebSocket Hub access
+        const response = await fetch(`/api/v1/admin/agents/${agentId}/verify-version`);
         const data = await response.json();
         
         if (data.success && data.agent_online) {
@@ -938,7 +939,8 @@ async function updateAllAgents() {
 
 async function verifyAgentVersion(agentId, agentName) {
     try {
-        const response = await fetch(`/api/v1/agents/${agentId}/verify-version`);
+        // Use admin proxy endpoint for cross-process WebSocket Hub access
+        const response = await fetch(`/api/v1/admin/agents/${agentId}/verify-version`);
         const data = await response.json();
         
         if (data.success) {
