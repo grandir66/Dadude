@@ -915,25 +915,41 @@ class CommandHandler:
     async def _nmap_network_scan(self, network: str, scan_type: str) -> list:
         """Scansione rete con nmap (asincrono per non bloccare heartbeat)"""
         try:
-            # Scan con multiple tecniche per massima discovery
+            # Scan con parametri ottimizzati per affidabilità
             # -sn = no port scan (solo discovery)
             # -PE = ICMP echo ping
             # -PP = ICMP timestamp ping  
-            # -PM = ICMP netmask ping
-            # -PS22,80,443,3389 = TCP SYN ping su porte comuni
-            # -PA80,443 = TCP ACK ping
-            # -PU53 = UDP ping
-            # --min-rate=100 = velocizza scan
-            cmd = ["nmap", "-sn", "-PE", "-PP", "-PS22,80,443,3389,8080", "-PA80,443", "-n", "--min-rate=100", network]
+            # -PS22,80,443 = TCP SYN ping su porte comuni
+            # --max-retries=3 = riprova 3 volte
+            # --host-timeout=30s = timeout per host
+            # --max-rtt-timeout=1000ms = attendi fino a 1s per risposta
+            # -T3 = timing normale (non troppo veloce)
+            cmd = [
+                "nmap", "-sn", "-PE", "-PP", "-PS22,80,443,3389", 
+                "-n", "-T3", 
+                "--max-retries=3", 
+                "--host-timeout=30s",
+                "--max-rtt-timeout=1000ms",
+                network
+            ]
             
             if scan_type == "arp":
                 # ARP scan - funziona solo su subnet locale
-                cmd = ["nmap", "-sn", "-PR", "--send-eth", network]
-            elif scan_type == "aggressive":
-                # Scan aggressivo con tutte le tecniche
-                cmd = ["nmap", "-sn", "-PE", "-PP", "-PM", "-PS21,22,23,25,80,443,445,3389,8080", "-PA80,443", "-PU53,161", "-n", "--min-rate=50", network]
+                cmd = ["nmap", "-sn", "-PR", "--send-eth", "-T3", network]
+            elif scan_type == "aggressive" or scan_type == "slow":
+                # Scan lento ma completo
+                cmd = [
+                    "nmap", "-sn", "-PE", "-PP", "-PM", 
+                    "-PS21,22,23,25,80,443,445,3389,8080", 
+                    "-PA80,443", "-PU53,161", 
+                    "-n", "-T2",  # Timing più lento
+                    "--max-retries=5",
+                    "--host-timeout=60s",
+                    "--max-rtt-timeout=2000ms",
+                    network
+                ]
             elif scan_type == "all":
-                cmd = ["nmap", "-sS", "-sV", "-O", "--top-ports", "100", network]
+                cmd = ["nmap", "-sS", "-sV", "-O", "--top-ports", "100", "-T3", network]
             
             # Usa subprocess asincrono per non bloccare l'event loop
             proc = await asyncio.create_subprocess_exec(
