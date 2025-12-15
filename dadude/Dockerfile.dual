@@ -16,10 +16,18 @@ ENV TZ=Europe/Rome
 # Working directory
 WORKDIR /app
 
-# Install system dependencies (curl for healthcheck)
+# Install system dependencies (curl for healthcheck, docker-cli for restart)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    openssl \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Docker CLI for self-restart capability
+RUN curl -fsSL https://download.docker.com/linux/static/stable/x86_64/docker-27.3.1.tgz | \
+    tar xz -C /tmp && \
+    mv /tmp/docker/docker /usr/local/bin/docker && \
+    rm -rf /tmp/docker && \
+    chmod +x /usr/local/bin/docker
 
 # Install Python dependencies
 COPY requirements.txt .
