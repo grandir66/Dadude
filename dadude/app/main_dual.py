@@ -264,24 +264,8 @@ async def admin_exception_handler(request: Request, exc: Exception):
         content={"error": "Internal server error", "detail": str(exc)},
     )
 
-# Registra tutti gli altri router
-admin_app.include_router(devices.router, prefix="/api/v1")
-admin_app.include_router(probes.router, prefix="/api/v1")
-admin_app.include_router(alerts.router, prefix="/api/v1")
-admin_app.include_router(webhook.router, prefix="/api/v1")
-admin_app.include_router(system.router, prefix="/api/v1")
-admin_app.include_router(customers.router, prefix="/api/v1")
-admin_app.include_router(mikrotik.router, prefix="/api/v1")
-admin_app.include_router(inventory.router, prefix="/api/v1")
-admin_app.include_router(import_export.router, prefix="/api/v1")
-admin_app.include_router(discovery.router, prefix="/api/v1")
-
-# IMPORTANTE: Include anche agents router per endpoints di management
-# (pending, outdated, approve, etc.)
-admin_app.include_router(agents.router, prefix="/api/v1")
-
-# Add Admin-specific endpoint for WebSocket Hub queries
-# Admin UI will use this endpoint which proxies to Agent API
+# Add Admin-specific proxy endpoints BEFORE including agents router
+# These endpoints proxy requests to the Agent API's WebSocket Hub
 import httpx
 
 @admin_app.get("/api/v1/admin/agents/ws/connected", tags=["Admin"])
@@ -371,6 +355,24 @@ async def admin_exec_command(agent_db_id: str, request: Request):
     except Exception as e:
         logger.error(f"Exec proxy error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# Registra tutti gli altri router AFTER proxy endpoints
+admin_app.include_router(devices.router, prefix="/api/v1")
+admin_app.include_router(probes.router, prefix="/api/v1")
+admin_app.include_router(alerts.router, prefix="/api/v1")
+admin_app.include_router(webhook.router, prefix="/api/v1")
+admin_app.include_router(system.router, prefix="/api/v1")
+admin_app.include_router(customers.router, prefix="/api/v1")
+admin_app.include_router(mikrotik.router, prefix="/api/v1")
+admin_app.include_router(inventory.router, prefix="/api/v1")
+admin_app.include_router(import_export.router, prefix="/api/v1")
+admin_app.include_router(discovery.router, prefix="/api/v1")
+
+# IMPORTANTE: Include anche agents router per endpoints di management
+# (pending, outdated, approve, etc.)
+# This is registered AFTER proxy endpoints so proxies take precedence
+admin_app.include_router(agents.router, prefix="/api/v1")
 
 # Dashboard (senza prefisso API)
 admin_app.include_router(dashboard.router)
