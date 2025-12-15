@@ -2016,12 +2016,22 @@ async function showAgentCapabilities(agentId) {
         const response = await fetch(`/api/v1/customers/agents/${agentId}/test`, { method: 'POST' });
         const result = await response.json();
         
-        if (result.results && result.results.docker) {
-            const info = result.results.docker;
-            let msg = `Docker Agent: ${result.status}\n\n`;
+        // Supporta sia WebSocket che HTTP legacy
+        const info = result.results?.websocket || result.results?.docker;
+        
+        if (info) {
+            let msg = `Docker Agent: ${result.status}\n`;
+            msg += `Connessione: ${result.connection_type || 'N/A'}\n\n`;
             msg += `Agent ID: ${info.agent_id || 'N/A'}\n`;
-            msg += `Nome: ${info.agent_name || 'N/A'}\n`;
             msg += `Versione: ${info.version || 'N/A'}\n`;
+            msg += `IP: ${info.ip_address || 'N/A'}\n`;
+            
+            if (info.connected_at) {
+                msg += `Connesso da: ${new Date(info.connected_at).toLocaleString()}\n`;
+            }
+            if (info.last_heartbeat) {
+                msg += `Ultimo heartbeat: ${new Date(info.last_heartbeat).toLocaleString()}\n`;
+            }
             if (info.capabilities) {
                 msg += `\nCapacità:\n`;
                 info.capabilities.forEach(cap => {
@@ -2029,8 +2039,10 @@ async function showAgentCapabilities(agentId) {
                 });
             }
             alert(msg);
+        } else if (result.success) {
+            alert(`Agent connesso: ${result.message}`);
         } else {
-            alert('Agent non raggiungibile o non è un Docker Agent');
+            alert(`Agent non raggiungibile: ${result.message || 'Errore sconosciuto'}`);
         }
     } catch (e) {
         alert('Errore: ' + e.message);
@@ -2169,11 +2181,19 @@ async function testAgent(agentId) {
         
         let msg = `Test ${result.connection_type.toUpperCase()}: ${result.status}\n\n`;
         
-        // Docker Agent
-        if (result.results && result.results.docker) {
+        // Docker Agent via WebSocket
+        if (result.results && result.results.websocket) {
+            const ws = result.results.websocket;
+            msg += `Docker Agent: ✅ Online (WebSocket)\n`;
+            msg += `  Agent ID: ${ws.agent_id || 'N/A'}\n`;
+            msg += `  Versione: ${ws.version || 'N/A'}\n`;
+            msg += `  IP: ${ws.ip_address || 'N/A'}\n`;
+        }
+        // Docker Agent via HTTP (legacy)
+        else if (result.results && result.results.docker) {
             const docker = result.results.docker;
             if (docker.status === 'healthy') {
-                msg += `Docker Agent: ✅ Online\n`;
+                msg += `Docker Agent: ✅ Online (HTTP)\n`;
                 msg += `  Agent ID: ${docker.agent_id || 'N/A'}\n`;
                 msg += `  Nome: ${docker.agent_name || 'N/A'}\n`;
                 msg += `  Versione: ${docker.version || 'N/A'}\n`;
