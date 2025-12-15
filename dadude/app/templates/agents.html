@@ -794,26 +794,26 @@ async function execConsoleCommand() {
     output.scrollTop = output.scrollHeight;
     
     try {
-        // Costruisci URL
-        let url = `/api/v1/agents/${agentId}/exec?command=${encodeURIComponent(command)}`;
-        
+        // Costruisci URL usando endpoint proxy per Admin UI
+        let url = `/api/v1/admin/agents/${agentId}/exec?command=${encodeURIComponent(command)}`;
+
         if (targetType === 'ssh') {
             const host = document.getElementById('console-ssh-host').value;
             const user = document.getElementById('console-ssh-user').value || 'root';
             const pass = document.getElementById('console-ssh-pass').value;
             const port = document.getElementById('console-ssh-port').value || 22;
-            
+
             if (!host) {
                 output.textContent += '❌ Errore: Specificare host remoto\n';
                 return;
             }
-            
+
             url += `&target_host=${encodeURIComponent(host)}`;
             url += `&username=${encodeURIComponent(user)}`;
             url += `&port=${port}`;
             if (pass) url += `&password=${encodeURIComponent(pass)}`;
         }
-        
+
         const response = await fetch(url, { method: 'POST' });
         const data = await response.json();
         

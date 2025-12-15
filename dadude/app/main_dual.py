@@ -308,6 +308,70 @@ async def admin_ws_connected():
         logger.error(f"Proxy error: {e}")
         return {"count": 0, "agents": [], "error": str(e)}
 
+
+@admin_app.post("/api/v1/admin/agents/ws/{agent_id}/command", tags=["Admin"])
+async def admin_ws_command(agent_id: str, request: Request):
+    """
+    Send command to agent via WebSocket (Admin UI proxy version).
+
+    This endpoint proxies the request to the Agent API's WebSocket Hub
+    since Admin UI runs in a separate process.
+    """
+    logger.info(f"Admin UI sending command to {agent_id} via proxy")
+    try:
+        body = await request.json()
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                f"http://localhost:8000/api/v1/agents/ws/{agent_id}/command",
+                json=body
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+                logger.info(f"Command proxy successful for {agent_id}")
+                return data
+            else:
+                logger.error(f"Command proxy failed: {response.status_code}")
+                return JSONResponse(
+                    status_code=response.status_code,
+                    content=response.json() if response.content else {"error": "Proxy failed"}
+                )
+    except Exception as e:
+        logger.error(f"Command proxy error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@admin_app.post("/api/v1/admin/agents/{agent_db_id}/exec", tags=["Admin"])
+async def admin_exec_command(agent_db_id: str, request: Request):
+    """
+    Execute command on agent (Admin UI proxy version).
+
+    This endpoint proxies the request to the Agent API's WebSocket Hub
+    since Admin UI runs in a separate process.
+    """
+    logger.info(f"Admin UI executing command on agent {agent_db_id} via proxy")
+    try:
+        # Forward query parameters from original request
+        query_string = str(request.url.query)
+        url = f"http://localhost:8000/api/v1/agents/{agent_db_id}/exec?{query_string}"
+
+        async with httpx.AsyncClient(timeout=90.0) as client:  # Longer timeout for command execution
+            response = await client.post(url)
+
+            if response.status_code == 200:
+                data = response.json()
+                logger.info(f"Exec proxy successful for agent {agent_db_id}")
+                return data
+            else:
+                logger.error(f"Exec proxy failed: {response.status_code}")
+                return JSONResponse(
+                    status_code=response.status_code,
+                    content=response.json() if response.content else {"error": "Proxy failed"}
+                )
+    except Exception as e:
+        logger.error(f"Exec proxy error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # Dashboard (senza prefisso API)
 admin_app.include_router(dashboard.router)
 
