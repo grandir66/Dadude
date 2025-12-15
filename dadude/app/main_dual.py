@@ -274,7 +274,7 @@ async def admin_exception_handler(request: Request, exc: Exception):
         content={"error": "Internal server error", "detail": str(exc)},
     )
 
-# Registra tutti gli altri router (ESCLUSO agents)
+# Registra tutti gli altri router
 admin_app.include_router(devices.router, prefix="/api/v1")
 admin_app.include_router(probes.router, prefix="/api/v1")
 admin_app.include_router(alerts.router, prefix="/api/v1")
@@ -285,6 +285,10 @@ admin_app.include_router(mikrotik.router, prefix="/api/v1")
 admin_app.include_router(inventory.router, prefix="/api/v1")
 admin_app.include_router(import_export.router, prefix="/api/v1")
 admin_app.include_router(discovery.router, prefix="/api/v1")
+
+# IMPORTANTE: Include anche agents router per endpoints di management
+# (pending, outdated, approve, etc.) ma NON per WebSocket/register
+admin_app.include_router(agents.router, prefix="/api/v1")
 
 # Dashboard (senza prefisso API)
 admin_app.include_router(dashboard.router)

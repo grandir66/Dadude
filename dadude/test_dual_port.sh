@@ -75,10 +75,10 @@ test_endpoint $ADMIN_PORT "/dashboard" 200 "Dashboard on Admin UI" && ((PASSED++
 test_endpoint $ADMIN_PORT "/api/v1/customers" 200 "Customers API on Admin UI" && ((PASSED++)) || ((FAILED++))
 test_endpoint $ADMIN_PORT "/api/v1/inventory/devices" 200 "Inventory on Admin UI" && ((PASSED++)) || ((FAILED++))
 
-# Test endpoint che NON devono essere presenti su Admin UI
+# Test endpoint agent management su Admin UI
 echo ""
-echo "Verifying Agent WebSocket is NOT on Admin UI..."
-test_endpoint $ADMIN_PORT "/api/v1/agents/register" 404 "Agent registration NOT on Admin UI" && ((PASSED++)) || ((FAILED++))
+echo "Verifying Agent management on Admin UI..."
+test_endpoint $ADMIN_PORT "/api/v1/agents/pending" 200 "Agent management API on Admin UI" && ((PASSED++)) || ((FAILED++))
 
 echo ""
 echo "=========================================="
