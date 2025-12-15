@@ -206,8 +206,8 @@ async def customers_page(request: Request):
 @router.get("/customers/{customer_id}", response_class=HTMLResponse)
 async def customer_detail_page(request: Request, customer_id: str):
     """Dettaglio cliente"""
-    from ..services.websocket_hub import get_websocket_hub
     import re
+    import httpx
     
     customer_service = get_customer_service()
     
@@ -221,15 +221,21 @@ async def customer_detail_page(request: Request, customer_id: str):
     devices = customer_service.list_device_assignments(customer_id=customer_id, active_only=False)
     agents_raw = customer_service.list_agents(customer_id=customer_id, active_only=False)
     
-    # Arricchisci agents con stato WebSocket real-time
-    hub = get_websocket_hub()
+    # Ottieni stato WebSocket via HTTP dall'Agent API (porta 8000)
     ws_connected_names = set()
-    
-    if hub and hub._connections:
-        for conn_id in hub._connections.keys():
-            match = re.match(r'^agent-(.+?)(?:-\d+)?$', conn_id)
-            if match:
-                ws_connected_names.add(match.group(1))
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get("http://localhost:8000/api/v1/agents/ws/connected")
+            if resp.status_code == 200:
+                ws_data = resp.json()
+                for ws_agent in ws_data.get("agents", []):
+                    agent_id = ws_agent.get("agent_id", "")
+                    match = re.match(r'^agent-(.+?)(?:-\d+)?$', agent_id)
+                    if match:
+                        ws_connected_names.add(match.group(1))
+                logger.debug(f"WebSocket connected names: {ws_connected_names}")
+    except Exception as e:
+        logger.warning(f"Could not fetch WebSocket status: {e}")
     
     # Converti e arricchisci
     agents = []
