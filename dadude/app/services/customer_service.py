@@ -1195,14 +1195,8 @@ class CustomerService:
                         if base_name_norm.rstrip('0123456789') == a_name_norm.rstrip('0123456789'):
                             return self._to_agent_safe(a)
             
-            # Cerca per indirizzo IP (se fornito)
-            if address:
-                agent = session.query(AgentAssignmentDB).filter(
-                    AgentAssignmentDB.address == address
-                ).first()
-                
-                if agent:
-                    return self._to_agent_safe(agent)
+            # NON cercare per IP - con NAT più agent possono avere lo stesso IP pubblico
+            # Il match per IP causerebbe false corrispondenze
             
             # Cerca per agent_url contenente l'ID
             agent = session.query(AgentAssignmentDB).filter(
