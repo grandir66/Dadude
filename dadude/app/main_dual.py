@@ -53,48 +53,62 @@ def setup_logging():
     )
 
 
-# Shared lifespan context for both apps
+# Shared services state - use asyncio.Lock per thread safety
+_services_lock = None
 _services_started = False
 
-@asynccontextmanager
-async def agent_lifespan(app: FastAPI):
-    """Gestione lifecycle per Agent API"""
-    global _services_started
+async def _init_shared_services():
+    """Initialize shared services ONCE for both apps"""
+    global _services_started, _services_lock
 
-    setup_logging()
-    settings = get_settings()
+    if _services_lock is None:
+        _services_lock = asyncio.Lock()
 
-    logger.info("=" * 60)
-    logger.info("DaDude Agent API - Starting on port 8000")
-    logger.info("=" * 60)
+    async with _services_lock:
+        if _services_started:
+            logger.info("Services already initialized - skipping")
+            return
 
-    # Crea directory necessarie
-    Path("./data").mkdir(exist_ok=True)
-    Path("./logs").mkdir(exist_ok=True)
+        setup_logging()
+        settings = get_settings()
 
-    # Avvia WebSocket Hub per agent mTLS (solo una volta)
-    if not _services_started:
+        # Crea directory necessarie
+        Path("./data").mkdir(exist_ok=True)
+        Path("./logs").mkdir(exist_ok=True)
+
+        logger.info("=" * 60)
+        logger.info("DaDude - Initializing shared services")
+        logger.info("=" * 60)
+
+        # Avvia WebSocket Hub (singleton)
         ws_hub = get_websocket_hub()
         await ws_hub.start()
-        logger.info("WebSocket Hub started for agent connections")
+        logger.info("✓ WebSocket Hub started (shared)")
 
         # Connetti a Dude Server (opzionale)
         dude = get_dude_service()
         if dude.connect():
-            logger.success(f"Connected to Dude Server at {settings.dude_host}")
+            logger.success(f"✓ Connected to Dude Server at {settings.dude_host}")
 
             # Avvia sync service
             sync = get_sync_service()
-
-            # Prima sync iniziale
             await sync.full_sync()
-
-            # Avvia scheduler
             sync.start()
+            logger.info("✓ Sync service started")
         else:
             logger.warning("Running in offline mode - Dude Server not available")
 
         _services_started = True
+        logger.info("=" * 60)
+
+
+@asynccontextmanager
+async def agent_lifespan(app: FastAPI):
+    """Gestione lifecycle per Agent API"""
+    # Initialize shared services
+    await _init_shared_services()
+
+    logger.info("DaDude Agent API - Ready on port 8000")
 
     yield
 
@@ -105,40 +119,10 @@ async def agent_lifespan(app: FastAPI):
 @asynccontextmanager
 async def admin_lifespan(app: FastAPI):
     """Gestione lifecycle per Admin UI"""
-    global _services_started
+    # Initialize shared services
+    await _init_shared_services()
 
-    setup_logging()
-
-    logger.info("=" * 60)
-    logger.info("DaDude Admin UI - Starting on port 8001")
-    logger.info("=" * 60)
-
-    # Crea directory necessarie
-    Path("./data").mkdir(exist_ok=True)
-    Path("./logs").mkdir(exist_ok=True)
-
-    # NON avviare servizi - sono già avviati dall'Agent API
-    # L'Admin UI condivide lo stesso WebSocket Hub (singleton)
-    # Se i servizi non sono ancora partiti, avviali
-    # (caso in cui si avvii solo admin senza agent - NON dovrebbe mai succedere)
-    if not _services_started:
-        settings = get_settings()
-        ws_hub = get_websocket_hub()
-        await ws_hub.start()
-        logger.info("WebSocket Hub started")
-
-        dude = get_dude_service()
-        if dude.connect():
-            logger.success(f"Connected to Dude Server at {settings.dude_host}")
-            sync = get_sync_service()
-            await sync.full_sync()
-            sync.start()
-        else:
-            logger.warning("Running in offline mode - Dude Server not available")
-
-        _services_started = True
-    else:
-        logger.info("Services already started by Agent API - sharing WebSocket Hub")
+    logger.info("DaDude Admin UI - Ready on port 8001")
 
     yield
 
