@@ -569,6 +569,34 @@ async def admin_probe_device(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ==========================================
+# PROXY: Customer Agents List (needs WebSocket Hub for real-time status)
+# ==========================================
+
+@admin_app.get("/api/v1/customers/{customer_id}/agents", tags=["Admin"])
+async def admin_list_customer_agents(customer_id: str, request: Request):
+    """
+    Proxy customer agents list to Agent API (port 8000).
+    
+    This endpoint needs WebSocket Hub access to show real-time connection status.
+    """
+    try:
+        query_string = str(request.url.query)
+        url = f"http://localhost:8000/api/v1/customers/{customer_id}/agents"
+        if query_string:
+            url += f"?{query_string}"
+        
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(url)
+            return JSONResponse(
+                status_code=response.status_code,
+                content=response.json() if response.content else []
+            )
+    except Exception as e:
+        logger.error(f"Customer agents proxy error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # Registra tutti gli altri router AFTER proxy endpoints
 admin_app.include_router(devices.router, prefix="/api/v1")
 admin_app.include_router(probes.router, prefix="/api/v1")
