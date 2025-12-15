@@ -274,11 +274,8 @@ admin_app.include_router(inventory.router, prefix="/api/v1")
 admin_app.include_router(import_export.router, prefix="/api/v1")
 admin_app.include_router(discovery.router, prefix="/api/v1")
 
-# IMPORTANTE: Include anche agents router per endpoints di management
-# (pending, outdated, approve, etc.) ma NON per WebSocket/register
-admin_app.include_router(agents.router, prefix="/api/v1")
-
 # Override WebSocket Hub endpoint per Admin UI - proxy to Agent API
+# MUST be defined BEFORE including agents.router to take precedence
 @admin_app.get("/api/v1/agents/ws/connected", tags=["Agents"])
 async def admin_list_connected_agents():
     """
@@ -310,6 +307,10 @@ async def admin_list_connected_agents():
             "agents": [],
             "error": str(e)
         }
+
+# IMPORTANTE: Include anche agents router per endpoints di management
+# (pending, outdated, approve, etc.) ma NON per WebSocket/register
+admin_app.include_router(agents.router, prefix="/api/v1")
 
 # Dashboard (senza prefisso API)
 admin_app.include_router(dashboard.router)
