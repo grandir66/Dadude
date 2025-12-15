@@ -478,7 +478,7 @@ class AgentWebSocketClient:
             type=MessageType.HEARTBEAT,
             data={
                 "agent_id": self.agent_id,
-                "version": "2.0.0",
+                "version": self.agent_version,
                 "timestamp": datetime.utcnow().isoformat(),
                 "metrics": metrics or self._get_metrics(),
             }
