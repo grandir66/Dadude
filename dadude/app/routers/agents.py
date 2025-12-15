@@ -1560,11 +1560,13 @@ async def websocket_agent_connection(
             logger.info(f"WebSocket: Verifying token for {agent_id}")
             encryption = get_encryption_service()
             stored_token_encrypted = service.get_agent_token(agent_id)
+            logger.info(f"WebSocket: Token received='{token[:20]}...', stored encrypted='{stored_token_encrypted[:30] if stored_token_encrypted else 'None'}...'")
             if stored_token_encrypted:
                 try:
                     stored_token = encryption.decrypt(stored_token_encrypted)
+                    logger.info(f"WebSocket: Token decrypted='{stored_token[:20] if stored_token else 'None'}...'")
                     if stored_token != token:
-                        logger.warning(f"WebSocket: Token mismatch for {agent_id}")
+                        logger.warning(f"WebSocket: Token mismatch for {agent_id} - received='{token}' vs stored='{stored_token}'")
                         await websocket.close(code=4001, reason="Invalid token")
                         return
                     logger.info(f"WebSocket: Token verified for {agent_id}")
