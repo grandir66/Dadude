@@ -117,8 +117,10 @@ async def admin_lifespan(app: FastAPI):
     Path("./data").mkdir(exist_ok=True)
     Path("./logs").mkdir(exist_ok=True)
 
+    # NON avviare servizi - sono già avviati dall'Agent API
+    # L'Admin UI condivide lo stesso WebSocket Hub (singleton)
     # Se i servizi non sono ancora partiti, avviali
-    # (caso in cui si avvii solo admin senza agent)
+    # (caso in cui si avvii solo admin senza agent - NON dovrebbe mai succedere)
     if not _services_started:
         settings = get_settings()
         ws_hub = get_websocket_hub()
@@ -135,6 +137,8 @@ async def admin_lifespan(app: FastAPI):
             logger.warning("Running in offline mode - Dude Server not available")
 
         _services_started = True
+    else:
+        logger.info("Services already started by Agent API - sharing WebSocket Hub")
 
     yield
 
