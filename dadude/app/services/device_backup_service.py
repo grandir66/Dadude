@@ -540,6 +540,51 @@ class DeviceBackupService:
         # Per ora usa default customer
         return self._get_customer_default_credentials(customer, device_type)
 
+    def _get_credential_by_id(self, credential_id: str, device_type: str) -> Optional[Dict[str, Any]]:
+        """Recupera credenziale specifica per ID"""
+        cred = self.db.query(Credential).filter_by(id=credential_id).first()
+        
+        if not cred:
+            return None
+        
+        # Verifica tipo credenziale compatibile
+        if device_type == "mikrotik":
+            if cred.credential_type not in ["mikrotik", "ssh", "device"]:
+                self.logger.warning(f"Credential {credential_id} type {cred.credential_type} not compatible with MikroTik")
+                return None
+        elif device_type == "hp_aruba":
+            if cred.credential_type not in ["ssh", "device"]:
+                self.logger.warning(f"Credential {credential_id} type {cred.credential_type} not compatible with HP/Aruba")
+                return None
+        
+        # Decrypt password
+        try:
+            password = self.encryption.decrypt(cred.password) if cred.password else None
+        except:
+            self.logger.warning(f"Failed to decrypt password for credential {cred.id}")
+            password = None
+        
+        # Determina porta in base al tipo device
+        if device_type == "mikrotik":
+            port = cred.mikrotik_api_port if hasattr(cred, 'mikrotik_api_port') and cred.mikrotik_api_port else (cred.ssh_port or 22)
+        else:
+            port = cred.ssh_port or 22
+        
+        result = {
+            "credential_id": cred.id,
+            "username": cred.username,
+            "password": password,
+            "port": port,
+        }
+        
+        # Aggiungi campi MikroTik se disponibili
+        if hasattr(cred, 'mikrotik_api_port'):
+            result["mikrotik_api_port"] = cred.mikrotik_api_port
+        if hasattr(cred, 'mikrotik_api_ssl'):
+            result["mikrotik_api_ssl"] = cred.mikrotik_api_ssl or False
+        
+        return result
+
     def _get_customer_default_credentials(self, customer: Customer,
                                          device_type: str) -> Optional[Dict[str, Any]]:
         """Recupera credenziali di default del cliente per tipo device"""
