@@ -2958,6 +2958,37 @@ async function loadInventory() {
         if (data.devices.length === 0) {
             tbody.innerHTML = '<tr><td colspan="12" class="text-center py-4 text-muted">Nessun dispositivo in inventario. Esegui una scansione sopra.</td></tr>';
         } else {
+            // Helper function per determinare azioni device
+            function getDeviceActionButtons(dev) {
+                let buttons = '';
+                const devType = (dev.device_type || '').toLowerCase();
+                const osFamily = (dev.os_family || '').toLowerCase();
+                const manufacturer = (dev.manufacturer || '').toLowerCase();
+                const openPorts = dev.open_ports || '';
+                
+                // Verifica se è MikroTik
+                const isMikroTik = devType === 'mikrotik' || 
+                                   osFamily.includes('routeros') ||
+                                   openPorts.includes('8728') || 
+                                   openPorts.includes('8729') || 
+                                   openPorts.includes('8291');
+                
+                if (isMikroTik) {
+                    buttons += '<button class="btn btn-outline-primary" onclick="backupMikroTikDevice(\'' + dev.id + '\', \'' + (dev.primary_ip || '') + '\')" title="Backup Configurazione"><i class="bi bi-download"></i></button>';
+                    buttons += '<button class="btn btn-outline-success" onclick="manageMikroTikDevice(\'' + dev.id + '\', \'' + (dev.primary_ip || '') + '\')" title="Gestione MikroTik"><i class="bi bi-router"></i></button>';
+                }
+                
+                // Verifica se è HP/Aruba
+                const isHPAruba = devType.includes('hp') || devType.includes('aruba') || devType.includes('procurve') ||
+                                  manufacturer.includes('hp') || manufacturer.includes('aruba');
+                
+                if (isHPAruba) {
+                    buttons += '<button class="btn btn-outline-primary" onclick="backupHPArubaDevice(\'' + dev.id + '\', \'' + (dev.primary_ip || '') + '\')" title="Backup Configurazione"><i class="bi bi-download"></i></button>';
+                    buttons += '<button class="btn btn-outline-info" onclick="manageHPArubaDevice(\'' + dev.id + '\', \'' + (dev.primary_ip || '') + '\')" title="Info Switch"><i class="bi bi-ethernet"></i></button>';
+                }
+                
+                return buttons;
+            }
             // Ordina per IP (numericamente)
             const sortedDevices = data.devices.sort((a, b) => {
                 const ipA = (a.primary_ip || '').split('.').map(num => parseInt(num || 0, 10));
@@ -3082,6 +3113,7 @@ async function loadInventory() {
                                 <button class="btn btn-warning" onclick="autoDetectDevice('${dev.id}', '${dev.primary_ip}')" title="Auto-Detect">
                                     <i class="bi bi-bullseye"></i>
                                 </button>
+                                ${getDeviceActionButtons(dev)}
                                 <button class="btn btn-outline-danger" onclick="deleteInventoryDevice('${dev.id}')" title="Elimina">
                                     <i class="bi bi-trash"></i>
                                 </button>
@@ -4051,6 +4083,163 @@ function showModal(title, content, size = 'md') {
     // Mostra modal
     const bsModal = new bootstrap.Modal(modal);
     bsModal.show();
+}
+
+// ==========================================
+// FUNZIONI BACKUP E GESTIONE MIKROTIK/HP-ARUBA
+// ==========================================
+
+async function backupMikroTikDevice(deviceId, deviceIp) {
+    if (!confirm(`Eseguire backup configurazione MikroTik ${deviceIp}?`)) return;
+    
+    try {
+        // Recupera credenziali del device
+        const deviceResponse = await fetch(`/api/v1/inventory/devices/${deviceId}`);
+        const device = await deviceResponse.json();
+        
+        if (!device.credential_id) {
+            alert('⚠️ Nessuna credenziale associata al dispositivo.\n\nAssocia una credenziale MikroTik prima di eseguire il backup.');
+            return;
+        }
+        
+        // Esegui backup tramite device-backup service
+        const response = await fetch('/api/v1/device-backup/device', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                device_ip: deviceIp,
+                customer_id: customerId,
+                device_type: 'mikrotik',
+                backup_type: 'both'  // export + binary
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            alert(`✅ Backup completato!\n\nFile: ${result.file_path || 'N/A'}\nBackup ID: ${result.backup_id || 'N/A'}`);
+        } else {
+            alert(`❌ Errore backup: ${result.error || 'Errore sconosciuto'}`);
+        }
+    } catch (e) {
+        alert('Errore: ' + e.message);
+    }
+}
+
+async function manageMikroTikDevice(deviceId, deviceIp) {
+    try {
+        // Recupera credenziali del device
+        const deviceResponse = await fetch(`/api/v1/inventory/devices/${deviceId}`);
+        const device = await deviceResponse.json();
+        
+        if (!device.credential_id) {
+            alert('⚠️ Nessuna credenziale associata al dispositivo.\n\nAssocia una credenziale MikroTik per gestire il router.');
+            return;
+        }
+        
+        // Cerca se esiste un agent MikroTik per questo IP o crea una gestione diretta
+        // Per ora apriamo una nuova finestra con le info del router
+        const credId = device.credential_id;
+        
+        // Verifica connessione e mostra info
+        const testResponse = await fetch(`/api/v1/mikrotik/agents/${credId}/system-info`);
+        const testResult = await testResponse.json();
+        
+        if (testResult.success) {
+            // Apri pagina gestione MikroTik (se disponibile) o mostra info
+            window.open(`/customers/${customerId}/mikrotik/${credId}`, '_blank');
+        } else {
+            // Se non c'è agent, prova con credenziale diretta
+            alert(`Router MikroTik ${deviceIp}\n\nPer gestire questo router, crea un Agent MikroTik nella sezione "Sonde" con:\n- IP: ${deviceIp}\n- Credenziali: ${device.credential_id || 'da configurare'}`);
+        }
+    } catch (e) {
+        // Fallback: mostra info e suggerimento
+        alert(`Router MikroTik rilevato: ${deviceIp}\n\nPer gestire questo router:\n1. Vai alla sezione "Sonde"\n2. Crea un nuovo Agent MikroTik\n3. Configura IP e credenziali\n\nOppure usa le credenziali associate per eseguire operazioni dirette.`);
+    }
+}
+
+async function backupHPArubaDevice(deviceId, deviceIp) {
+    if (!confirm(`Eseguire backup configurazione HP/Aruba ${deviceIp}?`)) return;
+    
+    try {
+        // Recupera credenziali del device
+        const deviceResponse = await fetch(`/api/v1/inventory/devices/${deviceId}`);
+        const device = await deviceResponse.json();
+        
+        if (!device.credential_id) {
+            alert('⚠️ Nessuna credenziale associata al dispositivo.\n\nAssocia una credenziale SSH prima di eseguire il backup.');
+            return;
+        }
+        
+        // Esegui backup tramite device-backup service
+        const response = await fetch('/api/v1/device-backup/device', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                device_ip: deviceIp,
+                customer_id: customerId,
+                device_type: 'hp_aruba',
+                backup_type: 'export'
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            alert(`✅ Backup completato!\n\nFile: ${result.file_path || result.export_file_path || 'N/A'}\nBackup ID: ${result.backup_id || 'N/A'}`);
+        } else {
+            alert(`❌ Errore backup: ${result.error || 'Errore sconosciuto'}`);
+        }
+    } catch (e) {
+        alert('Errore: ' + e.message);
+    }
+}
+
+async function manageHPArubaDevice(deviceId, deviceIp) {
+    try {
+        // Recupera credenziali del device
+        const deviceResponse = await fetch(`/api/v1/inventory/devices/${deviceId}`);
+        const device = await deviceResponse.json();
+        
+        if (!device.credential_id) {
+            alert('⚠️ Nessuna credenziale associata al dispositivo.\n\nAssocia una credenziale SSH per gestire lo switch.');
+            return;
+        }
+        
+        // Mostra info switch HP/Aruba
+        const infoResponse = await fetch(`/api/v1/hp-aruba/credentials/${device.credential_id}/switch-info`);
+        const infoResult = await infoResponse.json();
+        
+        if (infoResult.success) {
+            let info = `📡 Switch HP/Aruba: ${deviceIp}\n\n`;
+            info += `Sistema: ${infoResult.system_info?.system_name || 'N/A'}\n`;
+            info += `Modello: ${infoResult.system_info?.model || 'N/A'}\n`;
+            info += `Firmware: ${infoResult.system_info?.firmware || 'N/A'}\n`;
+            info += `Interfacce: ${Object.keys(infoResult.interfaces || {}).length}\n`;
+            info += `VLAN: ${Object.keys(infoResult.vlans || {}).length}\n`;
+            info += `LLDP Neighbors: ${Object.keys(infoResult.lldp || {}).length}\n`;
+            
+            if (confirm(info + '\n\nVuoi vedere i dettagli completi?')) {
+                // Apri modal con dettagli completi
+                showModal('Switch HP/Aruba - ' + deviceIp, `
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h6>Informazioni Sistema</h6>
+                            <pre class="bg-light p-2 small">${JSON.stringify(infoResult.system_info || {}, null, 2)}</pre>
+                        </div>
+                        <div class="col-md-6">
+                            <h6>Interfacce (${Object.keys(infoResult.interfaces || {}).length})</h6>
+                            <pre class="bg-light p-2 small" style="max-height: 300px; overflow-y: auto;">${JSON.stringify(infoResult.interfaces || {}, null, 2)}</pre>
+                        </div>
+                    </div>
+                `, 'xl');
+            }
+        } else {
+            alert(`❌ Errore recupero info: ${infoResult.error || 'Errore sconosciuto'}`);
+        }
+    } catch (e) {
+        alert('Errore: ' + e.message);
+    }
 }
 </script>
 {% endblock %}
