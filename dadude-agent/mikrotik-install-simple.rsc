@@ -20,7 +20,6 @@
 :local agentName "RB5009 Test"
 :local dnsServers "192.168.4.1,8.8.8.8"
 :local imageFile "dadude-agent-mikrotik.tar.gz"
-:local imageUrl "https://github.com/grandir66/Dadude/releases/latest/download/dadude-agent-mikrotik.tar.gz"
 
 # ==========================================
 # 1. Verifica che Container Mode sia abilitato
@@ -40,128 +39,27 @@
 }
 
 # ==========================================
-# 2. Trova disco USB (prova diversi nomi)
-# ==========================================
-:local usbPath ""
-:local usbFound 0
-
-:if ([/file/print where name="usb1" and type="directory"] != "") do={
-    :set usbPath "usb1"
-    :set usbFound 1
-    :put "Disco USB trovato: usb1"
-} else={
-    :if ([/file/print where name="usb1-disk1" and type="directory"] != "") do={
-        :set usbPath "usb1-disk1"
-        :set usbFound 1
-        :put "Disco USB trovato: usb1-disk1"
-    } else={
-        :if ([/file/print where name="disk1" and type="directory"] != "") do={
-            :set usbPath "disk1"
-            :set usbFound 1
-            :put "Disco USB trovato: disk1"
-        } else={
-            :put "ERRORE: Disco USB non trovato!"
-            :put "Dischi disponibili:"
-            /file/print
-            :put ""
-            :put "Modifica manualmente la variabile usbPath nello script"
-        }
-    }
-}
-
-# ==========================================
-# 3. Verifica o scarica l'immagine Docker
+# 2. Trova immagine Docker (cerca in diverse posizioni)
 # ==========================================
 :local imagePath ""
-:local imageFound 0
 
-# Cerca l'immagine sul disco USB
-:if ($usbFound = 1) do={
-    :local usbImagePath ""
-    :set usbImagePath ($usbPath . "/" . $imageFile)
-    :if ([/file/print where name=$usbImagePath] != "") do={
-        :set imagePath $usbImagePath
-        :set imageFound 1
-        :put ("Immagine trovata su " . $usbImagePath)
-    }
-}
-
-# Se non trovata su USB, cerca in root
-:if ($imageFound = 0) do={
-    :local rootImagePath ""
-    :set rootImagePath ("/" . $imageFile)
-    :if ([/file/print where name=$rootImagePath] != "") do={
-        :set imagePath $rootImagePath
-        :set imageFound 1
+# Cerca prima su USB
+:if ([/file/print where name=("usb1/" . $imageFile)] != "") do={
+    :set imagePath ("usb1/" . $imageFile)
+    :put ("Immagine trovata su USB: " . $imagePath)
+} else={
+    # Cerca in root
+    :if ([/file/print where name=("/" . $imageFile)] != "") do={
+        :set imagePath ("/" . $imageFile)
         :put ("Immagine trovata in root: " . $imagePath)
-    }
-}
-
-# Se ancora non trovata, scarica
-:if ($imageFound = 0) do={
-    :put "Immagine non trovata, scaricando da GitHub Releases..."
-    :put ("URL: " . $imageUrl)
-    :put "Questo potrebbe richiedere alcuni minuti (file ~100-200MB)..."
-    
-    :if ($usbFound = 1) do={
-        :local downloadPath ""
-        :set downloadPath ($usbPath . "/" . $imageFile)
-        :do {
-            /tool/fetch url=$imageUrl dst=$downloadPath mode=http
-            :set imagePath $downloadPath
-            :put ("Download completato su " . $downloadPath)
-        } on-error={
-            :put "Errore download su USB, provo in root..."
-            :local rootDownload ""
-            :set rootDownload ("/" . $imageFile)
-            :do {
-                /tool/fetch url=$imageUrl dst=$rootDownload mode=http
-                :set imagePath $rootDownload
-                :put ("Download completato in root: " . $imagePath)
-            } on-error={
-                :put "ERRORE: Download fallito!"
-                :put "Verifica connessione internet e riprova"
-            }
-        }
     } else={
-        :local rootDownload ""
-        :set rootDownload ("/" . $imageFile)
-        :do {
-            /tool/fetch url=$imageUrl dst=$rootDownload mode=http
-            :set imagePath $rootDownload
-            :put ("Download completato in root: " . $imagePath)
-        } on-error={
-            :put "ERRORE: Download fallito!"
-            :put "Verifica connessione internet e riprova"
-        }
+        :put "ERRORE: Immagine non trovata!"
+        :put "Verifica che il file esista con: /file/print"
     }
-    
-    :delay 3s
-    
-    # Verifica che il file sia stato scaricato
-    :if ($imagePath != "") do={
-        :local fileSize 0
-        :do {
-            :set fileSize ([/file/get $imagePath size])
-        } on-error={
-            :set fileSize 0
-        }
-        
-        :if ($fileSize < 1048576) do={
-            :put ("ATTENZIONE: File potrebbe essere incompleto. Dimensione: " . $fileSize . " bytes")
-        } else={
-            :put ("Immagine scaricata con successo! Dimensione: " . $fileSize . " bytes")
-        }
-    }
-}
-
-:if ($imagePath = "") do={
-    :put "ERRORE: Nessuna immagine trovata o scaricata!"
-    :put "Impossibile continuare senza immagine Docker"
 }
 
 # ==========================================
-# 4. Rimuovi container esistente (se presente)
+# 3. Rimuovi container esistente (se presente)
 # ==========================================
 :do {
     /container/stop 0
@@ -169,7 +67,7 @@
 } on-error={}
 
 # ==========================================
-# 5. Rimuovi configurazioni esistenti (se presenti)
+# 4. Rimuovi configurazioni esistenti (se presenti)
 # ==========================================
 :do {
     /interface/veth/remove [find name="veth-dadude-agent"]
@@ -188,40 +86,40 @@
 } on-error={}
 
 # ==========================================
-# 6. Crea VETH interface per container
+# 5. Crea VETH interface per container
 # ==========================================
 /interface/veth/add name=veth-dadude-agent address=172.17.0.2/24 gateway=172.17.0.1
 
 # ==========================================
-# 7. Crea bridge per container
+# 6. Crea bridge per container
 # ==========================================
 /interface/bridge/add name=bridge-dadude-agent
 /interface/bridge/port/add bridge=bridge-dadude-agent interface=veth-dadude-agent
 /ip/address/add address=172.17.0.1/24 interface=bridge-dadude-agent
 
 # ==========================================
-# 8. Configura NAT per accesso internet
+# 7. Configura NAT per accesso internet
 # ==========================================
 /ip/firewall/nat/add chain=srcnat action=masquerade src-address=172.17.0.0/24 out-interface=bridge-dadude-agent comment="dadude-agent-nat"
 
 # ==========================================
-# 9. Crea environment variables
-# NOTA: RouterOS accetta variabili direttamente nelle value
+# 8. Crea environment variables
+# NOTA: RouterOS richiede valori letterali, quindi usiamo le variabili direttamente
 # ==========================================
-/container/envs/add name=dadude-env key=DADUDE_SERVER_URL value=($serverUrl)
-/container/envs/add name=dadude-env key=DADUDE_AGENT_TOKEN value=($agentToken)
-/container/envs/add name=dadude-env key=DADUDE_AGENT_ID value=($agentId)
-/container/envs/add name=dadude-env key=DADUDE_AGENT_NAME value=($agentName)
-/container/envs/add name=dadude-env key=DADUDE_DNS_SERVERS value=($dnsServers)
+/container/envs/add name=dadude-env key=DADUDE_SERVER_URL value=$serverUrl
+/container/envs/add name=dadude-env key=DADUDE_AGENT_TOKEN value=$agentToken
+/container/envs/add name=dadude-env key=DADUDE_AGENT_ID value=$agentId
+/container/envs/add name=dadude-env key=DADUDE_AGENT_NAME value=$agentName
+/container/envs/add name=dadude-env key=DADUDE_DNS_SERVERS value=$dnsServers
 /container/envs/add name=dadude-env key=PYTHONUNBUFFERED value="1"
 
 # ==========================================
-# 10. Crea container dall'immagine tar
+# 9. Crea container dall'immagine tar
 # ==========================================
 :if ($imagePath != "") do={
     :local rootDir ""
-    :if ($usbFound = 1) do={
-        :set rootDir ($usbPath . "/dadude-agent")
+    :if ([/file/print where name="usb1" and type="directory"] != "") do={
+        :set rootDir "usb1/dadude-agent"
     } else={
         :set rootDir "/dadude-agent"
     }
@@ -232,10 +130,11 @@
     /container/add file=$imagePath interface=veth-dadude-agent root-dir=$rootDir envlist=dadude-env start-on-boot=yes logging=yes cmd="python -m app.agent"
 } else={
     :put "ERRORE: Nessun file immagine trovato! Impossibile creare il container."
+    :put "Verifica che l'immagine esista con: /file/print"
 }
 
 # ==========================================
-# 11. Avvia container
+# 10. Avvia container
 # ==========================================
 :do {
     /container/start 0
@@ -246,7 +145,7 @@
 }
 
 # ==========================================
-# 12. Verifica installazione
+# 11. Verifica installazione
 # ==========================================
 :delay 3s
 :put "=========================================="
