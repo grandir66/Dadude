@@ -802,50 +802,31 @@ class CommandHandler:
                 )
                 
                 if build_result.returncode == 0:
-                    logger.info("Docker build completed. Restarting container...")
+                    logger.info("Docker build completed. Update successful.")
                     
-                    # Usa docker restart invece di stop per forzare il riavvio
-                    # anche se il container è stato fermato manualmente
-                    try:
-                        restart_result = subprocess.run(
-                            ["docker", "restart", "dadude-agent"],
-                            capture_output=True,
-                            timeout=30,
-                        )
-                        if restart_result.returncode == 0:
-                            logger.info("Container restart initiated successfully.")
-                        else:
-                            logger.warning(f"Could not restart container: {restart_result.stderr}")
-                            # Fallback: prova a fermare e riavviare manualmente
-                            try:
-                                subprocess.run(["docker", "stop", "dadude-agent"], timeout=5, capture_output=True)
-                                subprocess.Popen(
-                                    ["docker", "compose", "up", "-d", "--force-recreate"],
-                                    cwd=agent_compose_dir,
-                                    stdout=subprocess.DEVNULL,
-                                    stderr=subprocess.DEVNULL,
-                                )
-                                logger.info("Container restart via docker compose initiated.")
-                            except Exception as e2:
-                                logger.error(f"Fallback restart also failed: {e2}")
-                    except Exception as e:
-                        logger.error(f"Error restarting container: {e}")
-                        # Ultimo tentativo: ferma e lascia che restart policy lo riavvii
-                        try:
-                            subprocess.run(["docker", "stop", "dadude-agent"], timeout=5, capture_output=True)
-                        except:
-                            pass
+                    # IMPORTANTE: Non possiamo riavviare il container da dentro il container stesso
+                    # perché quando eseguiamo docker restart/compose up, il container si ferma
+                    # immediatamente e il comando non può completarsi.
+                    # 
+                    # Soluzione: Completiamo l'update e informiamo che serve restart manuale.
+                    # In alternativa, possiamo usare lo script esterno update-agent.sh che
+                    # viene eseguito FUORI dal container.
+                    # 
+                    # Per ora, informiamo che l'update è completato e che il container
+                    # deve essere riavviato manualmente o tramite lo script esterno.
                     
-                    # Aspetta un momento per permettere al processo di completare
-                    import asyncio
-                    await asyncio.sleep(1)
+                    logger.info("Update completed successfully. Container restart required.")
+                    logger.info("To restart: cd /opt/dadude-agent/dadude-agent && docker compose up -d --force-recreate")
+                    logger.info("Or use external script: bash /opt/dadude-agent/dadude-agent/deploy/proxmox/update-agent.sh <container_id>")
                     
                     return CommandResult(
                         success=True,
                         status="success",
                         data={
-                            "message": "Update completed. Container restarting...",
-                            "restarting": True,
+                            "message": "Update completed successfully. Container restart required manually or via external script.",
+                            "needs_restart": True,
+                            "restart_command": "cd /opt/dadude-agent/dadude-agent && docker compose up -d --force-recreate",
+                            "restart_script": "/opt/dadude-agent/dadude-agent/deploy/proxmox/update-agent.sh",
                         },
                     )
                 else:
