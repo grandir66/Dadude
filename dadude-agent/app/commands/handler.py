@@ -802,31 +802,65 @@ class CommandHandler:
                 )
                 
                 if build_result.returncode == 0:
-                    logger.info("Docker build completed. Update successful.")
+                    logger.info("Docker build completed. Preparing for restart...")
                     
-                    # IMPORTANTE: Non possiamo riavviare il container da dentro il container stesso
-                    # perché quando eseguiamo docker restart/compose up, il container si ferma
-                    # immediatamente e il comando non può completarsi.
-                    # 
-                    # Soluzione: Completiamo l'update e informiamo che serve restart manuale.
-                    # In alternativa, possiamo usare lo script esterno update-agent.sh che
-                    # viene eseguito FUORI dal container.
-                    # 
-                    # Per ora, informiamo che l'update è completato e che il container
-                    # deve essere riavviato manualmente o tramite lo script esterno.
+                    # IMPORTANTE: Non possiamo riavviare il container da dentro il container stesso.
+                    # Soluzione: Creiamo un file di flag che indica che il container deve essere riavviato.
+                    # Un processo esterno (come uno script di monitoraggio) può riavviare il container
+                    # quando vede questo flag.
                     
-                    logger.info("Update completed successfully. Container restart required.")
-                    logger.info("To restart: cd /opt/dadude-agent/dadude-agent && docker compose up -d --force-recreate")
-                    logger.info("Or use external script: bash /opt/dadude-agent/dadude-agent/deploy/proxmox/update-agent.sh <container_id>")
+                    restart_flag_file = os.path.join(agent_dir, ".restart_required")
+                    try:
+                        with open(restart_flag_file, 'w') as f:
+                            import json
+                            import datetime
+                            f.write(json.dumps({
+                                "timestamp": datetime.datetime.utcnow().isoformat(),
+                                "reason": "update_completed",
+                                "new_image": "dadude-agent:latest",
+                            }))
+                        logger.info(f"Created restart flag file: {restart_flag_file}")
+                    except Exception as e:
+                        logger.warning(f"Could not create restart flag file: {e}")
+                    
+                    # Prova anche a eseguire docker restart in background usando nohup
+                    # Questo potrebbe funzionare se il processo viene eseguito abbastanza velocemente
+                    try:
+                        import os
+                        import sys
+                        
+                        # Crea uno script che esegue il restart dopo un breve delay
+                        restart_script_content = f"""#!/bin/bash
+sleep 3
+cd {agent_compose_dir}
+docker compose up -d --force-recreate 2>&1 | logger -t dadude-update
+"""
+                        restart_script = os.path.join(agent_compose_dir, ".auto_restart.sh")
+                        with open(restart_script, 'w') as f:
+                            f.write(restart_script_content)
+                        os.chmod(restart_script, 0o755)
+                        
+                        # Esegui lo script in background usando nohup e disown
+                        # Questo dovrebbe permettere al processo di continuare anche dopo che il container si ferma
+                        subprocess.Popen(
+                            ["nohup", "bash", restart_script, ">", "/dev/null", "2>&1", "&"],
+                            shell=True,
+                            cwd=agent_compose_dir,
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            preexec_fn=os.setsid,  # Crea un nuovo process group
+                        )
+                        logger.info("Initiated background restart script")
+                    except Exception as e:
+                        logger.warning(f"Could not initiate background restart: {e}")
                     
                     return CommandResult(
                         success=True,
                         status="success",
                         data={
-                            "message": "Update completed successfully. Container restart required manually or via external script.",
-                            "needs_restart": True,
-                            "restart_command": "cd /opt/dadude-agent/dadude-agent && docker compose up -d --force-recreate",
-                            "restart_script": "/opt/dadude-agent/dadude-agent/deploy/proxmox/update-agent.sh",
+                            "message": "Update completed. Container restart initiated in background.",
+                            "restarting": True,
+                            "restart_flag_file": restart_flag_file,
                         },
                     )
                 else:
