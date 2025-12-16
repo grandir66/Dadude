@@ -18,6 +18,7 @@ from .workers.queue_worker import QueueWorker, StoreForwardManager
 from .fallback.sftp_uploader import SFTPFallbackUploader, SFTPConfig
 from .updater.self_update import SelfUpdater
 from .scheduler.local_scheduler import LocalScheduler
+from .services.version_manager import VersionManager
 from .config import get_settings
 
 
@@ -64,10 +65,13 @@ class DaDudeAgent:
         self._connection_manager: Optional[ConnectionManager] = None
         self._scheduler: Optional[LocalScheduler] = None
         self._updater: Optional[SelfUpdater] = None
+        self._version_manager: Optional[VersionManager] = None
         
         # State
         self._running = False
         self._shutdown_event = asyncio.Event()
+        self._connection_verified = False
+        self._health_check_task: Optional[asyncio.Task] = None
     
     def _setup_logging(self):
         """Configura logging"""
@@ -163,6 +167,10 @@ class DaDudeAgent:
             is_docker=os.path.exists("/.dockerenv"),
         )
         
+        # Version Manager (per backup/rollback automatico)
+        agent_dir = os.getenv("AGENT_DIR", "/opt/dadude-agent")
+        self._version_manager = VersionManager(agent_dir=agent_dir)
+        
         # Registra update callback nel command handler
         self._command_handler.set_update_callback(self._handle_update_command)
         
@@ -180,11 +188,20 @@ class DaDudeAgent:
         logger.info(f"Connection state changed: {state.value}")
         
         if state == ConnectionState.CONNECTED:
+            # Marca connessione verificata per health check
+            self._connection_verified = True
+            
             # Flush coda pendente
             pending = await self._local_queue.get_pending_count()
             if pending > 0:
                 logger.info(f"Flushing {pending} pending items")
                 await self._ws_client.flush_pending_queue()
+            
+            # Se siamo in fase di health check dopo update, conferma versione stabile
+            if self._version_manager:
+                current_version = self._version_manager.get_current_commit()
+                if current_version:
+                    logger.info(f"Version {current_version[:8]} verified as stable (connected successfully)")
     
     async def _handle_update_command(self, download_url: str, checksum: str) -> bool:
         """Handler per comando update"""
