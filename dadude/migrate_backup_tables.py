@@ -20,7 +20,7 @@ from sqlalchemy.orm import sessionmaker
 from loguru import logger
 
 # Import modelli
-from app.models.database import Base as ExistingBase, get_db_url
+from app.models.database import Base as ExistingBase, init_db
 from app.models.backup_models import (
     DeviceBackup,
     BackupSchedule,
@@ -229,6 +229,12 @@ def main():
         action="store_true",
         help="Seed default backup templates"
     )
+    parser.add_argument(
+        "--db-url",
+        type=str,
+        default="sqlite:///./data/dadude.db",
+        help="Database URL (default: sqlite:///./data/dadude.db)"
+    )
 
     args = parser.parse_args()
 
@@ -238,8 +244,8 @@ def main():
 
     try:
         # Get database URL
-        db_url = get_db_url()
-        logger.info(f"Database URL: {db_url.split('@')[0]}@***")  # Hide password
+        db_url = args.db_url
+        logger.info(f"Database URL: {db_url}")
 
         # Create engine
         engine = create_engine(db_url)

@@ -19,7 +19,15 @@ from pathlib import Path
 from .config import get_settings
 from .services import get_dude_service, get_sync_service
 from .services.websocket_hub import get_websocket_hub
-from .routers import devices, probes, alerts, webhook, system, customers, import_export, dashboard, discovery, mikrotik, inventory, agents
+
+# Device Backup Module - optional scheduler
+try:
+    from .services.backup_scheduler import BackupScheduler
+    BACKUP_SCHEDULER_AVAILABLE = True
+except ImportError:
+    BACKUP_SCHEDULER_AVAILABLE = False
+    BackupScheduler = None
+from .routers import devices, probes, alerts, webhook, system, customers, import_export, dashboard, discovery, mikrotik, inventory, agents, device_backup
 
 
 # Configura logging
@@ -67,6 +75,16 @@ async def lifespan(app: FastAPI):
     ws_hub = get_websocket_hub()
     await ws_hub.start()
     logger.info("WebSocket Hub started for agent connections")
+
+    # Avvia Backup Scheduler (opzionale)
+    backup_scheduler = None
+    if BACKUP_SCHEDULER_AVAILABLE:
+        try:
+            backup_scheduler = BackupScheduler()
+            backup_scheduler.start()
+            logger.info("Backup Scheduler started")
+        except Exception as e:
+            logger.warning(f"Backup Scheduler not started: {e}")
     
     # Connetti a Dude Server (opzionale)
     dude = get_dude_service()
@@ -88,7 +106,15 @@ async def lifespan(app: FastAPI):
     
     # Shutdown
     logger.info("Shutting down DaDude...")
-    
+
+    # Ferma Backup Scheduler (se attivo)
+    if BACKUP_SCHEDULER_AVAILABLE and backup_scheduler:
+        try:
+            backup_scheduler.stop()
+            logger.info("Backup Scheduler stopped")
+        except Exception as e:
+            logger.warning(f"Error stopping Backup Scheduler: {e}")
+
     # Ferma WebSocket Hub
     ws_hub = get_websocket_hub()
     await ws_hub.stop()
@@ -165,6 +191,7 @@ app.include_router(inventory.router, prefix="/api/v1")
 app.include_router(import_export.router, prefix="/api/v1")
 app.include_router(discovery.router, prefix="/api/v1")
 app.include_router(agents.router, prefix="/api/v1")
+app.include_router(device_backup.router, prefix="/api/v1")  # Device Backup Module
 
 # Dashboard (senza prefisso API)
 app.include_router(dashboard.router)
