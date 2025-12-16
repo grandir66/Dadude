@@ -45,17 +45,17 @@
 :local usbPath ""
 :local usbFound 0
 
-:if ([/file/print where name="usb1"] != "") do={
+:if ([/file/print where name="usb1" and type="directory"] != "") do={
     :set usbPath "usb1"
     :set usbFound 1
     :put "Disco USB trovato: usb1"
 } else={
-    :if ([/file/print where name="usb1-disk1"] != "") do={
+    :if ([/file/print where name="usb1-disk1" and type="directory"] != "") do={
         :set usbPath "usb1-disk1"
         :set usbFound 1
         :put "Disco USB trovato: usb1-disk1"
     } else={
-        :if ([/file/print where name="disk1"] != "") do={
+        :if ([/file/print where name="disk1" and type="directory"] != "") do={
             :set usbPath "disk1"
             :set usbFound 1
             :put "Disco USB trovato: disk1"
@@ -206,24 +206,13 @@
 
 # ==========================================
 # 9. Crea environment variables
-# NOTA: RouterOS richiede valori letterali, quindi costruiamo le stringhe
+# NOTA: RouterOS accetta variabili direttamente nelle value
 # ==========================================
-:local envServerUrl ""
-:set envServerUrl $serverUrl
-:local envToken ""
-:set envToken $agentToken
-:local envId ""
-:set envId $agentId
-:local envName ""
-:set envName $agentName
-:local envDns ""
-:set envDns $dnsServers
-
-/container/envs/add name=dadude-env key=DADUDE_SERVER_URL value=$envServerUrl
-/container/envs/add name=dadude-env key=DADUDE_AGENT_TOKEN value=$envToken
-/container/envs/add name=dadude-env key=DADUDE_AGENT_ID value=$envId
-/container/envs/add name=dadude-env key=DADUDE_AGENT_NAME value=$envName
-/container/envs/add name=dadude-env key=DADUDE_DNS_SERVERS value=$envDns
+/container/envs/add name=dadude-env key=DADUDE_SERVER_URL value=($serverUrl)
+/container/envs/add name=dadude-env key=DADUDE_AGENT_TOKEN value=($agentToken)
+/container/envs/add name=dadude-env key=DADUDE_AGENT_ID value=($agentId)
+/container/envs/add name=dadude-env key=DADUDE_AGENT_NAME value=($agentName)
+/container/envs/add name=dadude-env key=DADUDE_DNS_SERVERS value=($dnsServers)
 /container/envs/add name=dadude-env key=PYTHONUNBUFFERED value="1"
 
 # ==========================================
