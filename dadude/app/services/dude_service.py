@@ -130,7 +130,14 @@ class DudeService:
             # Prova una query semplice per verificare se la connessione è ancora valida
             if self._api:
                 self._api.get_resource('/system/resource').get()
-        except (OSError, ConnectionError, AttributeError) as e:
+        except (OSError, ConnectionError, AttributeError, Exception) as e:
+            error_str = str(e)
+            # Ignora errori di parsing che non indicano connessione persa
+            if "Malformed" in error_str or "Unknown tag" in error_str:
+                # Errore di parsing, non di connessione - non riconnettere
+                logger.debug(f"Parsing error (not connection issue): {e}")
+                return
+            
             logger.warning(f"Connection lost, reconnecting: {e}")
             self._connected = False
             self._api = None
@@ -140,61 +147,86 @@ class DudeService:
                 except:
                     pass
             self._connection = None
-            if not self.connect():
-                raise ConnectionError("Cannot reconnect to Dude Server")
+            try:
+                if not self.connect():
+                    raise ConnectionError("Cannot reconnect to Dude Server")
+            except Exception as reconnect_error:
+                logger.error(f"Failed to reconnect: {reconnect_error}")
+                raise ConnectionError(f"Cannot reconnect to Dude Server: {reconnect_error}")
     
     def get_devices(self, status_filter: Optional[str] = None) -> List[Device]:
         """Ottiene lista dispositivi dal Dude"""
-        self._ensure_connected()
-        self._reconnect_if_needed()
-        
-        try:
-            dude_resource = self._api.get_resource('/dude/device')
-            raw_devices = dude_resource.get()
-            
-            devices = []
-            for raw in raw_devices:
-                try:
-                    # Mappa status Dude -> DeviceStatus
-                    status_map = {
-                        "up": DeviceStatus.UP,
-                        "down": DeviceStatus.DOWN,
-                        "disabled": DeviceStatus.DISABLED,
-                        "partial": DeviceStatus.PARTIAL,
-                    }
-                    status_str = raw.get("status", "") or ""
-                    status = status_map.get(status_str.lower(), DeviceStatus.UNKNOWN)
-                    
-                    if status_filter and status.value != status_filter:
+        max_retries = 2
+        for attempt in range(max_retries):
+            try:
+                self._ensure_connected()
+                self._reconnect_if_needed()
+                
+                dude_resource = self._api.get_resource('/dude/device')
+                raw_devices = dude_resource.get()
+                
+                devices = []
+                for raw in raw_devices:
+                    try:
+                        # Mappa status Dude -> DeviceStatus
+                        status_map = {
+                            "up": DeviceStatus.UP,
+                            "down": DeviceStatus.DOWN,
+                            "disabled": DeviceStatus.DISABLED,
+                            "partial": DeviceStatus.PARTIAL,
+                        }
+                        status_str = raw.get("status", "") or ""
+                        status = status_map.get(status_str.lower(), DeviceStatus.UNKNOWN)
+                        
+                        if status_filter and status.value != status_filter:
+                            continue
+                        
+                        device = Device(
+                            id=raw.get(".id", "") or "",
+                            name=raw.get("name") or "Unknown",
+                            address=raw.get("address"),
+                            mac_address=raw.get("mac-address"),
+                            status=status,
+                            device_type=raw.get("type"),
+                            group=raw.get("group"),
+                            location=raw.get("location"),
+                            note=raw.get("note"),
+                        )
+                        devices.append(device)
+                    except Exception as e:
+                        logger.warning(f"Error parsing device {raw.get('.id', 'unknown')}: {e}")
                         continue
-                    
-                    device = Device(
-                        id=raw.get(".id", "") or "",
-                        name=raw.get("name") or "Unknown",
-                        address=raw.get("address"),
-                        mac_address=raw.get("mac-address"),
-                        status=status,
-                        device_type=raw.get("type"),
-                        group=raw.get("group"),
-                        location=raw.get("location"),
-                        note=raw.get("note"),
-                    )
-                    devices.append(device)
-                except Exception as e:
-                    logger.warning(f"Error parsing device {raw.get('.id', 'unknown')}: {e}")
-                    continue
-            
-            logger.debug(f"Retrieved {len(devices)} devices from Dude")
-            return devices
-            
-        except (OSError, ConnectionError) as e:
-            logger.error(f"Connection error getting devices: {e}")
-            self._connected = False
-            self._api = None
-            raise
-        except Exception as e:
-            logger.error(f"Error getting devices: {e}")
-            raise
+                
+                logger.debug(f"Retrieved {len(devices)} devices from Dude")
+                return devices
+                
+            except (OSError, ConnectionError) as e:
+                error_str = str(e)
+                if "Bad file descriptor" in error_str or "Errno 9" in error_str:
+                    logger.warning(f"Connection lost (attempt {attempt + 1}/{max_retries}): {e}")
+                    self._connected = False
+                    self._api = None
+                    self._connection = None
+                    if attempt < max_retries - 1:
+                        # Prova a riconnettere
+                        try:
+                            if self.connect():
+                                continue  # Riprova la query
+                        except Exception as reconnect_error:
+                            logger.error(f"Reconnection failed: {reconnect_error}")
+                    raise
+                else:
+                    logger.error(f"Connection error getting devices: {e}")
+                    raise
+            except Exception as e:
+                error_str = str(e)
+                # Se è un errore di parsing malformato, logga ma non fallire completamente
+                if "Malformed" in error_str or "Unknown tag" in error_str:
+                    logger.error(f"Malformed data from Dude server: {e}")
+                    # Ritorna lista vuota invece di fallire completamente
+                    return []
+                logger.error(f"Error getting devices: {e}")
+                raise
     
     def get_device(self, device_id: str) -> Optional[Device]:
         """Ottiene singolo dispositivo per ID"""
@@ -203,46 +235,73 @@ class DudeService:
     
     def get_probes(self, device_id: Optional[str] = None) -> List[Probe]:
         """Ottiene lista probe dal Dude"""
-        self._ensure_connected()
-        self._reconnect_if_needed()
-        
-        try:
-            probe_resource = self._api.get_resource('/dude/probe')
-            raw_probes = probe_resource.get()
-            
-            probes = []
-            for raw in raw_probes:
-                try:
-                    if device_id and raw.get("device") != device_id:
+        max_retries = 2
+        for attempt in range(max_retries):
+            try:
+                self._ensure_connected()
+                self._reconnect_if_needed()
+                
+                probe_resource = self._api.get_resource('/dude/probe')
+                raw_probes = probe_resource.get()
+                
+                probes = []
+                for raw in raw_probes:
+                    try:
+                        if device_id and raw.get("device") != device_id:
+                            continue
+                        
+                        status_map = {
+                            "ok": ProbeStatus.OK,
+                            "warning": ProbeStatus.WARNING,
+                            "critical": ProbeStatus.CRITICAL,
+                        }
+                        status_str = raw.get("status", "") or ""
+                        status = status_map.get(status_str.lower(), ProbeStatus.UNKNOWN)
+                        
+                        probe = Probe(
+                            id=raw.get(".id", "") or "",
+                            name=raw.get("name") or "Unknown",
+                            device_id=raw.get("device", "") or "",
+                            probe_type=raw.get("type", "unknown") or "unknown",
+                            status=status,
+                            value=raw.get("value"),
+                            unit=raw.get("unit"),
+                        )
+                        probes.append(probe)
+                    except Exception as e:
+                        logger.warning(f"Error parsing probe {raw.get('.id', 'unknown')}: {e}")
                         continue
-                    
-                    status_map = {
-                        "ok": ProbeStatus.OK,
-                        "warning": ProbeStatus.WARNING,
-                        "critical": ProbeStatus.CRITICAL,
-                    }
-                    status_str = raw.get("status", "") or ""
-                    status = status_map.get(status_str.lower(), ProbeStatus.UNKNOWN)
-                    
-                    probe = Probe(
-                        id=raw.get(".id", "") or "",
-                        name=raw.get("name") or "Unknown",
-                        device_id=raw.get("device", "") or "",
-                        probe_type=raw.get("type", "unknown") or "unknown",
-                        status=status,
-                        value=raw.get("value"),
-                        unit=raw.get("unit"),
-                    )
-                    probes.append(probe)
-                except Exception as e:
-                    logger.warning(f"Error parsing probe {raw.get('.id', 'unknown')}: {e}")
-                    continue
-            
-            logger.debug(f"Retrieved {len(probes)} probes from Dude")
-            return probes
-            
-        except (OSError, ConnectionError) as e:
-            logger.error(f"Connection error getting probes: {e}")
+                
+                logger.debug(f"Retrieved {len(probes)} probes from Dude")
+                return probes
+                
+            except (OSError, ConnectionError) as e:
+                error_str = str(e)
+                if "Bad file descriptor" in error_str or "Errno 9" in error_str:
+                    logger.warning(f"Connection lost (attempt {attempt + 1}/{max_retries}): {e}")
+                    self._connected = False
+                    self._api = None
+                    self._connection = None
+                    if attempt < max_retries - 1:
+                        # Prova a riconnettere
+                        try:
+                            if self.connect():
+                                continue  # Riprova la query
+                        except Exception as reconnect_error:
+                            logger.error(f"Reconnection failed: {reconnect_error}")
+                    raise
+                else:
+                    logger.error(f"Connection error getting probes: {e}")
+                    raise
+            except Exception as e:
+                error_str = str(e)
+                # Se è un errore di parsing malformato, logga ma non fallire completamente
+                if "Malformed" in error_str or "Unknown tag" in error_str:
+                    logger.error(f"Malformed data from Dude server: {e}")
+                    # Ritorna lista vuota invece di fallire completamente
+                    return []
+                logger.error(f"Error getting probes: {e}")
+                raise
             self._connected = False
             self._api = None
             raise
