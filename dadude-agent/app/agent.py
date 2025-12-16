@@ -296,6 +296,15 @@ class DaDudeAgent:
                 restart_flag = Path(self._version_manager.agent_dir) / ".restart_required"
                 if restart_flag.exists():
                     restart_flag.unlink()
+                
+                # Elimina backup vecchi, mantieni solo l'ultimo funzionante
+                try:
+                    cleanup_stats = self._version_manager.cleanup_old_backups(force=True)
+                    if cleanup_stats.get("deleted_backups"):
+                        logger.info(f"Cleaned up {len(cleanup_stats['deleted_backups'])} old backups, keeping only the last working version")
+                except Exception as e:
+                    logger.warning(f"Error cleaning up old backups: {e}")
+                
                 return
         
         # Timeout: rollback automatico

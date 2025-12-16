@@ -30,8 +30,8 @@ class VersionManager:
         self.health_check_timeout = 300  # 5 minuti per verificare connessione
         
         # Configurazione pulizia disco
-        self.max_backups = int(os.getenv("MAX_BACKUPS", "5"))  # Mantieni ultimi 5 backup
-        self.max_backup_age_days = int(os.getenv("MAX_BACKUP_AGE_DAYS", "30"))  # Elimina backup più vecchi di 30 giorni
+        self.max_backups = int(os.getenv("MAX_BACKUPS", "1"))  # Mantieni solo l'ultimo backup funzionante
+        self.max_backup_age_days = int(os.getenv("MAX_BACKUP_AGE_DAYS", "7"))  # Elimina backup più vecchi di 7 giorni
         self.min_free_space_mb = int(os.getenv("MIN_FREE_SPACE_MB", "500"))  # Mantieni almeno 500MB liberi
         
         # Crea directory se non esistono
