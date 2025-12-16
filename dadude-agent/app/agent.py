@@ -352,6 +352,13 @@ class DaDudeAgent:
             # Signal handlers non disponibili (es. Windows)
             pass
         
+        # Inizializza Version Manager per check aggiornamenti
+        agent_dir = os.getenv("AGENT_DIR", "/opt/dadude-agent")
+        self._version_manager = VersionManager(agent_dir=agent_dir)
+        
+        # Verifica e applica aggiornamenti all'avvio (PRIMA di inizializzare componenti)
+        await self._check_and_update_on_startup()
+        
         await self._initialize_components()
         
         self._running = True
