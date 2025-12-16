@@ -1,0 +1,243 @@
+{% extends "base.html" %}
+
+{% block title %}File Backup{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1><i class="bi bi-folder2-open"></i> File Backup</h1>
+        <div>
+            <button class="btn btn-primary" onclick="refreshFiles()">
+                <i class="bi bi-arrow-clockwise"></i> Aggiorna
+            </button>
+        </div>
+    </div>
+
+    <!-- Breadcrumb -->
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb" id="breadcrumb">
+            <li class="breadcrumb-item"><a href="#" onclick="navigateToPath('')">Root</a></li>
+        </ol>
+    </nav>
+
+    <!-- Filtri -->
+    <div class="card mb-3">
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-4">
+                    <label class="form-label">Tipo Device</label>
+                    <select class="form-select" id="filterDeviceType" onchange="applyFilters()">
+                        <option value="">Tutti</option>
+                        <option value="mikrotik">MikroTik</option>
+                        <option value="hp_aruba">HP/Aruba</option>
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Codice Cliente</label>
+                    <input type="text" class="form-control" id="filterCustomerCode" placeholder="Filtra per cliente" onchange="applyFilters()">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Path</label>
+                    <input type="text" class="form-control" id="currentPath" placeholder="/" value="" onkeypress="if(event.key==='Enter') navigateToPath(document.getElementById('currentPath').value)">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tabella file -->
+    <div class="card">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th style="width: 40px;"></th>
+                            <th>Nome</th>
+                            <th>Tipo</th>
+                            <th>Dimensione</th>
+                            <th>Modificato</th>
+                            <th style="width: 150px;">Azioni</th>
+                        </tr>
+                    </thead>
+                    <tbody id="filesTable">
+                        <tr>
+                            <td colspan="6" class="text-center">
+                                <div class="spinner-border text-primary" role="status">
+                                    <span class="visually-hidden">Caricamento...</span>
+                                </div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let currentPath = '';
+let currentFilters = {
+    device_type: '',
+    customer_code: ''
+};
+
+async function loadFiles(path = '') {
+    const tbody = document.getElementById('filesTable');
+    tbody.innerHTML = '<tr><td colspan="6" class="text-center"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">Caricamento...</span></div></td></tr>';
+
+    const params = new URLSearchParams();
+    if (path) params.append('path', path);
+    if (currentFilters.device_type) params.append('device_type', currentFilters.device_type);
+    if (currentFilters.customer_code) params.append('customer_code', currentFilters.customer_code);
+
+    try {
+        const response = await fetch(`/api/v1/device-backup/files/list?${params.toString()}`);
+        const data = await response.json();
+
+        if (!data.success) {
+            throw new Error(data.error || 'Errore caricamento file');
+        }
+
+        currentPath = data.path;
+        document.getElementById('currentPath').value = currentPath;
+
+        updateBreadcrumb(currentPath);
+        renderFiles(data.items);
+    } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="6" class="text-center text-danger">Errore: ${e.message}</td></tr>`;
+    }
+}
+
+function renderFiles(items) {
+    const tbody = document.getElementById('filesTable');
+
+    if (items.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">Nessun file trovato</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = items.map(item => {
+        const icon = item.type === 'directory' 
+            ? '<i class="bi bi-folder-fill text-warning"></i>' 
+            : getFileIcon(item.name);
+        
+        const size = item.size 
+            ? formatFileSize(item.size) 
+            : '-';
+        
+        const modified = item.modified 
+            ? new Date(item.modified).toLocaleString('it-IT') 
+            : '-';
+
+        const actions = item.type === 'directory'
+            ? `<button class="btn btn-sm btn-outline-primary" onclick="navigateToPath('${item.path}')" title="Apri">
+                 <i class="bi bi-folder2-open"></i>
+               </button>`
+            : `<button class="btn btn-sm btn-outline-success" onclick="downloadFile('${item.path}')" title="Scarica">
+                 <i class="bi bi-download"></i>
+               </button>
+               <button class="btn btn-sm btn-outline-danger" onclick="deleteFile('${item.path}', '${item.name}')" title="Elimina">
+                 <i class="bi bi-trash"></i>
+               </button>`;
+
+        return `
+            <tr>
+                <td>${icon}</td>
+                <td><strong>${escapeHtml(item.name)}</strong></td>
+                <td><span class="badge bg-${item.type === 'directory' ? 'warning' : 'info'}">${item.type === 'directory' ? 'Directory' : 'File'}</span></td>
+                <td>${size}</td>
+                <td>${modified}</td>
+                <td>${actions}</td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function getFileIcon(filename) {
+    const ext = filename.split('.').pop().toLowerCase();
+    const icons = {
+        'rsc': '<i class="bi bi-file-code text-primary"></i>',
+        'backup': '<i class="bi bi-file-zip text-warning"></i>',
+        'txt': '<i class="bi bi-file-text text-secondary"></i>',
+        'cfg': '<i class="bi bi-file-code text-info"></i>',
+        'conf': '<i class="bi bi-file-code text-info"></i>',
+    };
+    return icons[ext] || '<i class="bi bi-file text-secondary"></i>';
+}
+
+function formatFileSize(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+}
+
+function updateBreadcrumb(path) {
+    const breadcrumb = document.getElementById('breadcrumb');
+    const parts = path.split('/').filter(p => p);
+    
+    breadcrumb.innerHTML = '<li class="breadcrumb-item"><a href="#" onclick="navigateToPath(\'\')">Root</a></li>';
+    
+    let currentPath = '';
+    parts.forEach((part, index) => {
+        currentPath += (currentPath ? '/' : '') + part;
+        const isLast = index === parts.length - 1;
+        breadcrumb.innerHTML += `<li class="breadcrumb-item ${isLast ? 'active' : ''}">
+            ${isLast ? escapeHtml(part) : `<a href="#" onclick="navigateToPath('${currentPath}')">${escapeHtml(part)}</a>`}
+        </li>`;
+    });
+}
+
+function navigateToPath(path) {
+    loadFiles(path);
+}
+
+function applyFilters() {
+    currentFilters.device_type = document.getElementById('filterDeviceType').value;
+    currentFilters.customer_code = document.getElementById('filterCustomerCode').value;
+    loadFiles(currentPath);
+}
+
+function refreshFiles() {
+    loadFiles(currentPath);
+}
+
+function downloadFile(path) {
+    window.open(`/api/v1/device-backup/files/download?path=${encodeURIComponent(path)}`, '_blank');
+}
+
+async function deleteFile(path, name) {
+    if (!confirm(`Sei sicuro di voler eliminare il file "${name}"?`)) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/v1/device-backup/files/delete?path=${encodeURIComponent(path)}`, {
+            method: 'DELETE'
+        });
+        const data = await response.json();
+
+        if (data.success) {
+            alert('File eliminato con successo');
+            refreshFiles();
+        } else {
+            throw new Error(data.error || 'Errore eliminazione file');
+        }
+    } catch (e) {
+        alert('Errore: ' + e.message);
+    }
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Carica file all'avvio
+loadFiles();
+</script>
+
+{% endblock %}
+

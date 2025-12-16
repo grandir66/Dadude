@@ -5,10 +5,13 @@ Non modifica router esistenti
 """
 from datetime import datetime
 from fastapi import APIRouter, HTTPException, Query, Depends, BackgroundTasks, Response
-from typing import Optional, List
+from fastapi.responses import FileResponse, StreamingResponse
+from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 from loguru import logger
 from sqlalchemy.orm import Session
+import os
+from pathlib import Path
 
 # Import database dependency (usa quello esistente)
 from ..models.database import init_db, get_session

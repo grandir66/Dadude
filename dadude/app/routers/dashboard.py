@@ -379,6 +379,16 @@ async def agents_page(request: Request):
     })
 
 
+@router.get("/backups", response_class=HTMLResponse)
+async def backups_page(request: Request):
+    """Pagina file browser backup"""
+    return templates.TemplateResponse("backups.html", {
+        "request": request,
+        "page": "backups",
+        "title": "File Backup",
+    })
+
+
 # ==========================================
 # CONFIGURATION PAGES
 # ==========================================
