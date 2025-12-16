@@ -11,12 +11,19 @@ from loguru import logger
 from sqlalchemy.orm import Session
 
 # Import database dependency (usa quello esistente)
-try:
-    from ..models.database import get_db
-except ImportError:
-    # Fallback per dependency injection
-    def get_db():
-        pass
+from ..models.database import init_db, get_session
+from ..config import get_settings
+
+def get_db():
+    """Dependency per ottenere sessione database"""
+    settings = get_settings()
+    db_url = settings.database_url.replace("+aiosqlite", "")
+    engine = init_db(db_url)
+    session = get_session(engine)
+    try:
+        yield session
+    finally:
+        session.close()
 
 from ..models.backup_models import DeviceBackup, BackupJob, BackupSchedule
 from ..services.device_backup_service import DeviceBackupService

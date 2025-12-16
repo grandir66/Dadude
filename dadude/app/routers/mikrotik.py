@@ -103,30 +103,91 @@ async def unassign_agent_from_customer(agent_id: str):
 # ==========================================
 
 @router.get("/credentials/{credential_id}/system-info")
-async def get_router_system_info_by_credential(credential_id: str):
+async def get_router_system_info_by_credential(
+    credential_id: str,
+    device_ip: Optional[str] = Query(None, description="IP del device (se non nella credenziale)")
+):
     """Ottiene informazioni sistema del router tramite credenziale"""
     from ..services.customer_service import get_customer_service
     from ..services.mikrotik_service import get_mikrotik_service
+    from ..models.database import init_db, get_session
+    from ..models.inventory import InventoryDevice
+    from ..config import get_settings
+    from loguru import logger
     
-    customer_service = get_customer_service()
-    credential = customer_service.get_credential(credential_id, include_password=True)
-    
-    if not credential:
-        raise HTTPException(status_code=404, detail="Credenziale non trovata")
-    
-    if credential.credential_type not in ["mikrotik", "ssh", "device"]:
-        raise HTTPException(status_code=400, detail="Credenziale non supporta MikroTik")
-    
-    mikrotik = get_mikrotik_service()
-    result = mikrotik.get_system_info(
-        address=credential.address or "",
-        port=credential.port or 8728,
-        username=credential.username or "admin",
-        password=credential.password or "",
-        use_ssl=credential.use_ssl if hasattr(credential, 'use_ssl') else False,
-    )
-    
-    return result
+    try:
+        customer_service = get_customer_service()
+        credential = customer_service.get_credential(credential_id, include_password=True)
+        
+        if not credential:
+            raise HTTPException(status_code=404, detail="Credenziale non trovata")
+        
+        if credential.credential_type not in ["mikrotik", "ssh", "device"]:
+            raise HTTPException(status_code=400, detail="Credenziale non supporta MikroTik")
+        
+        # Determina indirizzo: priorità a device_ip passato, poi cerca device associato, poi address nella credenziale
+        address = device_ip
+        
+        if not address:
+            # Cerca device associato a questa credenziale
+            settings = get_settings()
+            db_url = settings.database_url.replace("+aiosqlite", "")
+            engine = init_db(db_url)
+            session = get_session(engine)
+            try:
+                device = session.query(InventoryDevice).filter(
+                    InventoryDevice.credential_id == credential_id
+                ).first()
+                
+                if device and device.primary_ip:
+                    address = device.primary_ip
+                    logger.info(f"Found device IP {address} for credential {credential_id}")
+            finally:
+                session.close()
+        
+        # Se ancora non abbiamo l'indirizzo, prova a recuperarlo dalla credenziale (se esiste)
+        if not address:
+            address = getattr(credential, 'address', None)
+        
+        if not address:
+            raise HTTPException(
+                status_code=400, 
+                detail="Indirizzo IP non trovato. Fornire device_ip come parametro o associare la credenziale a un device."
+            )
+        
+        # Porta: priorità a mikrotik_api_port, poi port generico, poi default 8728
+        port = getattr(credential, 'mikrotik_api_port', None) or getattr(credential, 'port', None) or 8728
+        
+        # Username e password
+        username = credential.username or "admin"
+        password = credential.password or ""
+        
+        if not password:
+            raise HTTPException(status_code=400, detail="Credenziale senza password")
+        
+        # SSL: usa mikrotik_api_ssl se disponibile, altrimenti use_ssl generico
+        use_ssl = getattr(credential, 'mikrotik_api_ssl', None)
+        if use_ssl is None:
+            use_ssl = getattr(credential, 'use_ssl', False)
+        
+        logger.info(f"Connecting to MikroTik {address}:{port} with user {username} (SSL: {use_ssl})")
+        
+        mikrotik = get_mikrotik_service()
+        result = mikrotik.get_system_info(
+            address=address,
+            port=port,
+            username=username,
+            password=password,
+            use_ssl=use_ssl,
+        )
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting MikroTik system info for credential {credential_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Errore connessione MikroTik: {str(e)}")
 
 
 @router.post("/credentials/{credential_id}/backup")

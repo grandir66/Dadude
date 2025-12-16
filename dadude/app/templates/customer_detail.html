@@ -4154,7 +4154,7 @@ async function manageMikroTikDevice(deviceId, deviceIp) {
         } else {
             // Nessun agent trovato - usa credenziali direttamente per operazioni base
             try {
-                const infoResponse = await fetch(`/api/v1/mikrotik/credentials/${device.credential_id}/system-info`);
+                const infoResponse = await fetch(`/api/v1/mikrotik/credentials/${device.credential_id}/system-info?device_ip=${encodeURIComponent(deviceIp)}`);
                 const infoResult = await infoResponse.json();
                 
                 if (infoResult.success) {
