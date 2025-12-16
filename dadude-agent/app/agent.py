@@ -209,7 +209,7 @@ class DaDudeAgent:
         try:
             import httpx
             
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(verify=False) as client:
                 response = await client.post(
                     f"{self.server_url}/api/v1/agents/enroll",
                     json={
@@ -281,7 +281,7 @@ class DaDudeAgent:
                 "python_version": platform.python_version(),
             }
             
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(verify=False) as client:
                 response = await client.post(
                     f"{self.server_url}/api/v1/agents/register",
                     json=registration_data,
