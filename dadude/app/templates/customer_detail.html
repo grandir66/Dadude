@@ -4297,5 +4297,43 @@ async function manageHPArubaDevice(deviceId, deviceIp) {
         alert('Errore: ' + e.message);
     }
 }
+
+async function backupProxmoxDevice(deviceId, deviceIp) {
+    if (!confirm(`Eseguire backup configurazione Proxmox ${deviceIp}?\n\nVerranno salvate le configurazioni di:\n- /etc/pve/ (cluster, VM/CT, storage)\n- /etc/vzdump.conf\n- /etc/network/interfaces\n- E altre configurazioni critiche`)) return;
+    
+    try {
+        // Recupera credenziali del device
+        const deviceResponse = await fetch(`/api/v1/inventory/devices/${deviceId}`);
+        const device = await deviceResponse.json();
+        
+        if (!device.credential_id) {
+            alert('⚠️ Nessuna credenziale associata al dispositivo.\n\nAssocia una credenziale SSH prima di eseguire il backup.');
+            return;
+        }
+        
+        const response = await fetch('/api/v1/device-backup/device', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                device_ip: deviceIp,
+                customer_id: customerId,
+                device_type: 'proxmox',
+                backup_type: 'config',
+                credential_id: device.credential_id
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            const fileSize = result.device_info?.file_size ? (result.device_info.file_size / 1024 / 1024).toFixed(2) + ' MB' : 'N/A';
+            alert(`✅ Backup Proxmox completato!\n\nFile: ${result.file_path || 'N/A'}\nDimensione: ${fileSize}\nBackup ID: ${result.backup_id || 'N/A'}`);
+        } else {
+            alert(`❌ Errore backup: ${result.error || 'Errore sconosciuto'}`);
+        }
+    } catch (e) {
+        alert('Errore: ' + e.message);
+    }
+}
 </script>
 {% endblock %}
