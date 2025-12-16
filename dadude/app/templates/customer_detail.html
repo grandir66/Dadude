@@ -4156,13 +4156,27 @@ async function manageMikroTikDevice(deviceId, deviceIp) {
             // Nessun agent trovato - usa credenziali direttamente per operazioni base
             try {
                 const infoResponse = await fetch(`/api/v1/mikrotik/credentials/${device.credential_id}/system-info?device_ip=${encodeURIComponent(deviceIp)}`);
+                
+                if (!infoResponse.ok) {
+                    const errorText = await infoResponse.text();
+                    let errorMsg = `Errore HTTP ${infoResponse.status}`;
+                    try {
+                        const errorJson = JSON.parse(errorText);
+                        errorMsg = errorJson.detail || errorJson.error || errorMsg;
+                    } catch {
+                        errorMsg = errorText || errorMsg;
+                    }
+                    alert(`❌ Errore connessione MikroTik:\n\n${errorMsg}\n\nVerifica:\n- Le credenziali associate al dispositivo\n- La connettività di rete\n- Che il router sia raggiungibile`);
+                    return;
+                }
+                
                 const infoResult = await infoResponse.json();
                 
-                if (infoResult.success) {
+                if (infoResult.success !== false) {
                     let info = `📡 Router MikroTik: ${deviceIp}\n\n`;
                     info += `Identity: ${infoResult.identity || 'N/A'}\n`;
                     info += `RouterOS: ${infoResult.version || 'N/A'}\n`;
-                    info += `Board: ${infoResult.board_name || 'N/A'}\n`;
+                    info += `Board: ${infoResult.board_name || infoResult.board || 'N/A'}\n`;
                     info += `CPU Load: ${infoResult.cpu_load || 0}%\n`;
                     info += `Memory: ${infoResult.memory_free_mb || 0}MB / ${infoResult.memory_total_mb || 0}MB\n\n`;
                     info += `⚠️ Nessun Agent MikroTik configurato.\n\n`;
@@ -4180,7 +4194,8 @@ async function manageMikroTikDevice(deviceId, deviceIp) {
                     alert(`❌ Errore connessione: ${infoResult.error || 'Errore sconosciuto'}\n\nVerifica le credenziali associate al dispositivo.`);
                 }
             } catch (e) {
-                alert(`Router MikroTik ${deviceIp}\n\nPer gestire questo router:\n1. Vai alla sezione "Sonde"\n2. Crea un nuovo Agent MikroTik\n3. Configura IP: ${deviceIp}\n4. Seleziona credenziali: ${device.credential_id || 'da configurare'}`);
+                console.error('MikroTik management error:', e);
+                alert(`❌ Errore gestione MikroTik ${deviceIp}:\n\n${e.message}\n\nPer gestire questo router:\n1. Vai alla sezione "Sonde"\n2. Crea un nuovo Agent MikroTik\n3. Configura IP: ${deviceIp}\n4. Seleziona credenziali: ${device.credential_id || 'da configurare'}`);
             }
         }
     } catch (e) {
