@@ -117,7 +117,7 @@ async def get_router_system_info_by_credential(
     
     try:
         customer_service = get_customer_service()
-        credential = customer_service.get_credential(credential_id, include_password=True)
+        credential = customer_service.get_credential(credential_id, include_secrets=True)
         
         if not credential:
             raise HTTPException(status_code=404, detail="Credenziale non trovata")
