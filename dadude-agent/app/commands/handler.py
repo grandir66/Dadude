@@ -802,33 +802,36 @@ class CommandHandler:
                 )
                 
                 if build_result.returncode == 0:
-                    logger.info("Docker build completed. Restarting container...")
+                    logger.info("Docker build completed. Preparing for restart...")
                     
-                    # Rimuovi container vecchi
+                    # Dopo il build, fermiamo il container normalmente
+                    # Il restart policy "unless-stopped" nel docker-compose.yml
+                    # riavvierà automaticamente il container con la nuova immagine
+                    # quando viene fermato normalmente
+                    
+                    # Ferma il container corrente (questo triggererà il restart automatico)
                     try:
-                        subprocess.run(
-                            ["docker", "rm", "-f", "dadude-agent"],
+                        stop_result = subprocess.run(
+                            ["docker", "stop", "dadude-agent"],
                             capture_output=True,
                             timeout=10,
                         )
-                    except:
-                        pass
+                        if stop_result.returncode == 0:
+                            logger.info("Container stopped. Docker will restart it automatically with new image.")
+                        else:
+                            logger.warning(f"Could not stop container gracefully: {stop_result.stderr}")
+                    except Exception as e:
+                        logger.warning(f"Error stopping container: {e}")
                     
-                    # Riavvia container in background
-                    restart_result = subprocess.Popen(
-                        ["docker", "compose", "up", "-d", "--force-recreate"],
-                        cwd=agent_compose_dir,
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                    )
-                    
-                    logger.info("Container restart initiated")
+                    # Aspetta un momento per permettere al processo di completare
+                    import asyncio
+                    await asyncio.sleep(1)
                     
                     return CommandResult(
                         success=True,
                         status="success",
                         data={
-                            "message": "Update completed. Container restarting...",
+                            "message": "Update completed. Container will restart automatically.",
                             "restarting": True,
                         },
                     )
