@@ -1,10 +1,10 @@
 # ==========================================
 # DaDude Agent - Installazione su MikroTik RB5009
-# Versione completamente hardcoded - pronta all'uso
+# Versione ultra-semplice - completamente hardcoded
 # ==========================================
 # 
 # ISTRUZIONI:
-# 1. MODIFICA i valori hardcoded qui sotto se necessario (cerca "MODIFICA")
+# 1. MODIFICA i valori qui sotto se necessario (cerca "MODIFICA")
 # 2. Copia TUTTO lo script
 # 3. Incollalo nella console RouterOS (Winbox o SSH)
 # 4. Premi Invio
@@ -14,7 +14,7 @@
 # ==========================================
 # CONFIGURAZIONE - MODIFICA QUESTI VALORI SE NECESSARIO
 # ==========================================
-# MODIFICA: Token agent (qualsiasi stringa)
+# MODIFICA: Token agent
 :local agentToken "mio-token-rb5009"
 # MODIFICA: ID agent
 :local agentId "agent-rb5009-test"
@@ -22,45 +22,7 @@
 :local agentName "RB5009 Test"
 
 # ==========================================
-# 1. Verifica che Container Mode sia abilitato
-# ==========================================
-:local containerMode ""
-:do {
-    :set containerMode ([/system/device-mode/get container])
-} on-error={
-    :set containerMode "no"
-}
-
-:if ($containerMode = "no") do={
-    :put "ERRORE: Container mode non abilitato!"
-    :put "Esegui: /system/device-mode/update container=yes"
-    :put "Poi riavvia il router"
-    :put "Dopo il riavvio, riesegui questo script"
-}
-
-# ==========================================
-# 2. Trova immagine Docker (usa percorso hardcoded)
-# ==========================================
-:local imagePath ""
-
-# Prova prima su USB
-:if ([/file/print where name="usb1/dadude-agent-mikrotik.tar.gz"] != "") do={
-    :set imagePath "usb1/dadude-agent-mikrotik.tar.gz"
-    :put "Immagine trovata su USB: usb1/dadude-agent-mikrotik.tar.gz"
-} else={
-    # Prova in root
-    :if ([/file/print where name="/dadude-agent-mikrotik.tar.gz"] != "") do={
-        :set imagePath "/dadude-agent-mikrotik.tar.gz"
-        :put "Immagine trovata in root: /dadude-agent-mikrotik.tar.gz"
-    } else={
-        :put "ERRORE: Immagine non trovata!"
-        :put "Verifica che il file esista con: /file/print"
-        :put "Cerca: usb1/dadude-agent-mikrotik.tar.gz o /dadude-agent-mikrotik.tar.gz"
-    }
-}
-
-# ==========================================
-# 3. Rimuovi container esistente (se presente)
+# 1. Rimuovi container esistente (se presente)
 # ==========================================
 :do {
     /container/stop 0
@@ -68,7 +30,7 @@
 } on-error={}
 
 # ==========================================
-# 4. Rimuovi configurazioni esistenti (se presenti)
+# 2. Rimuovi configurazioni esistenti (se presenti)
 # ==========================================
 :do {
     /interface/veth/remove [find name="veth-dadude-agent"]
@@ -87,24 +49,25 @@
 } on-error={}
 
 # ==========================================
-# 5. Crea VETH interface per container
+# 3. Crea VETH interface per container
 # ==========================================
 /interface/veth/add name=veth-dadude-agent address=172.17.0.2/24 gateway=172.17.0.1
 
 # ==========================================
-# 6. Crea bridge per container
+# 4. Crea bridge per container
 # ==========================================
 /interface/bridge/add name=bridge-dadude-agent
 /interface/bridge/port/add bridge=bridge-dadude-agent interface=veth-dadude-agent
 /ip/address/add address=172.17.0.1/24 interface=bridge-dadude-agent
 
 # ==========================================
-# 7. Configura NAT per accesso internet
+# 5. Configura NAT per accesso internet
 # ==========================================
 /ip/firewall/nat/add chain=srcnat action=masquerade src-address=172.17.0.0/24 out-interface=bridge-dadude-agent comment="dadude-agent-nat"
 
 # ==========================================
-# 8. Crea environment variables (valori hardcoded)
+# 6. Crea environment variables
+# NOTA: RouterOS richiede valori senza virgolette per le variabili
 # ==========================================
 /container/envs/add name=dadude-env key=DADUDE_SERVER_URL value="https://dadude.domarc.it:8000"
 /container/envs/add name=dadude-env key=DADUDE_AGENT_TOKEN value=$agentToken
@@ -114,27 +77,27 @@
 /container/envs/add name=dadude-env key=PYTHONUNBUFFERED value="1"
 
 # ==========================================
-# 9. Crea container dall'immagine tar
+# 7. Crea container dall'immagine tar
+# MODIFICA: Cambia il percorso se l'immagine è in una posizione diversa
 # ==========================================
-:if ($imagePath != "") do={
-    :local rootDir ""
-    :if ([/file/print where name="usb1" and type="directory"] != "") do={
-        :set rootDir "usb1/dadude-agent"
-    } else={
-        :set rootDir "/dadude-agent"
+# Prova prima con immagine su USB
+:do {
+    /container/add file="usb1/dadude-agent-mikrotik.tar.gz" interface=veth-dadude-agent root-dir="usb1/dadude-agent" envlist=dadude-env start-on-boot=yes logging=yes cmd="python -m app.agent"
+    :put "Container creato con immagine su USB"
+} on-error={
+    # Se fallisce, prova con immagine in root
+    :do {
+        /container/add file="/dadude-agent-mikrotik.tar.gz" interface=veth-dadude-agent root-dir="/dadude-agent" envlist=dadude-env start-on-boot=yes logging=yes cmd="python -m app.agent"
+        :put "Container creato con immagine in root"
+    } on-error={
+        :put "ERRORE: Impossibile creare container!"
+        :put "Verifica che l'immagine esista:"
+        :put "  /file/print where name~\"dadude-agent-mikrotik\""
     }
-    
-    :put ("Creando container con immagine: " . $imagePath)
-    :put ("Root directory: " . $rootDir)
-    
-    /container/add file=$imagePath interface=veth-dadude-agent root-dir=$rootDir envlist=dadude-env start-on-boot=yes logging=yes cmd="python -m app.agent"
-} else={
-    :put "ERRORE: Nessun file immagine trovato! Impossibile creare il container."
-    :put "Verifica che l'immagine esista con: /file/print"
 }
 
 # ==========================================
-# 10. Avvia container
+# 8. Avvia container
 # ==========================================
 :do {
     /container/start 0
@@ -145,7 +108,7 @@
 }
 
 # ==========================================
-# 11. Verifica installazione
+# 9. Verifica installazione
 # ==========================================
 :delay 3s
 :put "=========================================="
