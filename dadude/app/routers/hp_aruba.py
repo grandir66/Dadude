@@ -33,7 +33,7 @@ async def test_hp_aruba_connection(credential_id: str):
     from ..services.hp_aruba_collector import HPArubaCollector
     
     customer_service = get_customer_service()
-        credential = customer_service.get_credential(credential_id, include_secrets=True)
+    credential = customer_service.get_credential(credential_id, include_secrets=True)
     
     if not credential:
         raise HTTPException(status_code=404, detail="Credenziale non trovata")
@@ -59,7 +59,7 @@ async def get_hp_aruba_system_info(credential_id: str):
     from ..services.hp_aruba_collector import HPArubaCollector
     
     customer_service = get_customer_service()
-        credential = customer_service.get_credential(credential_id, include_secrets=True)
+    credential = customer_service.get_credential(credential_id, include_secrets=True)
     
     if not credential:
         raise HTTPException(status_code=404, detail="Credenziale non trovata")
@@ -82,7 +82,7 @@ async def get_hp_aruba_switch_info(credential_id: str):
     from ..services.hp_aruba_collector import HPArubaCollector
     
     customer_service = get_customer_service()
-        credential = customer_service.get_credential(credential_id, include_secrets=True)
+    credential = customer_service.get_credential(credential_id, include_secrets=True)
     
     if not credential:
         raise HTTPException(status_code=404, detail="Credenziale non trovata")
@@ -109,7 +109,7 @@ async def backup_hp_aruba_config(
     import os
     
     customer_service = get_customer_service()
-        credential = customer_service.get_credential(credential_id, include_secrets=True)
+    credential = customer_service.get_credential(credential_id, include_secrets=True)
     
     if not credential:
         raise HTTPException(status_code=404, detail="Credenziale non trovata")
