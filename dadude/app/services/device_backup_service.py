@@ -173,15 +173,21 @@ class DeviceBackupService:
 
             # Ottieni credenziali: priorità a credential_id se fornito
             if credential_id:
+                self.logger.info(f"backup_device_by_ip: Using provided credential_id {credential_id}")
                 credentials = self._get_credential_by_id(credential_id, device_type)
             else:
+                self.logger.info(f"backup_device_by_ip: Using default credentials for customer {customer.id}")
                 credentials = self._get_customer_default_credentials(customer, device_type)
             
             if not credentials:
+                error_msg = f"No valid credentials found for device {device_ip} (type: {device_type}, credential_id: {credential_id or 'default'})"
+                self.logger.error(error_msg)
                 return {
                     "success": False,
-                    "error": "No valid credentials found"
+                    "error": error_msg
                 }
+            
+            self.logger.info(f"backup_device_by_ip: Found credentials for {device_ip}, username: {credentials.get('username', 'N/A')}")
 
             # Esegui backup
             backup_result = self._execute_backup(
@@ -542,9 +548,11 @@ class DeviceBackupService:
 
     def _get_credential_by_id(self, credential_id: str, device_type: str) -> Optional[Dict[str, Any]]:
         """Recupera credenziale specifica per ID"""
-        cred = self.db.query(Credential).filter_by(id=credential_id).first()
+        self.logger.info(f"_get_credential_by_id: Looking for credential {credential_id} for device_type {device_type}")
+        cred = self.db.query(Credential).filter(Credential.id == credential_id).first()
         
         if not cred:
+            self.logger.warning(f"_get_credential_by_id: Credential {credential_id} not found")
             return None
         
         # Verifica tipo credenziale compatibile

@@ -149,9 +149,18 @@ async def backup_device(
                 error=result.get("error", "Backup failed")
             )
 
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
     except Exception as e:
         logger.error(f"Backup device API error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        error_detail = str(e)
+        # Fornisci messaggio più chiaro se possibile
+        if "credential" in error_detail.lower() or "password" in error_detail.lower():
+            error_detail = f"Errore credenziali: {error_detail}"
+        elif "connection" in error_detail.lower() or "timeout" in error_detail.lower():
+            error_detail = f"Errore connessione: {error_detail}"
+        raise HTTPException(status_code=500, detail=error_detail)
 
 
 @router.post("/customer", response_model=BackupResponse)
