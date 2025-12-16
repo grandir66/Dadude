@@ -20,55 +20,137 @@
         </ol>
     </nav>
 
-    <!-- Filtri -->
-    <div class="card mb-3">
-        <div class="card-body">
-            <div class="row">
-                <div class="col-md-4">
-                    <label class="form-label">Tipo Device</label>
-                    <select class="form-select" id="filterDeviceType" onchange="applyFilters()">
-                        <option value="">Tutti</option>
-                        <option value="mikrotik">MikroTik</option>
-                        <option value="hp_aruba">HP/Aruba</option>
-                    </select>
+    <!-- Tabs -->
+    <ul class="nav nav-tabs mb-3" id="backupTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="files-tab" data-bs-toggle="tab" data-bs-target="#files" type="button" role="tab">
+                <i class="bi bi-folder2"></i> File System
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="history-tab" data-bs-toggle="tab" data-bs-target="#history" type="button" role="tab">
+                <i class="bi bi-clock-history"></i> Storico Database
+            </button>
+        </li>
+    </ul>
+
+    <div class="tab-content" id="backupTabContent">
+        <!-- Tab File System -->
+        <div class="tab-pane fade show active" id="files" role="tabpanel">
+            <!-- Filtri -->
+            <div class="card mb-3">
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-4">
+                            <label class="form-label">Tipo Device</label>
+                            <select class="form-select" id="filterDeviceType" onchange="applyFilters()">
+                                <option value="">Tutti</option>
+                                <option value="mikrotik">MikroTik</option>
+                                <option value="hp_aruba">HP/Aruba</option>
+                                <option value="proxmox">Proxmox</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Codice Cliente</label>
+                            <input type="text" class="form-control" id="filterCustomerCode" placeholder="Filtra per cliente" onchange="applyFilters()">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Path</label>
+                            <input type="text" class="form-control" id="currentPath" placeholder="/" value="" onkeypress="if(event.key==='Enter') navigateToPath(document.getElementById('currentPath').value)">
+                        </div>
+                    </div>
                 </div>
-                <div class="col-md-4">
-                    <label class="form-label">Codice Cliente</label>
-                    <input type="text" class="form-control" id="filterCustomerCode" placeholder="Filtra per cliente" onchange="applyFilters()">
-                </div>
-                <div class="col-md-4">
-                    <label class="form-label">Path</label>
-                    <input type="text" class="form-control" id="currentPath" placeholder="/" value="" onkeypress="if(event.key==='Enter') navigateToPath(document.getElementById('currentPath').value)">
+            </div>
+
+            <!-- Tabella file -->
+            <div class="card">
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th style="width: 40px;"></th>
+                                    <th>Nome</th>
+                                    <th>Tipo</th>
+                                    <th>Dimensione</th>
+                                    <th>Modificato</th>
+                                    <th style="width: 150px;">Azioni</th>
+                                </tr>
+                            </thead>
+                            <tbody id="filesTable">
+                                <tr>
+                                    <td colspan="6" class="text-center">
+                                        <div class="spinner-border text-primary" role="status">
+                                            <span class="visually-hidden">Caricamento...</span>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </div>
-    </div>
 
-    <!-- Tabella file -->
-    <div class="card">
-        <div class="card-body">
-            <div class="table-responsive">
-                <table class="table table-hover">
-                    <thead>
-                        <tr>
-                            <th style="width: 40px;"></th>
-                            <th>Nome</th>
-                            <th>Tipo</th>
-                            <th>Dimensione</th>
-                            <th>Modificato</th>
-                            <th style="width: 150px;">Azioni</th>
-                        </tr>
-                    </thead>
-                    <tbody id="filesTable">
-                        <tr>
-                            <td colspan="6" class="text-center">
-                                <div class="spinner-border text-primary" role="status">
-                                    <span class="visually-hidden">Caricamento...</span>
-                                </div>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
+        <!-- Tab Storico Database -->
+        <div class="tab-pane fade" id="history" role="tabpanel">
+            <div class="card mb-3">
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-4">
+                            <label class="form-label">Cliente</label>
+                            <select class="form-select" id="historyCustomerId" onchange="loadBackupHistory()">
+                                <option value="">Seleziona cliente...</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Tipo Device</label>
+                            <select class="form-select" id="historyDeviceType" onchange="loadBackupHistory()">
+                                <option value="">Tutti</option>
+                                <option value="mikrotik">MikroTik</option>
+                                <option value="hp_aruba">HP/Aruba</option>
+                                <option value="proxmox">Proxmox</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Giorni</label>
+                            <select class="form-select" id="historyDays" onchange="loadBackupHistory()">
+                                <option value="7">Ultimi 7 giorni</option>
+                                <option value="30" selected>Ultimi 30 giorni</option>
+                                <option value="90">Ultimi 90 giorni</option>
+                                <option value="365">Ultimo anno</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tabella storico -->
+            <div class="card">
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Data</th>
+                                    <th>Device</th>
+                                    <th>Tipo</th>
+                                    <th>File</th>
+                                    <th>Dimensione</th>
+                                    <th>Stato</th>
+                                    <th style="width: 150px;">Azioni</th>
+                                </tr>
+                            </thead>
+                            <tbody id="historyTable">
+                                <tr>
+                                    <td colspan="7" class="text-center text-muted">
+                                        Seleziona un cliente per visualizzare lo storico backup
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
