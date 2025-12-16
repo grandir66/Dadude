@@ -11,6 +11,7 @@ import hashlib
 from pathlib import Path
 from typing import Dict, Optional, List
 from datetime import datetime
+import glob
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,11 @@ class VersionManager:
         self.current_version_file = self.agent_dir / ".current_version"
         self.bad_versions_file = self.agent_dir / ".bad_versions"
         self.health_check_timeout = 300  # 5 minuti per verificare connessione
+        
+        # Configurazione pulizia disco
+        self.max_backups = int(os.getenv("MAX_BACKUPS", "5"))  # Mantieni ultimi 5 backup
+        self.max_backup_age_days = int(os.getenv("MAX_BACKUP_AGE_DAYS", "30"))  # Elimina backup più vecchi di 30 giorni
+        self.min_free_space_mb = int(os.getenv("MIN_FREE_SPACE_MB", "500"))  # Mantieni almeno 500MB liberi
         
         # Crea directory se non esistono
         self.versions_dir.mkdir(parents=True, exist_ok=True)
@@ -297,4 +303,278 @@ class VersionManager:
         except Exception as e:
             logger.error(f"Failed to rollback: {e}", exc_info=True)
             return False
+    
+    def get_disk_usage(self) -> Dict[str, int]:
+        """
+        Ottiene informazioni sull'uso del disco.
+        Ritorna dict con: total_bytes, used_bytes, free_bytes
+        """
+        try:
+            stat = shutil.disk_usage(self.agent_dir)
+            return {
+                "total_bytes": stat.total,
+                "used_bytes": stat.used,
+                "free_bytes": stat.free,
+                "free_mb": stat.free // (1024 * 1024),
+            }
+        except Exception as e:
+            logger.warning(f"Could not get disk usage: {e}")
+            return {"total_bytes": 0, "used_bytes": 0, "free_bytes": 0, "free_mb": 0}
+    
+    def get_backup_size(self, backup_path: str) -> int:
+        """Calcola dimensione totale di un backup in bytes."""
+        try:
+            backup_dir = Path(backup_path)
+            if not backup_dir.exists():
+                return 0
+            
+            total_size = 0
+            for file_path in backup_dir.rglob("*"):
+                if file_path.is_file():
+                    total_size += file_path.stat().st_size
+            return total_size
+        except Exception as e:
+            logger.warning(f"Could not calculate backup size: {e}")
+            return 0
+    
+    def cleanup_old_backups(self, force: bool = False) -> Dict[str, any]:
+        """
+        Pulisce backup vecchi secondo le policy configurate.
+        
+        Policy:
+        1. Mantieni solo gli ultimi N backup (max_backups)
+        2. Elimina backup più vecchi di max_backup_age_days giorni
+        3. Se spazio libero < min_free_space_mb, elimina backup più vecchi
+        
+        Ritorna dict con statistiche della pulizia.
+        """
+        stats = {
+            "backups_before": 0,
+            "backups_after": 0,
+            "deleted_backups": [],
+            "freed_space_mb": 0,
+            "reason": [],
+        }
+        
+        try:
+            # Trova tutti i backup
+            backups = []
+            for backup_dir in self.backups_dir.glob("backup_*"):
+                if backup_dir.is_dir():
+                    try:
+                        mtime = backup_dir.stat().st_mtime
+                        size = self.get_backup_size(str(backup_dir))
+                        backups.append({
+                            "path": backup_dir,
+                            "mtime": mtime,
+                            "age_days": (datetime.now().timestamp() - mtime) / (24 * 3600),
+                            "size_bytes": size,
+                            "size_mb": size // (1024 * 1024),
+                        })
+                    except Exception as e:
+                        logger.warning(f"Error processing backup {backup_dir}: {e}")
+                        continue
+            
+            stats["backups_before"] = len(backups)
+            
+            if not backups:
+                return stats
+            
+            # Ordina per età (più vecchi prima)
+            backups.sort(key=lambda x: x["mtime"])
+            
+            # Verifica spazio disco disponibile
+            disk_usage = self.get_disk_usage()
+            free_space_mb = disk_usage.get("free_mb", 0)
+            low_space = free_space_mb < self.min_free_space_mb
+            
+            if low_space:
+                stats["reason"].append(f"Low disk space: {free_space_mb}MB < {self.min_free_space_mb}MB")
+            
+            # Identifica backup da eliminare
+            to_delete = []
+            
+            # 1. Elimina backup più vecchi di max_backup_age_days
+            for backup in backups:
+                if backup["age_days"] > self.max_backup_age_days:
+                    to_delete.append(backup)
+                    stats["reason"].append(f"Backup older than {self.max_backup_age_days} days")
+            
+            # 2. Mantieni solo gli ultimi max_backups
+            if len(backups) > self.max_backups:
+                # Mantieni gli ultimi max_backups, elimina gli altri
+                keep_count = self.max_backups
+                old_backups = backups[:-keep_count]  # Prendi tutti tranne gli ultimi N
+                for backup in old_backups:
+                    if backup not in to_delete:
+                        to_delete.append(backup)
+                        stats["reason"].append(f"Keeping only last {self.max_backups} backups")
+            
+            # 3. Se spazio basso, elimina backup più vecchi fino a raggiungere spazio minimo
+            if low_space:
+                freed_mb = sum(b["size_mb"] for b in to_delete)
+                for backup in backups:
+                    if backup not in to_delete and freed_mb < (self.min_free_space_mb - free_space_mb):
+                        to_delete.append(backup)
+                        freed_mb += backup["size_mb"]
+                        stats["reason"].append("Freeing space due to low disk")
+            
+            # Elimina backup identificati
+            for backup in to_delete:
+                try:
+                    backup_path = backup["path"]
+                    size_mb = backup["size_mb"]
+                    
+                    logger.info(f"Deleting old backup: {backup_path.name} ({size_mb}MB, {backup['age_days']:.1f} days old)")
+                    shutil.rmtree(backup_path)
+                    
+                    stats["deleted_backups"].append({
+                        "name": backup_path.name,
+                        "size_mb": size_mb,
+                        "age_days": backup["age_days"],
+                    })
+                    stats["freed_space_mb"] += size_mb
+                    
+                except Exception as e:
+                    logger.error(f"Failed to delete backup {backup['path']}: {e}")
+            
+            stats["backups_after"] = stats["backups_before"] - len(stats["deleted_backups"])
+            
+            if stats["deleted_backups"]:
+                logger.info(f"Cleanup completed: deleted {len(stats['deleted_backups'])} backups, freed {stats['freed_space_mb']}MB")
+            
+            return stats
+            
+        except Exception as e:
+            logger.error(f"Error during backup cleanup: {e}", exc_info=True)
+            return stats
+    
+    def cleanup_logs(self) -> Dict[str, any]:
+        """
+        Pulisce log vecchi.
+        Mantiene solo gli ultimi N giorni di log.
+        """
+        stats = {
+            "deleted_files": [],
+            "freed_space_mb": 0,
+        }
+        
+        try:
+            log_dir = self.agent_dir / "logs"
+            if not log_dir.exists():
+                return stats
+            
+            max_log_age_days = int(os.getenv("MAX_LOG_AGE_DAYS", "7"))  # Mantieni 7 giorni di log
+            cutoff_time = datetime.now().timestamp() - (max_log_age_days * 24 * 3600)
+            
+            for log_file in log_dir.glob("*"):
+                if log_file.is_file():
+                    try:
+                        mtime = log_file.stat().st_mtime
+                        if mtime < cutoff_time:
+                            size_mb = log_file.stat().st_size // (1024 * 1024)
+                            logger.info(f"Deleting old log: {log_file.name} ({size_mb}MB)")
+                            log_file.unlink()
+                            
+                            stats["deleted_files"].append({
+                                "name": log_file.name,
+                                "size_mb": size_mb,
+                            })
+                            stats["freed_space_mb"] += size_mb
+                    except Exception as e:
+                        logger.warning(f"Error deleting log {log_file}: {e}")
+            
+            if stats["deleted_files"]:
+                logger.info(f"Log cleanup completed: deleted {len(stats['deleted_files'])} files, freed {stats['freed_space_mb']}MB")
+            
+            return stats
+            
+        except Exception as e:
+            logger.error(f"Error during log cleanup: {e}", exc_info=True)
+            return stats
+    
+    def cleanup_temp_files(self) -> Dict[str, any]:
+        """
+        Pulisce file temporanei e cache.
+        """
+        stats = {
+            "deleted_files": [],
+            "freed_space_mb": 0,
+        }
+        
+        try:
+            # Pulisci __pycache__
+            for pycache_dir in self.agent_dir.rglob("__pycache__"):
+                try:
+                    size_mb = sum(f.stat().st_size for f in pycache_dir.rglob("*") if f.is_file()) // (1024 * 1024)
+                    shutil.rmtree(pycache_dir)
+                    stats["deleted_files"].append({"name": str(pycache_dir.relative_to(self.agent_dir)), "size_mb": size_mb})
+                    stats["freed_space_mb"] += size_mb
+                except Exception as e:
+                    logger.warning(f"Error deleting __pycache__ {pycache_dir}: {e}")
+            
+            # Pulisci file .pyc
+            for pyc_file in self.agent_dir.rglob("*.pyc"):
+                try:
+                    size_mb = pyc_file.stat().st_size // (1024 * 1024)
+                    pyc_file.unlink()
+                    stats["deleted_files"].append({"name": str(pyc_file.relative_to(self.agent_dir)), "size_mb": size_mb})
+                    stats["freed_space_mb"] += size_mb
+                except Exception as e:
+                    logger.warning(f"Error deleting .pyc {pyc_file}: {e}")
+            
+            # Pulisci file temporanei (.tmp, .temp, .swp)
+            temp_patterns = ["*.tmp", "*.temp", "*.swp", "*.bak"]
+            for pattern in temp_patterns:
+                for temp_file in self.agent_dir.rglob(pattern):
+                    try:
+                        size_mb = temp_file.stat().st_size // (1024 * 1024)
+                        temp_file.unlink()
+                        stats["deleted_files"].append({"name": str(temp_file.relative_to(self.agent_dir)), "size_mb": size_mb})
+                        stats["freed_space_mb"] += size_mb
+                    except Exception as e:
+                        logger.warning(f"Error deleting temp file {temp_file}: {e}")
+            
+            if stats["deleted_files"]:
+                logger.info(f"Temp files cleanup completed: deleted {len(stats['deleted_files'])} files, freed {stats['freed_space_mb']}MB")
+            
+            return stats
+            
+        except Exception as e:
+            logger.error(f"Error during temp files cleanup: {e}", exc_info=True)
+            return stats
+    
+    def cleanup_all(self, force: bool = False) -> Dict[str, any]:
+        """
+        Esegue pulizia completa dello spazio disco.
+        
+        Ritorna dict con statistiche totali.
+        """
+        logger.info("Starting disk cleanup...")
+        
+        total_stats = {
+            "backups": {},
+            "logs": {},
+            "temp_files": {},
+            "total_freed_mb": 0,
+        }
+        
+        # 1. Pulisci backup vecchi
+        total_stats["backups"] = self.cleanup_old_backups(force=force)
+        total_stats["total_freed_mb"] += total_stats["backups"].get("freed_space_mb", 0)
+        
+        # 2. Pulisci log vecchi
+        total_stats["logs"] = self.cleanup_logs()
+        total_stats["total_freed_mb"] += total_stats["logs"].get("freed_space_mb", 0)
+        
+        # 3. Pulisci file temporanei
+        total_stats["temp_files"] = self.cleanup_temp_files()
+        total_stats["total_freed_mb"] += total_stats["temp_files"].get("freed_space_mb", 0)
+        
+        # Mostra statistiche finali
+        disk_usage = self.get_disk_usage()
+        logger.info(f"Cleanup completed: freed {total_stats['total_freed_mb']}MB total")
+        logger.info(f"Disk usage: {disk_usage.get('free_mb', 0)}MB free / {disk_usage.get('total_bytes', 0) // (1024*1024)}MB total")
+        
+        return total_stats
 

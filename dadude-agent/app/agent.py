@@ -359,6 +359,9 @@ class DaDudeAgent:
         # Verifica e applica aggiornamenti all'avvio (PRIMA di inizializzare componenti)
         await self._check_and_update_on_startup()
         
+        # Esegui pulizia spazio disco all'avvio
+        await self._cleanup_disk_space()
+        
         await self._initialize_components()
         
         self._running = True
