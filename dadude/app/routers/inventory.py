@@ -408,6 +408,28 @@ async def auto_detect_device(
                 if device:
                     logger.info(f"Saving probe results for device {data.device_id}: {list(scan_result.keys())}")
                     
+                    # PRESERVA credential_id esistente - NON sovrascriverlo!
+                    # Se viene usata una credenziale durante il probe e non c'è già una credenziale associata,
+                    # oppure se la credenziale usata corrisponde a quella già associata, preservala
+                    existing_credential_id = device.credential_id
+                    
+                    # Se è stata usata una credenziale durante il probe e non c'è già una credenziale associata,
+                    # prova ad associare quella usata
+                    if result.get("credentials_tested") and not existing_credential_id:
+                        # Cerca la credenziale usata tra quelle del cliente
+                        tested_cred = result["credentials_tested"][0]
+                        cred_name = tested_cred.get("name")
+                        if cred_name:
+                            # Cerca credenziale per nome
+                            from ..models.database import Credential as CredentialDB
+                            cred = session.query(CredentialDB).filter(
+                                CredentialDB.customer_id == device.customer_id,
+                                CredentialDB.name == cred_name
+                            ).first()
+                            if cred:
+                                device.credential_id = cred.id
+                                logger.info(f"Auto-detect: Associated credential '{cred_name}' ({cred.id}) to device {data.device_id}")
+                    
                     # Hostname
                     hostname = scan_result.get("hostname") or scan_result.get("sysName") or scan_result.get("computer_name")
                     if hostname:
@@ -1654,6 +1676,10 @@ async def identify_inventory_device(
             credentials_list=credentials_list
         )
         
+        # PRESERVA credential_id esistente - NON sovrascriverlo!
+        # Il credential_id viene gestito solo tramite l'interfaccia utente o durante la creazione del device
+        existing_credential_id = device.credential_id
+        
         # Aggiorna dispositivo con info identificate
         updates_applied = []
         
@@ -1729,6 +1755,11 @@ async def identify_inventory_device(
         if result.get("architecture"):
             device.architecture = result["architecture"]
             updates_applied.append("architecture")
+        
+        # Assicurati che credential_id non venga perso
+        if existing_credential_id and device.credential_id != existing_credential_id:
+            logger.warning(f"Preserving existing credential_id {existing_credential_id} for device {device_id}")
+            device.credential_id = existing_credential_id
 
         # Salva porte aperte rilevate
         if result.get("open_ports"):
