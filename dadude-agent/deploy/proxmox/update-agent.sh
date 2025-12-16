@@ -189,21 +189,56 @@ log "Build completato"
 
 # Step 11: Avvia container
 log "Step 11: Avvia container Docker"
-START_OUTPUT=$(pct exec $CTID -- bash -c "cd ${COMPOSE_DIR} && docker compose up -d 2>&1" || true)
+# Rimuovi eventuali container vecchi in stato "Created" o "Exited"
+pct exec $CTID -- docker rm -f dadude-agent 2>/dev/null || true
+pct exec $CTID -- docker ps -a --filter name=dadude-agent --format "{{.Names}}" | grep -v "^$" | while read name; do
+    if [ "$name" != "dadude-agent" ]; then
+        pct exec $CTID -- docker rm -f "$name" 2>/dev/null || true
+    fi
+done
+
+START_OUTPUT=$(pct exec $CTID -- bash -c "cd ${COMPOSE_DIR} && docker compose up -d --force-recreate 2>&1" || true)
 if echo "$START_OUTPUT" | grep -qi "error\|failed"; then
     error "Avvio container fallito: $START_OUTPUT"
     exit 1
 fi
 log "Container avviato"
 
+# Attendi che il container sia effettivamente avviato
+sleep 3
+
 # Step 12: Verifica stato
 log "Step 12: Verifica stato container"
-sleep 3
-if pct exec $CTID -- docker ps --filter name=dadude-agent --format "{{.Status}}" 2>/dev/null | grep -q "Up"; then
+sleep 5
+CONTAINER_STATUS=$(pct exec $CTID -- docker ps --filter name=dadude-agent --format "{{.Status}}" 2>/dev/null || echo "")
+if echo "$CONTAINER_STATUS" | grep -q "Up"; then
     success "Container avviato correttamente"
+    
+    # Verifica che l'agent si stia connettendo (attendi fino a 30 secondi)
+    log "Attendo connessione agent al server..."
+    for i in {1..30}; do
+        sleep 1
+        if pct exec $CTID -- docker logs dadude-agent --tail 10 2>&1 | grep -q "Connected to DaDude server"; then
+            success "Agent connesso al server"
+            break
+        fi
+        if [ $i -eq 30 ]; then
+            warning "Agent potrebbe non essersi connesso al server (verifica i log)"
+        fi
+    done
 else
     warning "Container potrebbe non essere avviato correttamente"
     pct exec $CTID -- docker ps -a --filter name=dadude-agent 2>/dev/null || true
+    
+    # Prova a riavviare manualmente
+    log "Tentativo di riavvio manuale..."
+    pct exec $CTID -- docker start dadude-agent 2>/dev/null || true
+    sleep 3
+    if pct exec $CTID -- docker ps --filter name=dadude-agent --format "{{.Status}}" 2>/dev/null | grep -q "Up"; then
+        success "Container riavviato manualmente"
+    else
+        error "Impossibile avviare il container. Verifica manualmente: pct exec $CTID -- docker logs dadude-agent"
+    fi
 fi
 
 # Cleanup backup files
