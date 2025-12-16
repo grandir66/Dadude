@@ -142,7 +142,8 @@ class DeviceBackupService:
     def backup_device_by_ip(self, device_ip: str, customer_id: str,
                            device_type: str = "auto",
                            backup_type: str = "config",
-                           triggered_by: str = "manual") -> Dict[str, Any]:
+                           triggered_by: str = "manual",
+                           credential_id: Optional[str] = None) -> Dict[str, Any]:
         """
         Backup di un device tramite IP (anche se non assegnato)
 
@@ -152,6 +153,7 @@ class DeviceBackupService:
             device_type: "hp_aruba", "mikrotik", "auto" (auto-detect)
             backup_type: Tipo backup
             triggered_by: Trigger source
+            credential_id: ID credenziale specifica da usare (opzionale)
 
         Returns:
             dict con risultato backup
@@ -169,8 +171,12 @@ class DeviceBackupService:
             if device_type == "auto":
                 device_type = self._auto_detect_device_type(device_ip, customer)
 
-            # Ottieni credenziali
-            credentials = self._get_customer_default_credentials(customer, device_type)
+            # Ottieni credenziali: priorità a credential_id se fornito
+            if credential_id:
+                credentials = self._get_credential_by_id(credential_id, device_type)
+            else:
+                credentials = self._get_customer_default_credentials(customer, device_type)
+            
             if not credentials:
                 return {
                     "success": False,
@@ -415,10 +421,14 @@ class DeviceBackupService:
             )
 
         elif device_type == "mikrotik":
+            # Per MikroTik, usa porta SSH (il collector usa SSH per backup)
+            ssh_port = credentials.get("port", 22)
+            
             return self.mikrotik_collector.backup_configuration(
                 host=device_ip,
                 username=credentials["username"],
                 password=credentials["password"],
+                port=ssh_port,
                 port=credentials.get("port", 22),
                 backup_path=backup_path,
                 backup_type=backup_type

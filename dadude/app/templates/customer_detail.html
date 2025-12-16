@@ -4110,7 +4110,8 @@ async function backupMikroTikDevice(deviceId, deviceIp) {
                 device_ip: deviceIp,
                 customer_id: customerId,
                 device_type: 'mikrotik',
-                backup_type: 'both'  // export + binary
+                backup_type: 'both',  // export + binary
+                credential_id: device.credential_id  // Usa credenziali associate al device
             })
         });
         

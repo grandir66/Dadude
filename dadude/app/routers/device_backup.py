@@ -105,7 +105,7 @@ async def backup_device(
 
     Modalità:
     1. Con device_assignment_id: backup device assegnato
-    2. Con device_ip + customer_id: backup device standalone
+    2. Con device_ip + customer_id: backup device standalone (può includere credential_id)
 
     Il backup viene eseguito in background
     """
@@ -130,7 +130,8 @@ async def backup_device(
                 customer_id=request.customer_id,
                 device_type=request.device_type,
                 backup_type=request.backup_type,
-                triggered_by="api"
+                triggered_by="api",
+                credential_id=request.credential_id
             )
 
         if result["success"]:
