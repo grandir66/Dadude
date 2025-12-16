@@ -26,19 +26,43 @@
 # ==========================================
 # 1. Verifica che Container Mode sia abilitato
 # ==========================================
-:if ([/system/device-mode/print] = "") do={
+:local containerMode ""
+:do {
+    :set containerMode ([/system/device-mode/get container])
+} on-error={
+    :set containerMode "no"
+}
+
+:if ($containerMode = "no") do={
     :put "ERRORE: Container mode non abilitato!"
     :put "Esegui: /system/device-mode/update container=yes"
     :put "Poi riavvia il router"
+    :put "Dopo il riavvio, riesegui questo script"
 }
 
 # ==========================================
 # 2. Verifica che il disco USB sia montato
 # ==========================================
-:if ([/file/print where name=$usbDisk] = "") do={
+:local usbFound 0
+:local usbPath ""
+
+# Prova diversi nomi comuni per il disco USB
+:local usbNames {"usb1", "usb1-disk1", "disk1", "usb"}
+:foreach usbName in=$usbNames do={
+    :if ([/file/print where name=$usbName] != "") do={
+        :set usbDisk $usbName
+        :set usbFound 1
+        :set usbPath ("/" . $usbName)
+        :put ("Disco USB trovato: /" . $usbName)
+    }
+}
+
+:if ($usbFound = 0) do={
     :put "ERRORE: Disco USB non trovato!"
-    :put "Verifica che sia montato come /$usbDisk"
-    :put "Per verificare i dischi disponibili: /file/print"
+    :put "Dischi disponibili:"
+    /file/print
+    :put ""
+    :put "Modifica la variabile usbDisk nello script con il nome corretto"
 }
 
 # ==========================================
@@ -74,14 +98,28 @@
     :put "URL: $imageUrl"
     :put "Questo potrebbe richiedere alcuni minuti (file ~100-200MB)..."
     
-    :do {
-        /tool/fetch url=$imageUrl dst=("/$usbDisk/$imageFile") mode=http
-        :set imagePath ("/$usbDisk/$imageFile")
-    } on-error={
-        :put "Errore durante il download su /$usbDisk/, provo in root..."
+    :if ($usbFound = 1) do={
+        :local downloadPath ($usbPath . "/" . $imageFile)
         :do {
-            /tool/fetch url=$imageUrl dst=("/$imageFile") mode=http
-            :set imagePath ("/$imageFile")
+            /tool/fetch url=$imageUrl dst=$downloadPath mode=http
+            :set imagePath $downloadPath
+        } on-error={
+            :put "Errore durante il download su " . $downloadPath . ", provo in root..."
+            :do {
+                /tool/fetch url=$imageUrl dst=("/" . $imageFile) mode=http
+                :set imagePath ("/" . $imageFile)
+            } on-error={
+                :put "ERRORE: Download fallito!"
+                :put "Verifica:"
+                :put "  - Connessione internet attiva"
+                :put "  - URL GitHub Releases accessibile"
+                :put "  - Spazio sufficiente sul disco"
+            }
+        }
+    } else={
+        :do {
+            /tool/fetch url=$imageUrl dst=("/" . $imageFile) mode=http
+            :set imagePath ("/" . $imageFile)
         } on-error={
             :put "ERRORE: Download fallito!"
             :put "Verifica:"
@@ -95,11 +133,15 @@
     
     # Verifica che il file sia stato scaricato
     :if ($imagePath = "") do={
-        :if ([/file/print where name=("/$usbDisk/$imageFile")] != "") do={
-            :set imagePath ("/$usbDisk/$imageFile")
-        } else={
-            :if ([/file/print where name=("/$imageFile")] != "") do={
-                :set imagePath ("/$imageFile")
+        :if ($usbFound = 1) do={
+            :local checkPath ($usbPath . "/" . $imageFile)
+            :if ([/file/print where name=$checkPath] != "") do={
+                :set imagePath $checkPath
+            }
+        }
+        :if ($imagePath = "") do={
+            :if ([/file/print where name=("/" . $imageFile)] != "") do={
+                :set imagePath ("/" . $imageFile)
             } else={
                 :put "ERRORE: Download fallito! Verifica la connessione internet e riprova."
             }
@@ -178,12 +220,13 @@
 
 # ==========================================
 # 9. Crea environment variables
+# NOTA: RouterOS richiede valori letterali, non variabili nelle value
 # ==========================================
-/container/envs/add name=dadude-env key=DADUDE_SERVER_URL value=$serverUrl
-/container/envs/add name=dadude-env key=DADUDE_AGENT_TOKEN value=$agentToken
-/container/envs/add name=dadude-env key=DADUDE_AGENT_ID value=$agentId
-/container/envs/add name=dadude-env key=DADUDE_AGENT_NAME value=$agentName
-/container/envs/add name=dadude-env key=DADUDE_DNS_SERVERS value=$dnsServers
+/container/envs/add name=dadude-env key=DADUDE_SERVER_URL value=("https://dadude.domarc.it:8000")
+/container/envs/add name=dadude-env key=DADUDE_AGENT_TOKEN value=("mio-token-rb5009")
+/container/envs/add name=dadude-env key=DADUDE_AGENT_ID value=("agent-rb5009-test")
+/container/envs/add name=dadude-env key=DADUDE_AGENT_NAME value=("RB5009 Test")
+/container/envs/add name=dadude-env key=DADUDE_DNS_SERVERS value=("192.168.4.1,8.8.8.8")
 /container/envs/add name=dadude-env key=PYTHONUNBUFFERED value="1"
 
 # ==========================================
