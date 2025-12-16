@@ -4152,17 +4152,34 @@ async function manageMikroTikDevice(deviceId, deviceIp) {
             // Apri pagina gestione MikroTik con agent esistente
             window.location.href = `/customers/${customerId}/mikrotik/${mikrotikAgent.id}`;
         } else {
-            // Nessun agent trovato - mostra opzioni
-            const createAgent = confirm(
-                `Router MikroTik ${deviceIp} rilevato\n\n` +
-                `Nessun Agent MikroTik configurato per questo IP.\n\n` +
-                `Vuoi creare un Agent MikroTik ora?\n\n` +
-                `(Altrimenti puoi crearlo manualmente nella sezione "Sonde")`
-            );
-            
-            if (createAgent) {
-                // Apri modal o redirect per creare agent
-                window.location.href = `/customers/${customerId}?action=create_agent&ip=${deviceIp}&credential_id=${device.credential_id}`;
+            // Nessun agent trovato - usa credenziali direttamente per operazioni base
+            try {
+                const infoResponse = await fetch(`/api/v1/mikrotik/credentials/${device.credential_id}/system-info`);
+                const infoResult = await infoResponse.json();
+                
+                if (infoResult.success) {
+                    let info = `📡 Router MikroTik: ${deviceIp}\n\n`;
+                    info += `Identity: ${infoResult.identity || 'N/A'}\n`;
+                    info += `RouterOS: ${infoResult.version || 'N/A'}\n`;
+                    info += `Board: ${infoResult.board_name || 'N/A'}\n`;
+                    info += `CPU Load: ${infoResult.cpu_load || 0}%\n`;
+                    info += `Memory: ${infoResult.memory_free_mb || 0}MB / ${infoResult.memory_total_mb || 0}MB\n\n`;
+                    info += `⚠️ Nessun Agent MikroTik configurato.\n\n`;
+                    info += `Per gestione completa, crea un Agent nella sezione "Sonde".\n\n`;
+                    info += `Vuoi creare un Agent MikroTik ora?`;
+                    
+                    if (confirm(info)) {
+                        // Redirect alla pagina agenti con suggerimento
+                        window.location.href = `/customers/${customerId}#agents`;
+                        setTimeout(() => {
+                            alert(`Per creare l'agent:\n1. Vai alla sezione "Sonde"\n2. Clicca "Aggiungi Sonda"\n3. Tipo: MikroTik\n4. IP: ${deviceIp}\n5. Credenziali: ${device.credential_id}`);
+                        }, 500);
+                    }
+                } else {
+                    alert(`❌ Errore connessione: ${infoResult.error || 'Errore sconosciuto'}\n\nVerifica le credenziali associate al dispositivo.`);
+                }
+            } catch (e) {
+                alert(`Router MikroTik ${deviceIp}\n\nPer gestire questo router:\n1. Vai alla sezione "Sonde"\n2. Crea un nuovo Agent MikroTik\n3. Configura IP: ${deviceIp}\n4. Seleziona credenziali: ${device.credential_id || 'da configurare'}`);
             }
         }
     } catch (e) {
