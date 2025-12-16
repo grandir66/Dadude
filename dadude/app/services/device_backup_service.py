@@ -28,6 +28,7 @@ except ImportError:
 # Import collectors nuovi
 from .hp_aruba_collector import HPArubaCollector
 from .mikrotik_backup_collector import MikroTikBackupCollector
+from .proxmox_backup_collector import ProxmoxBackupCollector
 
 
 class DeviceBackupService:
@@ -54,6 +55,7 @@ class DeviceBackupService:
         # Inizializza collectors
         self.hp_collector = HPArubaCollector(config)
         self.mikrotik_collector = MikroTikBackupCollector(config)
+        self.proxmox_collector = ProxmoxBackupCollector(config)
 
         self.logger.info(f"DeviceBackupService initialized. Backup path: {self.backup_base_path}")
 
@@ -439,6 +441,19 @@ class DeviceBackupService:
                 backup_type=backup_type
             )
 
+        elif device_type == "proxmox":
+            # Per Proxmox, usa porta SSH
+            ssh_port = credentials.get("port", 22)
+            
+            return self.proxmox_collector.backup_configuration(
+                host=device_ip,
+                username=credentials["username"],
+                password=credentials["password"],
+                port=ssh_port,
+                backup_path=backup_path,
+                backup_type=backup_type
+            )
+
         else:
             return {
                 "success": False,
@@ -579,6 +594,10 @@ class DeviceBackupService:
             # Per backup MikroTik serve SSH, non l'API
             port = cred.ssh_port if hasattr(cred, 'ssh_port') and cred.ssh_port else 22
             self.logger.info(f"_get_credential_by_id: Using SSH port {port} for MikroTik backup")
+        elif device_type == "proxmox":
+            # Proxmox usa SSH standard
+            port = cred.ssh_port if hasattr(cred, 'ssh_port') and cred.ssh_port else 22
+            self.logger.info(f"_get_credential_by_id: Using SSH port {port} for Proxmox backup")
         else:
             port = cred.ssh_port if hasattr(cred, 'ssh_port') and cred.ssh_port else 22
         
@@ -603,6 +622,8 @@ class DeviceBackupService:
         # Query credenziali appropriate per tipo device
         if device_type == "mikrotik":
             cred_types = ["mikrotik", "ssh", "device"]
+        elif device_type == "proxmox":
+            cred_types = ["ssh", "device"]  # Proxmox usa SSH standard
         else:
             cred_types = ["ssh", "device"]
         
@@ -636,6 +657,10 @@ class DeviceBackupService:
             # Per backup MikroTik serve SSH, usa ssh_port se disponibile, altrimenti porta 22
             port = cred.ssh_port if hasattr(cred, 'ssh_port') and cred.ssh_port else 22
             self.logger.info(f"_get_customer_default_credentials: Using SSH port {port} for MikroTik backup")
+        elif device_type == "proxmox":
+            # Proxmox usa SSH standard
+            port = cred.ssh_port if hasattr(cred, 'ssh_port') and cred.ssh_port else 22
+            self.logger.info(f"_get_customer_default_credentials: Using SSH port {port} for Proxmox backup")
         else:
             port = cred.ssh_port if hasattr(cred, 'ssh_port') and cred.ssh_port else 22
 
@@ -685,6 +710,18 @@ class DeviceBackupService:
             )
             if result["success"]:
                 return "hp_aruba"
+
+        # Prova Proxmox
+        creds = self._get_customer_default_credentials(customer, "proxmox")
+        if creds:
+            result = self.proxmox_collector.test_connection(
+                host=device_ip,
+                username=creds["username"],
+                password=creds["password"],
+                port=creds.get("port", 22)
+            )
+            if result["success"]:
+                return "proxmox"
 
         return "unknown"
 
