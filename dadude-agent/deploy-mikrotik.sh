@@ -20,7 +20,7 @@ NC='\033[0m' # No Color
 # Configurazione
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IMAGE_NAME="dadude-agent:mikrotik"
-IMAGE_FILE="dadude-agent-mikrotik.tar.gz"
+IMAGE_FILE="dadude-agent-mikrotik.tar"
 ROUTER_IP="${1:-}"
 AGENT_TOKEN="${2:-}"
 AGENT_ID="${3:-agent-rb5009-test}"
@@ -28,7 +28,7 @@ AGENT_NAME="${4:-RB5009 Test}"
 USB_DISK="usb1"
 SERVER_URL="https://dadude.domarc.it:8000"
 # URL GitHub Releases - usa /latest/ per l'ultima release
-IMAGE_URL="https://github.com/grandir66/Dadude/releases/latest/download/dadude-agent-mikrotik.tar.gz"
+IMAGE_URL="https://github.com/grandir66/Dadude/releases/latest/download/dadude-agent-mikrotik.tar"
 
 echo -e "${BLUE}=========================================="
 echo "DaDude Agent - Deploy su MikroTik RB5009"
@@ -71,8 +71,9 @@ echo -e "${GREEN}✅ Immagine buildata${NC}"
 echo ""
 
 # Step 2: Esporta immagine
-echo -e "${BLUE}[2/5] Exporting image to tar.gz...${NC}"
-docker save $IMAGE_NAME | gzip > "$IMAGE_FILE" || {
+echo -e "${BLUE}[2/5] Exporting image to tar...${NC}"
+# RouterOS containers are far more reliable with an uncompressed `docker save` tar
+docker save $IMAGE_NAME -o "$IMAGE_FILE" || {
     echo -e "${RED}❌ Errore durante l'export dell'immagine${NC}"
     exit 1
 }
