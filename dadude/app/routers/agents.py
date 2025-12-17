@@ -427,7 +427,7 @@ async def list_pending_agents():
 # ==========================================
 
 # Versione corrente del server
-SERVER_VERSION = "2.3.13"
+SERVER_VERSION = "2.3.14"
 GITHUB_REPO = "grandir66/dadude"
 GITHUB_API = f"https://api.github.com/repos/{GITHUB_REPO}"
 
@@ -567,15 +567,32 @@ async def get_recent_commits():
 async def trigger_server_update():
     """
     Avvia l'aggiornamento del server (git pull).
+    Se la versione è cambiata, crea tag Git e release su GitHub.
     NOTA: Richiede riavvio manuale del server dopo l'update.
     """
     import subprocess
     import os
+    import re
+    import httpx
+    from ..config import get_settings
     
     # Determina la directory del progetto
     project_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     
+    # Leggi versione corrente prima del pull
+    version_file = os.path.join(project_dir, "app", "routers", "agents.py")
+    old_version = None
     try:
+        with open(version_file, 'r') as f:
+            content = f.read()
+            match = re.search(r'SERVER_VERSION\s*=\s*["\']([^"\']+)["\']', content)
+            if match:
+                old_version = match.group(1)
+    except Exception as e:
+        logger.warning(f"Could not read current version: {e}")
+    
+    try:
+        # 1. Git pull
         result = subprocess.run(
             ["git", "pull", "--rebase"],
             cwd=project_dir,
@@ -584,23 +601,131 @@ async def trigger_server_update():
             timeout=60
         )
         
-        if result.returncode == 0:
-            output = result.stdout
-            already_up_to_date = "Already up to date" in output or "Già aggiornato" in output
-            
-            return {
-                "success": True,
-                "already_up_to_date": already_up_to_date,
-                "message": "Update completed" if not already_up_to_date else "Already up to date",
-                "output": output,
-                "needs_restart": not already_up_to_date,
-            }
-        else:
+        if result.returncode != 0:
             return {
                 "success": False,
                 "error": result.stderr or "Git pull failed",
                 "output": result.stdout,
             }
+        
+        output = result.stdout
+        already_up_to_date = "Already up to date" in output or "Già aggiornato" in output
+        
+        # 2. Se aggiornato, verifica se la versione è cambiata
+        new_version = None
+        tag_created = False
+        release_created = False
+        
+        if not already_up_to_date:
+            try:
+                # Leggi nuova versione dopo il pull
+                with open(version_file, 'r') as f:
+                    content = f.read()
+                    match = re.search(r'SERVER_VERSION\s*=\s*["\']([^"\']+)["\']', content)
+                    if match:
+                        new_version = match.group(1)
+                
+                # Se la versione è cambiata, crea tag e release
+                if new_version and new_version != old_version:
+                    tag_name = f"v{new_version}"
+                    
+                    # Verifica se il tag esiste già
+                    tag_check = subprocess.run(
+                        ["git", "tag", "-l", tag_name],
+                        cwd=project_dir,
+                        capture_output=True,
+                        text=True,
+                        timeout=10
+                    )
+                    
+                    if tag_name not in tag_check.stdout:
+                        # Crea tag Git locale
+                        tag_result = subprocess.run(
+                            ["git", "tag", "-a", tag_name, "-m", f"Release {tag_name}"],
+                            cwd=project_dir,
+                            capture_output=True,
+                            text=True,
+                            timeout=10
+                        )
+                        
+                        if tag_result.returncode == 0:
+                            tag_created = True
+                            
+                            # Push tag su GitHub
+                            push_tag_result = subprocess.run(
+                                ["git", "push", "origin", tag_name],
+                                cwd=project_dir,
+                                capture_output=True,
+                                text=True,
+                                timeout=30
+                            )
+                            
+                            if push_tag_result.returncode == 0:
+                                logger.info(f"Tag {tag_name} pushed to GitHub")
+                                
+                                # Crea release su GitHub (se token disponibile)
+                                settings = get_settings()
+                                github_token = getattr(settings, 'github_token', None) or os.getenv('GITHUB_TOKEN')
+                                
+                                if github_token:
+                                    try:
+                                        async with httpx.AsyncClient() as client:
+                                            release_data = {
+                                                "tag_name": tag_name,
+                                                "name": f"Release {tag_name}",
+                                                "body": f"Automatic release for version {new_version}",
+                                                "draft": False,
+                                                "prerelease": False
+                                            }
+                                            
+                                            response = await client.post(
+                                                f"{GITHUB_API}/releases",
+                                                headers={
+                                                    "Authorization": f"token {github_token}",
+                                                    "Accept": "application/vnd.github.v3+json"
+                                                },
+                                                json=release_data,
+                                                timeout=30.0
+                                            )
+                                            
+                                            if response.status_code == 201:
+                                                release_created = True
+                                                logger.info(f"Release {tag_name} created on GitHub")
+                                            else:
+                                                logger.warning(f"Failed to create GitHub release: {response.status_code} - {response.text}")
+                                    except Exception as e:
+                                        logger.warning(f"Failed to create GitHub release: {e}")
+                                else:
+                                    logger.info("GITHUB_TOKEN not configured, skipping GitHub release creation")
+                            else:
+                                logger.warning(f"Failed to push tag: {push_tag_result.stderr}")
+                    else:
+                        logger.info(f"Tag {tag_name} already exists")
+            except Exception as e:
+                logger.warning(f"Error creating tag/release: {e}")
+        
+        # Costruisci messaggio di risposta
+        messages = []
+        if already_up_to_date:
+            messages.append("Server già aggiornato")
+        else:
+            messages.append("Server aggiornato")
+            if tag_created:
+                messages.append(f"Tag v{new_version} creato")
+            if release_created:
+                messages.append(f"Release v{new_version} creata su GitHub")
+        
+        return {
+            "success": True,
+            "already_up_to_date": already_up_to_date,
+            "message": " | ".join(messages),
+            "output": output,
+            "needs_restart": not already_up_to_date,
+            "version_changed": new_version != old_version if new_version and old_version else False,
+            "new_version": new_version,
+            "tag_created": tag_created,
+            "release_created": release_created,
+        }
             
     except subprocess.TimeoutExpired:
         return {

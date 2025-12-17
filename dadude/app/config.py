@@ -44,6 +44,9 @@ class Settings(BaseSettings):
     # Encryption
     encryption_key: Optional[str] = Field(default=None, description="Master encryption key for credentials")
     
+    # GitHub (per creazione release automatiche)
+    github_token: Optional[str] = Field(default=None, description="GitHub token for creating releases")
+    
     class Config:
         # Usa .env nella directory data (persistente)
         env_file = "./data/.env"
