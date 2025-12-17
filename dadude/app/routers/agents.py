@@ -377,8 +377,10 @@ async def get_agent_config(
 async def list_pending_agents():
     """
     Lista agent in attesa di approvazione.
+    Include tutti gli agent non assegnati a un customer O non attivi.
     """
     from ..models.database import AgentAssignment, init_db, get_session
+    from sqlalchemy import or_
     from ..config import get_settings
     
     settings = get_settings()
@@ -387,9 +389,16 @@ async def list_pending_agents():
     session = get_session(engine)
     
     try:
+        # Mostra agent che:
+        # - Non hanno customer_id (mai assegnati)
+        # - O hanno status pending_approval
+        # - O non sono attivi (active=False)
         agents = session.query(AgentAssignment).filter(
-            AgentAssignment.customer_id == None,
-            AgentAssignment.status == "pending_approval"
+            or_(
+                AgentAssignment.customer_id == None,
+                AgentAssignment.status == "pending_approval",
+                AgentAssignment.active == False
+            )
         ).all()
         
         return {
