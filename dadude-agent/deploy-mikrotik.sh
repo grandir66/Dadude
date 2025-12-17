@@ -62,12 +62,21 @@ if [ -z "$AGENT_TOKEN" ]; then
     echo ""
 fi
 
-# Step 1+2: Build + Export (linux/arm64) as docker-archive tar (manifest.json)
-# NOTE: RouterOS sometimes fails importing tars produced by `docker save`.
-# `buildx --output type=docker,dest=...` produces a tar that RouterOS imports more reliably.
-echo -e "${BLUE}[1/5] Building+Exporting MikroTik image (linux/arm64) to docker-archive tar...${NC}"
+# Step 1+2: Build + Export (linux/arm64) using classic docker save format
+# RouterOS import is picky: we build with buildx, load into docker, then docker save.
+echo -e "${BLUE}[1/5] Building MikroTik image (linux/arm64)...${NC}"
 cd "$SCRIPT_DIR"
-docker buildx build --platform linux/arm64 -f "$DOCKERFILE_MIKROTIK" -t $IMAGE_NAME --output "type=docker,dest=$IMAGE_FILE" . || {
+
+# Build with buildx and load into local docker daemon
+docker buildx build --platform linux/arm64 -f "$DOCKERFILE_MIKROTIK" -t $IMAGE_NAME --load . || {
+    echo -e "${RED}❌ Errore durante il build dell'immagine${NC}"
+    exit 1
+}
+echo -e "${GREEN}✅ Immagine costruita: $IMAGE_NAME${NC}"
+
+# Export with classic docker save format (works better with RouterOS)
+echo -e "${BLUE}[2/5] Exporting image to tar (classic docker save format)...${NC}"
+docker save -o "$IMAGE_FILE" $IMAGE_NAME || {
     echo -e "${RED}❌ Errore durante l'export dell'immagine${NC}"
     exit 1
 }
@@ -76,7 +85,7 @@ echo -e "${GREEN}✅ Immagine esportata: $IMAGE_FILE ($IMAGE_SIZE)${NC}"
 echo ""
 
 # Step 3: Verifica connessione al router
-echo -e "${BLUE}[3/5] Verifying router connection...${NC}"
+echo -e "${BLUE}[3/6] Verifying router connection...${NC}"
 if ! ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 admin@$ROUTER_IP "echo 'Connected'" > /dev/null 2>&1; then
     echo -e "${RED}❌ Impossibile connettersi al router $ROUTER_IP${NC}"
     echo "Verifica:"
@@ -89,7 +98,7 @@ echo -e "${GREEN}✅ Connessione al router OK${NC}"
 echo ""
 
 # Step 4: Verifica disco USB
-echo -e "${BLUE}[4/5] Verifying USB disk (/$USB_DISK)...${NC}"
+echo -e "${BLUE}[4/6] Verifying USB disk (/$USB_DISK)...${NC}"
 USB_EXISTS=$(ssh -o StrictHostKeyChecking=no admin@$ROUTER_IP "/file/print where name=$USB_DISK" 2>/dev/null | grep -c "$USB_DISK" || echo "0")
 if [ "$USB_EXISTS" -eq 0 ]; then
     echo -e "${YELLOW}⚠️  Disco USB /$USB_DISK non trovato${NC}"
@@ -109,7 +118,7 @@ echo -e "${YELLOW}Vuoi caricare l'immagine ora o lasciare che il router la scari
 read -p "Carica ora? (y/n, default=n): " -n 1 -r
 echo
 if [[ $REPLY =~ ^[Yy]$ ]]; then
-    echo -e "${BLUE}[5/5] Uploading image to router...${NC}"
+    echo -e "${BLUE}[5/6] Uploading image to router...${NC}"
     # Prova diversi percorsi per il caricamento
     # Su MikroTik, i dischi USB possono essere accessibili in modi diversi
     if scp -o StrictHostKeyChecking=no "$IMAGE_FILE" admin@$ROUTER_IP:/$USB_DISK/$IMAGE_FILE 2>/dev/null; then
@@ -132,7 +141,7 @@ fi
 echo ""
 
 # Step 6: Genera script RouterOS personalizzato
-echo -e "${BLUE}[6/6] Generating RouterOS installation script...${NC}"
+echo -e "${BLUE}[6/7] Generating RouterOS installation script...${NC}"
 INSTALL_SCRIPT="/tmp/dadude-install-$(date +%s).rsc"
 cat > "$INSTALL_SCRIPT" <<'ROUTEROS_SCRIPT'
 # ==========================================
@@ -339,7 +348,7 @@ echo -e "${GREEN}✅ Script RouterOS generato: $INSTALL_SCRIPT${NC}"
 echo ""
 
 # Step 7: Mostra istruzioni per esecuzione manuale
-echo -e "${BLUE}[7/7] Script RouterOS generato${NC}"
+echo -e "${BLUE}[7/7] Script RouterOS ready${NC}"
 echo ""
 echo -e "${YELLOW}⚠️  IMPORTANTE: RouterOS non supporta l'esecuzione automatica via SSH pipe${NC}"
 echo ""
