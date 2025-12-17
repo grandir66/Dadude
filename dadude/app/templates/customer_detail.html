@@ -529,17 +529,33 @@
                     <table class="table table-hover mb-0" id="inventoryTable" style="min-width: 1400px;">
                         <thead>
                             <tr>
-                                <th>Nome</th>
-                                <th>IP</th>
-                                <th>MAC</th>
-                                <th>Tipo</th>
-                                <th>Categoria</th>
-                                <th>OS</th>
-                                <th>Vendor</th>
+                                <th style="cursor: pointer;" onclick="sortInventoryTable(0, 'text')">
+                                    Nome <i class="bi bi-arrow-down-up sort-icon"></i>
+                                </th>
+                                <th style="cursor: pointer;" onclick="sortInventoryTable(1, 'ip')">
+                                    IP <i class="bi bi-arrow-down-up sort-icon"></i>
+                                </th>
+                                <th style="cursor: pointer;" onclick="sortInventoryTable(2, 'text')">
+                                    MAC <i class="bi bi-arrow-down-up sort-icon"></i>
+                                </th>
+                                <th style="cursor: pointer;" onclick="sortInventoryTable(3, 'text')">
+                                    Tipo <i class="bi bi-arrow-down-up sort-icon"></i>
+                                </th>
+                                <th style="cursor: pointer;" onclick="sortInventoryTable(4, 'text')">
+                                    Categoria <i class="bi bi-arrow-down-up sort-icon"></i>
+                                </th>
+                                <th style="cursor: pointer;" onclick="sortInventoryTable(5, 'text')">
+                                    OS <i class="bi bi-arrow-down-up sort-icon"></i>
+                                </th>
+                                <th style="cursor: pointer;" onclick="sortInventoryTable(6, 'text')">
+                                    Vendor <i class="bi bi-arrow-down-up sort-icon"></i>
+                                </th>
                                 <th>Servizi</th>
                                 <th>Credenziali</th>
                                 <th>Monitoraggio</th>
-                                <th>Stato</th>
+                                <th style="cursor: pointer;" onclick="sortInventoryTable(10, 'text')">
+                                    Stato <i class="bi bi-arrow-down-up sort-icon"></i>
+                                </th>
                                 <th>Azioni</th>
                             </tr>
                         </thead>
@@ -2959,19 +2975,15 @@ async function loadInventory() {
             tbody.innerHTML = '<tr><td colspan="12" class="text-center py-4 text-muted">Nessun dispositivo in inventario. Esegui una scansione sopra.</td></tr>';
         } else {
             // Helper function per determinare azioni device
-            // Genera sempre gli stessi pulsanti per mantenere la struttura uniforme
-            // I pulsanti non applicabili sono disabilitati e in grigio
+            // Genera solo i pulsanti applicabili al tipo di dispositivo
             function getDeviceActionButtons(dev) {
+                let buttons = '';
                 const devType = (dev.device_type || '').toLowerCase();
                 const osFamily = (dev.os_family || '').toLowerCase();
                 const manufacturer = (dev.manufacturer || '').toLowerCase();
                 const openPorts = dev.open_ports || '';
                 
-                // Determina il tipo principale con priorità (esclusivo)
-                // Priorità: MikroTik > HP/Aruba > Proxmox
-                let deviceCategory = 'none';
-                
-                // Verifica se è MikroTik (priorità massima)
+                // Verifica se è MikroTik
                 const isMikroTik = devType === 'mikrotik' || 
                                    osFamily.includes('routeros') ||
                                    openPorts.includes('8728') || 
@@ -2979,71 +2991,31 @@ async function loadInventory() {
                                    openPorts.includes('8291');
                 
                 if (isMikroTik) {
-                    deviceCategory = 'mikrotik';
-                } else {
-                    // Verifica se è HP/Aruba
-                    const isHPAruba = devType.includes('hp') || devType.includes('aruba') || devType.includes('procurve') ||
-                                      manufacturer.includes('hp') || manufacturer.includes('aruba');
-                    
-                    if (isHPAruba) {
-                        deviceCategory = 'hparuba';
-                    } else {
-                        // Verifica se è Proxmox
-                        const isProxmox = devType === 'proxmox' || 
-                                         osFamily.includes('proxmox') ||
-                                         (dev.hostname && dev.hostname.toLowerCase().includes('proxmox')) ||
-                                         (dev.name && dev.name.toLowerCase().includes('proxmox')) ||
-                                         openPorts.includes('8006');
-                        
-                        if (isProxmox) {
-                            deviceCategory = 'proxmox';
-                        }
-                    }
+                    buttons += '<button class="btn btn-outline-primary btn-sm" onclick="backupMikroTikDevice(\'' + dev.id + '\', \'' + (dev.primary_ip || '') + '\')" title="Backup Configurazione"><i class="bi bi-download"></i></button>';
+                    buttons += '<button class="btn btn-outline-success btn-sm" onclick="manageMikroTikDevice(\'' + dev.id + '\', \'' + (dev.primary_ip || '') + '\')" title="Gestione MikroTik"><i class="bi bi-router"></i></button>';
                 }
                 
-                // Genera sempre tutti i pulsanti, disabilitandoli quando non applicabili
-                // Tutti i pulsanti sono sempre visibili, quelli non applicabili sono grigi e disabilitati
-                const isMikroTikActive = deviceCategory === 'mikrotik';
-                const isHPArubaActive = deviceCategory === 'hparuba';
-                const isProxmoxActive = deviceCategory === 'proxmox';
+                // Verifica se è HP/Aruba
+                const isHPAruba = devType.includes('hp') || devType.includes('aruba') || devType.includes('procurve') ||
+                                  manufacturer.includes('hp') || manufacturer.includes('aruba');
                 
-                const devId = dev.id;
-                const devIp = dev.primary_ip || '';
+                if (isHPAruba) {
+                    buttons += '<button class="btn btn-outline-primary btn-sm" onclick="backupHPArubaDevice(\'' + dev.id + '\', \'' + (dev.primary_ip || '') + '\')" title="Backup Configurazione"><i class="bi bi-download"></i></button>';
+                    buttons += '<button class="btn btn-outline-info btn-sm" onclick="manageHPArubaDevice(\'' + dev.id + '\', \'' + (dev.primary_ip || '') + '\')" title="Info Switch"><i class="bi bi-ethernet"></i></button>';
+                }
                 
-                // Genera sempre tutti e 5 i pulsanti
-                let html = '';
+                // Verifica se è Proxmox
+                const isProxmox = devType === 'proxmox' || 
+                                 osFamily.includes('proxmox') ||
+                                 (dev.hostname && dev.hostname.toLowerCase().includes('proxmox')) ||
+                                 (dev.name && dev.name.toLowerCase().includes('proxmox')) ||
+                                 openPorts.includes('8006');
                 
-                // Pulsante 1: Backup MikroTik
-                html += '<button class="btn ' + (isMikroTikActive ? 'btn-outline-primary' : 'btn-outline-secondary') + '"';
-                if (!isMikroTikActive) html += ' disabled';
-                html += ' onclick="' + (isMikroTikActive ? 'backupMikroTikDevice(\'' + devId + '\', \'' + devIp + '\')' : 'return false') + '"';
-                html += ' title="Backup Configurazione MikroTik"><i class="bi bi-download"></i></button>';
+                if (isProxmox) {
+                    buttons += '<button class="btn btn-outline-primary btn-sm" onclick="backupProxmoxDevice(\'' + dev.id + '\', \'' + (dev.primary_ip || '') + '\')" title="Backup Configurazione Proxmox"><i class="bi bi-download"></i></button>';
+                }
                 
-                // Pulsante 2: Gestione MikroTik
-                html += '<button class="btn ' + (isMikroTikActive ? 'btn-outline-success' : 'btn-outline-secondary') + '"';
-                if (!isMikroTikActive) html += ' disabled';
-                html += ' onclick="' + (isMikroTikActive ? 'manageMikroTikDevice(\'' + devId + '\', \'' + devIp + '\')' : 'return false') + '"';
-                html += ' title="Gestione MikroTik"><i class="bi bi-router"></i></button>';
-                
-                // Pulsante 3: Backup HP/Aruba
-                html += '<button class="btn ' + (isHPArubaActive ? 'btn-outline-primary' : 'btn-outline-secondary') + '"';
-                if (!isHPArubaActive) html += ' disabled';
-                html += ' onclick="' + (isHPArubaActive ? 'backupHPArubaDevice(\'' + devId + '\', \'' + devIp + '\')' : 'return false') + '"';
-                html += ' title="Backup Configurazione HP/Aruba"><i class="bi bi-download"></i></button>';
-                
-                // Pulsante 4: Info Switch HP/Aruba
-                html += '<button class="btn ' + (isHPArubaActive ? 'btn-outline-info' : 'btn-outline-secondary') + '"';
-                if (!isHPArubaActive) html += ' disabled';
-                html += ' onclick="' + (isHPArubaActive ? 'manageHPArubaDevice(\'' + devId + '\', \'' + devIp + '\')' : 'return false') + '"';
-                html += ' title="Info Switch HP/Aruba"><i class="bi bi-ethernet"></i></button>';
-                
-                // Pulsante 5: Backup Proxmox
-                html += '<button class="btn ' + (isProxmoxActive ? 'btn-outline-primary' : 'btn-outline-secondary') + '"';
-                if (!isProxmoxActive) html += ' disabled';
-                html += ' onclick="' + (isProxmoxActive ? 'backupProxmoxDevice(\'' + devId + '\', \'' + devIp + '\')' : 'return false') + '"';
-                html += ' title="Backup Configurazione Proxmox"><i class="bi bi-download"></i></button>';
-                
-                return html;
+                return buttons;
             }
             // Ordina per IP (numericamente)
             const sortedDevices = data.devices.sort((a, b) => {
@@ -3162,15 +3134,17 @@ async function loadInventory() {
                         <td>${monitoringHtml}</td>
                         <td>${statusBadge}</td>
                         <td>
-                            <div class="btn-group btn-group-sm">
-                                <button class="btn btn-outline-info" onclick="viewInventoryDevice('${dev.id}')" title="Dettagli">
-                                    <i class="bi bi-eye"></i>
-                                </button>
-                                <button class="btn btn-warning" onclick="autoDetectDevice('${dev.id}', '${dev.primary_ip}')" title="Auto-Detect">
-                                    <i class="bi bi-bullseye"></i>
-                                </button>
-                                ${getDeviceActionButtons(dev)}
-                                <button class="btn btn-outline-danger" onclick="deleteInventoryDevice('${dev.id}')" title="Elimina">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div class="btn-group btn-group-sm">
+                                    <button class="btn btn-outline-info" onclick="viewInventoryDevice('${dev.id}')" title="Dettagli">
+                                        <i class="bi bi-eye"></i>
+                                    </button>
+                                    <button class="btn btn-warning" onclick="autoDetectDevice('${dev.id}', '${dev.primary_ip}')" title="Auto-Detect">
+                                        <i class="bi bi-bullseye"></i>
+                                    </button>
+                                    ${getDeviceActionButtons(dev)}
+                                </div>
+                                <button class="btn btn-outline-danger btn-sm ms-2" onclick="deleteInventoryDevice('${dev.id}')" title="Elimina">
                                     <i class="bi bi-trash"></i>
                                 </button>
                             </div>
@@ -3187,12 +3161,147 @@ async function loadInventory() {
                     console.log(`Device ${dev.name}: hostname = ${dev.hostname}`);
                 }
             });
+            
+            // Aggiorna icone di ordinamento
+            updateSortIcons();
         }
     } catch (e) {
         tbody.innerHTML = `<tr><td colspan="13" class="text-center py-4 text-danger">Errore: ${e.message}</td></tr>`;
     } finally {
         loading.style.display = 'none';
     }
+}
+
+// Funzione per ordinare la tabella inventario
+function sortInventoryTable(columnIndex, sortType) {
+    if (!window.inventoryDevices || window.inventoryDevices.length === 0) return;
+    
+    // Cambia direzione se stessa colonna
+    if (window.inventorySortColumn === columnIndex) {
+        window.inventorySortDirection = window.inventorySortDirection === 'asc' ? 'desc' : 'asc';
+    } else {
+        window.inventorySortColumn = columnIndex;
+        window.inventorySortDirection = 'asc';
+    }
+    
+    // Ordina i dispositivi
+    const sorted = [...window.inventoryDevices].sort((a, b) => {
+        let valA, valB;
+        let compareResult = 0;
+        
+        switch(columnIndex) {
+            case 0: // Nome
+                valA = (a.name || '').toLowerCase();
+                valB = (b.name || '').toLowerCase();
+                compareResult = valA < valB ? -1 : (valA > valB ? 1 : 0);
+                break;
+            case 1: // IP
+                const ipA = (a.primary_ip || '').split('.').map(num => parseInt(num || 0, 10));
+                const ipB = (b.primary_ip || '').split('.').map(num => parseInt(num || 0, 10));
+                for (let i = 0; i < 4; i++) {
+                    if (ipA[i] !== ipB[i]) {
+                        compareResult = ipA[i] - ipB[i];
+                        break;
+                    }
+                }
+                break;
+            case 2: // MAC
+                valA = (a.mac_address || '').toLowerCase();
+                valB = (b.mac_address || '').toLowerCase();
+                compareResult = valA < valB ? -1 : (valA > valB ? 1 : 0);
+                break;
+            case 3: // Tipo
+                valA = (a.device_type || '').toLowerCase();
+                valB = (b.device_type || '').toLowerCase();
+                compareResult = valA < valB ? -1 : (valA > valB ? 1 : 0);
+                break;
+            case 4: // Categoria
+                valA = (a.category || '').toLowerCase();
+                valB = (b.category || '').toLowerCase();
+                compareResult = valA < valB ? -1 : (valA > valB ? 1 : 0);
+                break;
+            case 5: // OS
+                valA = (a.os_family || '').toLowerCase();
+                valB = (b.os_family || '').toLowerCase();
+                compareResult = valA < valB ? -1 : (valA > valB ? 1 : 0);
+                break;
+            case 6: // Vendor
+                valA = (a.manufacturer || '').toLowerCase();
+                valB = (b.manufacturer || '').toLowerCase();
+                compareResult = valA < valB ? -1 : (valA > valB ? 1 : 0);
+                break;
+            case 10: // Stato
+                valA = (a.status || '').toLowerCase();
+                valB = (b.status || '').toLowerCase();
+                compareResult = valA < valB ? -1 : (valA > valB ? 1 : 0);
+                break;
+            default:
+                return 0;
+        }
+        
+        return window.inventorySortDirection === 'asc' ? compareResult : -compareResult;
+    });
+    
+    window.inventoryDevices = sorted;
+    
+    // Riordina le righe esistenti invece di ricaricare
+    const tbody = document.getElementById('inventoryBody');
+    const rows = Array.from(tbody.querySelectorAll('tr[data-device-id]'));
+    
+    // Ordina le righe DOM in base all'ordine dei dispositivi
+    const deviceIdMap = new Map(sorted.map((dev, idx) => [dev.id, idx]));
+    rows.sort((rowA, rowB) => {
+        const idA = rowA.getAttribute('data-device-id');
+        const idB = rowB.getAttribute('data-device-id');
+        const idxA = deviceIdMap.get(idA) ?? 9999;
+        const idxB = deviceIdMap.get(idB) ?? 9999;
+        return idxA - idxB;
+    });
+    
+    // Rimuovi e riaggiungi le righe nell'ordine corretto
+    rows.forEach(row => tbody.appendChild(row));
+    
+    updateSortIcons();
+}
+
+// Aggiorna le icone di ordinamento
+function updateSortIcons() {
+    const headers = document.querySelectorAll('#inventoryTable thead th');
+    headers.forEach((th, index) => {
+        const icon = th.querySelector('.sort-icon');
+        if (icon) {
+            if (window.inventorySortColumn === index) {
+                icon.className = window.inventorySortDirection === 'asc' 
+                    ? 'bi bi-arrow-up sort-icon text-primary' 
+                    : 'bi bi-arrow-down sort-icon text-primary';
+                icon.style.opacity = '1';
+            } else {
+                icon.className = 'bi bi-arrow-down-up sort-icon';
+                icon.style.opacity = '0.3';
+            }
+        }
+    });
+}
+
+// Aggiungi stili CSS per le intestazioni cliccabili
+if (!document.getElementById('inventoryTableSortStyles')) {
+    const style = document.createElement('style');
+    style.id = 'inventoryTableSortStyles';
+    style.textContent = `
+        #inventoryTable thead th[onclick] {
+            user-select: none;
+            position: relative;
+        }
+        #inventoryTable thead th[onclick]:hover {
+            background-color: rgba(0,0,0,0.05);
+        }
+        #inventoryTable thead th .sort-icon {
+            margin-left: 4px;
+            font-size: 0.8em;
+            transition: opacity 0.2s;
+        }
+    `;
+    document.head.appendChild(style);
 }
 
 async function clearInventory() {
