@@ -47,10 +47,10 @@
 
 # --- ENVIRONMENT VARIABLES ---
 :put "Configurazione environment..."
-/container/envs/add name=dadude-env key=DADUDE_SERVER_URL value=$serverUrl
-/container/envs/add name=dadude-env key=DADUDE_AGENT_ID value=$agentId
-/container/envs/add name=dadude-env key=DADUDE_AGENT_TOKEN value=$agentToken
-/container/envs/add name=dadude-env key=DADUDE_AGENT_NAME value=$deviceName
+/container/envs/add list=dadude-env key=DADUDE_SERVER_URL value=$serverUrl
+/container/envs/add list=dadude-env key=DADUDE_AGENT_ID value=$agentId
+/container/envs/add list=dadude-env key=DADUDE_AGENT_TOKEN value=$agentToken
+/container/envs/add list=dadude-env key=DADUDE_AGENT_NAME value=$deviceName
 
 # --- CONTAINER ---
 :put "Creazione container..."
