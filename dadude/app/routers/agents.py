@@ -427,7 +427,7 @@ async def list_pending_agents():
 # ==========================================
 
 # Versione corrente del server
-SERVER_VERSION = "2.3.14"
+SERVER_VERSION = "2.3.15"
 GITHUB_REPO = "grandir66/dadude"
 GITHUB_API = f"https://api.github.com/repos/{GITHUB_REPO}"
 
@@ -681,7 +681,7 @@ async def trigger_server_update():
                                             response = await client.post(
                                                 f"{GITHUB_API}/releases",
                                                 headers={
-                                                    "Authorization": f"token {github_token}",
+                                                    "Authorization": f"Bearer {github_token}",
                                                     "Accept": "application/vnd.github.v3+json"
                                                 },
                                                 json=release_data,
