@@ -123,7 +123,8 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
         echo -e "${GREEN}✅ Immagine caricata su /$USB_DISK/$IMAGE_FILE${NC}"
     elif scp -o StrictHostKeyChecking=no "$IMAGE_FILE" admin@$ROUTER_IP:/$IMAGE_FILE 2>/dev/null; then
         echo -e "${YELLOW}⚠️  Caricata in root, spostando su /$USB_DISK/...${NC}"
-        ssh -o StrictHostKeyChecking=no admin@$ROUTER_IP "mv /$IMAGE_FILE /$USB_DISK/$IMAGE_FILE" || {
+        # RouterOS non ha `mv`: usa /file/move
+        ssh -o StrictHostKeyChecking=no admin@$ROUTER_IP "/file/move source=/$IMAGE_FILE destination=/$USB_DISK/$IMAGE_FILE" || {
             echo -e "${YELLOW}⚠️  Impossibile spostare, lo script RouterOS cercherà in entrambe le posizioni${NC}"
         }
         echo -e "${GREEN}✅ Immagine caricata${NC}"
