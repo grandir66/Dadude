@@ -604,13 +604,20 @@ async def trigger_server_update():
     try:
         # Configura git safe.directory se necessario (per Docker con repository montato)
         if os.path.exists("/app/repo"):
-            subprocess.run(
-                ["git", "config", "--global", "--add", "safe.directory", "/app/repo"],
-                capture_output=True,
-                timeout=5
-            )
+            # In Docker, esegui git come root se necessario per permessi
+            git_cmd = ["git"]
+            if os.path.exists("/.dockerenv"):
+                # Prova prima come utente corrente, poi come root se fallisce
+                try:
+                    test_result = subprocess.run(
+                        ["git", "config", "--global", "--add", "safe.directory", "/app/repo"],
+                        capture_output=True,
+                        timeout=5
+                    )
+                except:
+                    pass
         
-        # 1. Git pull
+        # 1. Git pull - prova come utente corrente, poi come root se necessario
         result = subprocess.run(
             ["git", "pull", "--rebase"],
             cwd=project_dir,
@@ -618,6 +625,25 @@ async def trigger_server_update():
             text=True,
             timeout=60
         )
+        
+        # Se fallisce per permessi, prova con sudo (se disponibile)
+        if result.returncode != 0 and "Permission denied" in result.stderr:
+            if os.path.exists("/.dockerenv"):
+                # In Docker, esegui come root usando docker exec
+                import shutil
+                docker_cmd = shutil.which("docker")
+                if docker_cmd:
+                    # Esegui git pull tramite docker exec come root
+                    container_name = os.getenv("HOSTNAME", "dadude")
+                    docker_exec_result = subprocess.run(
+                        ["docker", "exec", "-u", "root", container_name, "bash", "-c", 
+                         f"cd {project_dir} && git pull --rebase"],
+                        capture_output=True,
+                        text=True,
+                        timeout=60
+                    )
+                    if docker_exec_result.returncode == 0:
+                        result = docker_exec_result
         
         if result.returncode != 0:
             return {
