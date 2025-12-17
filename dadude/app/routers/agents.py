@@ -427,7 +427,7 @@ async def list_pending_agents():
 # ==========================================
 
 # Versione corrente del server
-SERVER_VERSION = "2.3.16"
+SERVER_VERSION = "2.3.17"
 GITHUB_REPO = "grandir66/dadude"
 GITHUB_API = f"https://api.github.com/repos/{GITHUB_REPO}"
 
