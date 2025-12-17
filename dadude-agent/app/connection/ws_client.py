@@ -255,13 +255,20 @@ class AgentWebSocketClient:
         
         try:
             # Costruisci URL WebSocket (converti http->ws, https->wss)
-            base_url = self.server_url
+            base_url = self.server_url.strip() if self.server_url else ""
+            
+            # Se URL vuoto, errore
+            if not base_url:
+                raise ValueError("server_url is empty")
+            
+            # Converti protocollo
             if base_url.startswith("http://"):
                 base_url = "ws://" + base_url[7:]
             elif base_url.startswith("https://"):
                 base_url = "wss://" + base_url[8:]
             elif not base_url.startswith("ws://") and not base_url.startswith("wss://"):
-                base_url = "ws://" + base_url
+                # Default: usa wss:// per connessioni sicure
+                base_url = "wss://" + base_url
             
             ws_url = f"{base_url}/api/v1/agents/ws/{self.agent_id}"
             

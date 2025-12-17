@@ -1,30 +1,46 @@
 # ============================================================================
 # DaDude Agent - Installazione MikroTik Container
 # ============================================================================
-# Copia e incolla su RouterOS - tutto automatico!
+# 
+# ISTRUZIONI:
+# 1. PRIMA configura le env vars manualmente:
+#
+#    /container/envs/add list=dadude-env key=DADUDE_SERVER_URL value=dadude.domarc.it:8000
+#    /container/envs/add list=dadude-env key=DADUDE_AGENT_ID value=agent-NOME-ROUTER
+#    /container/envs/add list=dadude-env key=DADUDE_AGENT_NAME value=NOME-ROUTER
+#    /container/envs/add list=dadude-env key=DADUDE_AGENT_TOKEN value=TOKEN-SCELTO
+#
+# 2. POI esegui questo script
+#
 # ============================================================================
-
-# --- CONFIGURAZIONE ---
-:local serverUrl "https://dadude.domarc.it:8000"
-:local deviceName [/system/identity/get name]
-:local agentId ("agent-" . $deviceName)
-:local agentToken ([/system/resource/get uptime] . "-" . $deviceName)
 
 :put "=========================================="
 :put "DaDude Agent Installer"
 :put "=========================================="
-:put ("Device: " . $deviceName)
-:put ("Agent ID: " . $agentId)
-:put ("Server: " . $serverUrl)
-:put "=========================================="
 
-# --- PULIZIA ---
-:put "Pulizia configurazione precedente..."
-:do { /container/stop [find tag~"dadude"] } on-error={}
+# Verifica che le env vars esistano
+:local envCount [/container/envs/print count-only]
+:if ($envCount = 0) do={
+    :put "ERRORE: Devi prima configurare le env vars!"
+    :put ""
+    :put "Esegui questi comandi (modifica i valori):"
+    :put ""
+    :put "/container/envs/add list=dadude-env key=DADUDE_SERVER_URL value=dadude.domarc.it:8000"
+    :put "/container/envs/add list=dadude-env key=DADUDE_AGENT_ID value=agent-NOME-ROUTER"
+    :put "/container/envs/add list=dadude-env key=DADUDE_AGENT_NAME value=NOME-ROUTER"  
+    :put "/container/envs/add list=dadude-env key=DADUDE_AGENT_TOKEN value=TOKEN-SCELTO"
+    :put ""
+    :put "Poi riesegui questo script."
+    :error "Env vars mancanti"
+}
+
+:put "Env vars trovate, procedo..."
+
+# --- PULIZIA CONTAINER (ma NON le env vars!) ---
+:do { /container/stop [find] } on-error={}
 :delay 2s
-:do { /container/remove [find tag~"dadude"] } on-error={}
-:do { /container/envs/remove [find name="dadude-env"] } on-error={}
-:do { /container/mounts/remove [find name~"dadude"] } on-error={}
+:do { /container/remove [find] } on-error={}
+:do { /container/mounts/remove [find] } on-error={}
 :do { /interface/veth/remove [find name="veth-dadude"] } on-error={}
 :do { /interface/bridge/port/remove [find interface="veth-dadude"] } on-error={}
 :do { /interface/bridge/remove [find name="br-dadude"] } on-error={}
@@ -45,39 +61,18 @@
 :do { /file/make-directory name="usb1/dadude-agent" } on-error={}
 /container/config/set tmpdir=usb1/container-tmp registry-url=https://ghcr.io
 
-# --- ENVIRONMENT VARIABLES ---
-:put "Configurazione environment..."
-/container/envs/add list=dadude-env key=DADUDE_SERVER_URL value=$serverUrl
-/container/envs/add list=dadude-env key=DADUDE_AGENT_ID value=$agentId
-/container/envs/add list=dadude-env key=DADUDE_AGENT_TOKEN value=$agentToken
-/container/envs/add list=dadude-env key=DADUDE_AGENT_NAME value=$deviceName
-
 # --- CONTAINER ---
 :put "Creazione container..."
-/container/add \
-    remote-image=ghcr.io/grandir66/dadude-agent-mikrotik:latest \
-    interface=veth-dadude \
-    root-dir=usb1/dadude-agent \
-    envlist=dadude-env \
-    dns=8.8.8.8 \
-    start-on-boot=yes \
-    logging=yes
+/container/add remote-image=ghcr.io/grandir66/dadude-agent-mikrotik:latest interface=veth-dadude root-dir=usb1/dadude-agent envlist=dadude-env dns=8.8.8.8 start-on-boot=yes logging=yes
 
 :put ""
 :put "=========================================="
 :put "INSTALLAZIONE COMPLETATA!"
 :put "=========================================="
 :put ""
-:put ("Agent ID: " . $agentId)
-:put ("Token: " . $agentToken)
-:put ("Server: " . $serverUrl)
+:put "Attendi download immagine (1-2 minuti)..."
+:put "Controlla stato: /container/print"
 :put ""
-:put "Attendi download immagine (circa 1-2 minuti)..."
-:put "Controlla stato con: /container/print"
-:put ""
-:put "Quando status=stopped, avvia con:"
-:put "  /container/start [find tag~\"dadude\"]"
-:put ""
-:put "Log:"
-:put "  /container/log print"
+:put "Quando status=stopped: /container/start 0"
+:put "Log: /container/log print"
 :put ""
