@@ -78,6 +78,12 @@ class Settings(BaseSettings):
         # Parsa dns_servers manualmente
         self._dns_servers = None
         
+        # Salva i valori dalle env vars (hanno priorità)
+        env_server_url = os.environ.get("DADUDE_SERVER_URL")
+        env_agent_id = os.environ.get("DADUDE_AGENT_ID")
+        env_agent_token = os.environ.get("DADUDE_AGENT_TOKEN")
+        env_agent_name = os.environ.get("DADUDE_AGENT_NAME")
+        
         # Try to load from config file
         config_paths = [
             "/app/config/config.json",
@@ -101,6 +107,16 @@ class Settings(BaseSettings):
                     break
                 except Exception:
                     pass
+        
+        # Environment variables hanno SEMPRE priorità sul file config
+        if env_server_url:
+            object.__setattr__(self, 'server_url', env_server_url)
+        if env_agent_id:
+            object.__setattr__(self, 'agent_id', env_agent_id)
+        if env_agent_token:
+            object.__setattr__(self, 'agent_token', env_agent_token)
+        if env_agent_name:
+            object.__setattr__(self, 'agent_name', env_agent_name)
     
     @property
     def dns_servers(self) -> List[str]:

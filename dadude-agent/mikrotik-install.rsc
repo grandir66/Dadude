@@ -1,102 +1,83 @@
 # ============================================================================
 # DaDude Agent - Installazione MikroTik Container
 # ============================================================================
-# Copia TUTTO e incolla su RouterOS - tutto automatico!
+# Copia e incolla su RouterOS - tutto automatico!
 # ============================================================================
 
-# Ottieni nome device RouterOS
+# --- CONFIGURAZIONE ---
+:local serverUrl "https://dadude.domarc.it:8000"
 :local deviceName [/system/identity/get name]
 :local agentId ("agent-" . $deviceName)
+:local agentToken ([/system/resource/get uptime] . "-" . $deviceName)
 
+:put "=========================================="
+:put "DaDude Agent Installer"
+:put "=========================================="
 :put ("Device: " . $deviceName)
 :put ("Agent ID: " . $agentId)
+:put ("Server: " . $serverUrl)
+:put "=========================================="
 
-# Genera token casuale sicuro (basato su MAC + timestamp)
-:local routerMac ""
-:do {
-    :set routerMac [/interface/ethernet/get [find default-name~"ether"] mac-address]
-} on-error={
-    :set routerMac $deviceName
-}
-
-# Pulisci MAC
-:local macClean ""
-:local i 0
-:while ($i < [:len $routerMac]) do={
-    :local char [:pick $routerMac $i ($i + 1)]
-    :if (($char != ":") && ($char != "-")) do={
-        :set macClean ($macClean . $char)
-    }
-    :set i ($i + 1)
-}
-
-# Genera token: timestamp + ultimi 8 caratteri MAC
-:local timestamp [/system/clock/get time]
-:local timestampClean ""
-:set i 0
-:while ($i < [:len $timestamp]) do={
-    :local char [:pick $timestamp $i ($i + 1)]
-    :if (($char != ":") && ($char != "-") && ($char != " ")) do={
-        :set timestampClean ($timestampClean . $char)
-    }
-    :set i ($i + 1)
-}
-
-:local macSuffix [:pick $macClean ([:len $macClean] - 8) [:len $macClean]]
-:local agentToken ($timestampClean . "-" . $macSuffix)
-
-:put ("Token generato: " . $agentToken)
-
-# Pulizia completa
-:do { /container/stop 0 } on-error={}
-:do { /container/remove 0 } on-error={}
+# --- PULIZIA ---
+:put "Pulizia configurazione precedente..."
+:do { /container/stop [find tag~"dadude"] } on-error={}
+:delay 2s
+:do { /container/remove [find tag~"dadude"] } on-error={}
+:do { /container/envs/remove [find name="dadude-env"] } on-error={}
+:do { /container/mounts/remove [find name~"dadude"] } on-error={}
 :do { /interface/veth/remove [find name="veth-dadude"] } on-error={}
 :do { /interface/bridge/port/remove [find interface="veth-dadude"] } on-error={}
 :do { /interface/bridge/remove [find name="br-dadude"] } on-error={}
 :do { /ip/address/remove [find comment="dadude"] } on-error={}
 :do { /ip/firewall/nat/remove [find comment="dadude"] } on-error={}
 
-# Rete container
+# --- RETE ---
+:put "Configurazione rete..."
 /interface/veth/add name=veth-dadude address=172.17.0.2/24 gateway=172.17.0.1
 /interface/bridge/add name=br-dadude
 /interface/bridge/port/add bridge=br-dadude interface=veth-dadude
 /ip/address/add address=172.17.0.1/24 interface=br-dadude comment="dadude"
 /ip/firewall/nat/add chain=srcnat action=masquerade src-address=172.17.0.0/24 comment="dadude"
 
-# Directory container
+# --- STORAGE ---
+:put "Preparazione storage..."
 :do { /file/make-directory name="usb1/container-tmp" } on-error={}
 :do { /file/make-directory name="usb1/dadude-agent" } on-error={}
 /container/config/set tmpdir=usb1/container-tmp registry-url=https://ghcr.io
 
-# Crea directory config e file di configurazione JSON
-:do { /file/make-directory name="usb1/dadude-config" } on-error={}
-:local configJson ("{\"server_url\":\"https://dadude.domarc.it:8000\",\"agent_token\":\"" . $agentToken . "\",\"agent_id\":\"" . $agentId . "\",\"agent_name\":\"" . $deviceName . "\"}")
-:do {
-    /file/remove ("usb1/dadude-config/config.json")
-} on-error={}
-/file/print file=("usb1/dadude-config/config.json") contents=$configJson
+# --- ENVIRONMENT VARIABLES ---
+:put "Configurazione environment..."
+/container/envs/add name=dadude-env key=DADUDE_SERVER_URL value=$serverUrl
+/container/envs/add name=dadude-env key=DADUDE_AGENT_ID value=$agentId
+/container/envs/add name=dadude-env key=DADUDE_AGENT_TOKEN value=$agentToken
+/container/envs/add name=dadude-env key=DADUDE_AGENT_NAME value=$deviceName
 
-# Crea mount per configurazione
-:do { /container/mounts/remove [find name="dadude-config"] } on-error={}
-/container/mounts/add name=dadude-config src=usb1/dadude-config dst=/app/config
-
-# Crea container (usa config.json invece di env vars)
-/container/add remote-image=ghcr.io/grandir66/dadude-agent-mikrotik:latest interface=veth-dadude root-dir=usb1/dadude-agent workdir=/ dns=8.8.8.8 start-on-boot=yes logging=yes mounts=dadude-config cmd="python -m app.agent"
+# --- CONTAINER ---
+:put "Creazione container..."
+/container/add \
+    remote-image=ghcr.io/grandir66/dadude-agent-mikrotik:latest \
+    interface=veth-dadude \
+    root-dir=usb1/dadude-agent \
+    envlist=dadude-env \
+    dns=8.8.8.8 \
+    start-on-boot=yes \
+    logging=yes
 
 :put ""
 :put "=========================================="
-:put "Container creato!"
+:put "INSTALLAZIONE COMPLETATA!"
 :put "=========================================="
+:put ""
 :put ("Agent ID: " . $agentId)
 :put ("Token: " . $agentToken)
-:put ("Config: usb1/dadude-config/config.json")
+:put ("Server: " . $serverUrl)
 :put ""
-:put "Attendi download immagine..."
-:delay 10s
-/container/print
-
+:put "Attendi download immagine (circa 1-2 minuti)..."
+:put "Controlla stato con: /container/print"
 :put ""
-:put "Quando status=stopped, avvia con: /container/start 0"
-:put "Log: /container/logs 0"
+:put "Quando status=stopped, avvia con:"
+:put "  /container/start [find tag~\"dadude\"]"
 :put ""
-:put "IMPORTANTE: Salva il token per riferimento futuro!"
+:put "Log:"
+:put "  /container/log print"
+:put ""
