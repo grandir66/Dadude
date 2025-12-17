@@ -579,7 +579,13 @@ async def trigger_server_update():
     # Determina la directory del progetto
     # Se siamo in Docker e il repo è montato, usa quello, altrimenti cerca nella struttura normale
     if os.path.exists("/app/repo"):
-        project_dir = "/app/repo/dadude"  # Repository montato in Docker
+        # Verifica se è montato /app/repo o /app/repo/dadude
+        if os.path.exists("/app/repo/dadude"):
+            project_dir = "/app/repo/dadude"
+        elif os.path.exists("/app/repo/.git"):
+            project_dir = "/app/repo"
+        else:
+            project_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     else:
         project_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     
