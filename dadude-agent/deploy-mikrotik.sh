@@ -20,6 +20,7 @@ NC='\033[0m' # No Color
 # Configurazione
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IMAGE_NAME="dadude-agent:mikrotik"
+DOCKERFILE_MIKROTIK="${SCRIPT_DIR}/Dockerfile.mikrotik"
 # RouterOS `/container/add file=...` expects a *docker-archive* tar (must contain manifest.json)
 IMAGE_FILE="dadude-agent-mikrotik.tar"
 ROUTER_IP="${1:-}"
@@ -64,9 +65,9 @@ fi
 # Step 1+2: Build + Export (linux/arm64) as docker-archive tar (manifest.json)
 # NOTE: RouterOS sometimes fails importing tars produced by `docker save`.
 # `buildx --output type=docker,dest=...` produces a tar that RouterOS imports more reliably.
-echo -e "${BLUE}[1/5] Building+Exporting Docker image (linux/arm64) to docker-archive tar...${NC}"
+echo -e "${BLUE}[1/5] Building+Exporting MikroTik image (linux/arm64) to docker-archive tar...${NC}"
 cd "$SCRIPT_DIR"
-docker buildx build --platform linux/arm64 -t $IMAGE_NAME --output "type=docker,dest=$IMAGE_FILE" . || {
+docker buildx build --platform linux/arm64 -f "$DOCKERFILE_MIKROTIK" -t $IMAGE_NAME --output "type=docker,dest=$IMAGE_FILE" . || {
     echo -e "${RED}❌ Errore durante l'export dell'immagine${NC}"
     exit 1
 }

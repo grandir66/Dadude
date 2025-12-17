@@ -1,0 +1,45 @@
+# DaDude Agent - MikroTik RouterOS 7 Container image (ARM64)
+# Goal: keep layers small and avoid x86_64-only binaries to maximize RouterOS import reliability.
+
+FROM python:3.11-slim
+
+# Keep runtime predictable on RouterOS
+ENV PYTHONUNBUFFERED=1 \
+    DADUDE_AGENT_PORT=8080 \
+    PYTHONPATH=/app
+
+# RouterOS sometimes fails if WORKDIR points to a path not present due to partial import.
+# We keep WORKDIR as / to avoid chdir issues; code lives in /app and PYTHONPATH points there.
+WORKDIR /
+
+# System deps required for probes/tools. Keep it lean to reduce layer size.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libffi-dev \
+    iputils-ping \
+    dnsutils \
+    net-tools \
+    iproute2 \
+    nmap \
+    procps \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Python deps
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt && rm -f /tmp/requirements.txt
+
+# App code
+COPY app/ /app/app/
+COPY config/ /app/config/
+
+EXPOSE 8080
+
+# Minimal healthcheck (optional on RouterOS but harmless)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
+
+# Run the DaDude Agent (WebSocket-based)
+CMD ["python", "-m", "app.agent"]
+
+
