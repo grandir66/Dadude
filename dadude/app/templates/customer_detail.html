@@ -2959,14 +2959,19 @@ async function loadInventory() {
             tbody.innerHTML = '<tr><td colspan="12" class="text-center py-4 text-muted">Nessun dispositivo in inventario. Esegui una scansione sopra.</td></tr>';
         } else {
             // Helper function per determinare azioni device
+            // Genera sempre gli stessi pulsanti per mantenere la struttura uniforme
+            // I pulsanti non applicabili sono disabilitati e in grigio
             function getDeviceActionButtons(dev) {
-                let buttons = '';
                 const devType = (dev.device_type || '').toLowerCase();
                 const osFamily = (dev.os_family || '').toLowerCase();
                 const manufacturer = (dev.manufacturer || '').toLowerCase();
                 const openPorts = dev.open_ports || '';
                 
-                // Verifica se è MikroTik
+                // Determina il tipo principale con priorità (esclusivo)
+                // Priorità: MikroTik > HP/Aruba > Proxmox
+                let deviceCategory = 'none';
+                
+                // Verifica se è MikroTik (priorità massima)
                 const isMikroTik = devType === 'mikrotik' || 
                                    osFamily.includes('routeros') ||
                                    openPorts.includes('8728') || 
@@ -2974,31 +2979,71 @@ async function loadInventory() {
                                    openPorts.includes('8291');
                 
                 if (isMikroTik) {
-                    buttons += '<button class="btn btn-outline-primary" onclick="backupMikroTikDevice(\'' + dev.id + '\', \'' + (dev.primary_ip || '') + '\')" title="Backup Configurazione"><i class="bi bi-download"></i></button>';
-                    buttons += '<button class="btn btn-outline-success" onclick="manageMikroTikDevice(\'' + dev.id + '\', \'' + (dev.primary_ip || '') + '\')" title="Gestione MikroTik"><i class="bi bi-router"></i></button>';
+                    deviceCategory = 'mikrotik';
+                } else {
+                    // Verifica se è HP/Aruba
+                    const isHPAruba = devType.includes('hp') || devType.includes('aruba') || devType.includes('procurve') ||
+                                      manufacturer.includes('hp') || manufacturer.includes('aruba');
+                    
+                    if (isHPAruba) {
+                        deviceCategory = 'hparuba';
+                    } else {
+                        // Verifica se è Proxmox
+                        const isProxmox = devType === 'proxmox' || 
+                                         osFamily.includes('proxmox') ||
+                                         (dev.hostname && dev.hostname.toLowerCase().includes('proxmox')) ||
+                                         (dev.name && dev.name.toLowerCase().includes('proxmox')) ||
+                                         openPorts.includes('8006');
+                        
+                        if (isProxmox) {
+                            deviceCategory = 'proxmox';
+                        }
+                    }
                 }
                 
-                // Verifica se è HP/Aruba
-                const isHPAruba = devType.includes('hp') || devType.includes('aruba') || devType.includes('procurve') ||
-                                  manufacturer.includes('hp') || manufacturer.includes('aruba');
+                // Genera sempre tutti i pulsanti, disabilitandoli quando non applicabili
+                // Tutti i pulsanti sono sempre visibili, quelli non applicabili sono grigi e disabilitati
+                const isMikroTikActive = deviceCategory === 'mikrotik';
+                const isHPArubaActive = deviceCategory === 'hparuba';
+                const isProxmoxActive = deviceCategory === 'proxmox';
                 
-                if (isHPAruba) {
-                    buttons += '<button class="btn btn-outline-primary" onclick="backupHPArubaDevice(\'' + dev.id + '\', \'' + (dev.primary_ip || '') + '\')" title="Backup Configurazione"><i class="bi bi-download"></i></button>';
-                    buttons += '<button class="btn btn-outline-info" onclick="manageHPArubaDevice(\'' + dev.id + '\', \'' + (dev.primary_ip || '') + '\')" title="Info Switch"><i class="bi bi-ethernet"></i></button>';
-                }
+                const devId = dev.id;
+                const devIp = dev.primary_ip || '';
                 
-                // Verifica se è Proxmox
-                const isProxmox = devType === 'proxmox' || 
-                                 osFamily.includes('proxmox') ||
-                                 (dev.hostname && dev.hostname.toLowerCase().includes('proxmox')) ||
-                                 (dev.name && dev.name.toLowerCase().includes('proxmox')) ||
-                                 openPorts.includes('8006'); // Porta web Proxmox
+                // Genera sempre tutti e 5 i pulsanti
+                let html = '';
                 
-                if (isProxmox) {
-                    buttons += '<button class="btn btn-outline-primary" onclick="backupProxmoxDevice(\'' + dev.id + '\', \'' + (dev.primary_ip || '') + '\')" title="Backup Configurazione Proxmox"><i class="bi bi-download"></i></button>';
-                }
+                // Pulsante 1: Backup MikroTik
+                html += '<button class="btn ' + (isMikroTikActive ? 'btn-outline-primary' : 'btn-outline-secondary') + '"';
+                if (!isMikroTikActive) html += ' disabled';
+                html += ' onclick="' + (isMikroTikActive ? 'backupMikroTikDevice(\'' + devId + '\', \'' + devIp + '\')' : 'return false') + '"';
+                html += ' title="Backup Configurazione MikroTik"><i class="bi bi-download"></i></button>';
                 
-                return buttons;
+                // Pulsante 2: Gestione MikroTik
+                html += '<button class="btn ' + (isMikroTikActive ? 'btn-outline-success' : 'btn-outline-secondary') + '"';
+                if (!isMikroTikActive) html += ' disabled';
+                html += ' onclick="' + (isMikroTikActive ? 'manageMikroTikDevice(\'' + devId + '\', \'' + devIp + '\')' : 'return false') + '"';
+                html += ' title="Gestione MikroTik"><i class="bi bi-router"></i></button>';
+                
+                // Pulsante 3: Backup HP/Aruba
+                html += '<button class="btn ' + (isHPArubaActive ? 'btn-outline-primary' : 'btn-outline-secondary') + '"';
+                if (!isHPArubaActive) html += ' disabled';
+                html += ' onclick="' + (isHPArubaActive ? 'backupHPArubaDevice(\'' + devId + '\', \'' + devIp + '\')' : 'return false') + '"';
+                html += ' title="Backup Configurazione HP/Aruba"><i class="bi bi-download"></i></button>';
+                
+                // Pulsante 4: Info Switch HP/Aruba
+                html += '<button class="btn ' + (isHPArubaActive ? 'btn-outline-info' : 'btn-outline-secondary') + '"';
+                if (!isHPArubaActive) html += ' disabled';
+                html += ' onclick="' + (isHPArubaActive ? 'manageHPArubaDevice(\'' + devId + '\', \'' + devIp + '\')' : 'return false') + '"';
+                html += ' title="Info Switch HP/Aruba"><i class="bi bi-ethernet"></i></button>';
+                
+                // Pulsante 5: Backup Proxmox
+                html += '<button class="btn ' + (isProxmoxActive ? 'btn-outline-primary' : 'btn-outline-secondary') + '"';
+                if (!isProxmoxActive) html += ' disabled';
+                html += ' onclick="' + (isProxmoxActive ? 'backupProxmoxDevice(\'' + devId + '\', \'' + devIp + '\')' : 'return false') + '"';
+                html += ' title="Backup Configurazione Proxmox"><i class="bi bi-download"></i></button>';
+                
+                return html;
             }
             // Ordina per IP (numericamente)
             const sortedDevices = data.devices.sort((a, b) => {
