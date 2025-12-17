@@ -1,12 +1,7 @@
 # ============================================================================
 # DaDude Agent - Installazione MikroTik Container
 # ============================================================================
-#
-# ISTRUZIONI:
-# 1. Sostituisci solo USB_DISK_QUI con il tuo disco USB (es: usb1)
-# 2. Agent ID e Token vengono generati automaticamente
-# 3. Copia TUTTO e incolla su RouterOS
-#
+# Copia TUTTO e incolla su RouterOS - tutto automatico!
 # ============================================================================
 
 # Ottieni nome device RouterOS
@@ -69,24 +64,24 @@
 /ip/firewall/nat/add chain=srcnat action=masquerade src-address=172.17.0.0/24 comment="dadude"
 
 # Directory container
-:do { /file/make-directory name="USB_DISK_QUI/container-tmp" } on-error={}
-:do { /file/make-directory name="USB_DISK_QUI/dadude-agent" } on-error={}
-/container/config/set tmpdir=USB_DISK_QUI/container-tmp registry-url=https://ghcr.io
+:do { /file/make-directory name="usb1/container-tmp" } on-error={}
+:do { /file/make-directory name="usb1/dadude-agent" } on-error={}
+/container/config/set tmpdir=usb1/container-tmp registry-url=https://ghcr.io
 
 # Crea directory config e file di configurazione JSON
-:do { /file/make-directory name="USB_DISK_QUI/dadude-config" } on-error={}
+:do { /file/make-directory name="usb1/dadude-config" } on-error={}
 :local configJson ("{\"server_url\":\"https://dadude.domarc.it:8000\",\"agent_token\":\"" . $agentToken . "\",\"agent_id\":\"" . $agentId . "\",\"agent_name\":\"" . $deviceName . "\"}")
 :do {
-    /file/remove ("USB_DISK_QUI/dadude-config/config.json")
+    /file/remove ("usb1/dadude-config/config.json")
 } on-error={}
-/file/print file=("USB_DISK_QUI/dadude-config/config.json") contents=$configJson
+/file/print file=("usb1/dadude-config/config.json") contents=$configJson
 
 # Crea mount per configurazione
 :do { /container/mounts/remove [find name="dadude-config"] } on-error={}
-/container/mounts/add name=dadude-config src=USB_DISK_QUI/dadude-config dst=/app/config
+/container/mounts/add name=dadude-config src=usb1/dadude-config dst=/app/config
 
 # Crea container (usa config.json invece di env vars)
-/container/add remote-image=ghcr.io/grandir66/dadude-agent-mikrotik:latest interface=veth-dadude root-dir=USB_DISK_QUI/dadude-agent workdir=/ dns=8.8.8.8 start-on-boot=yes logging=yes mounts=dadude-config cmd="python -m app.agent"
+/container/add remote-image=ghcr.io/grandir66/dadude-agent-mikrotik:latest interface=veth-dadude root-dir=usb1/dadude-agent workdir=/ dns=8.8.8.8 start-on-boot=yes logging=yes mounts=dadude-config cmd="python -m app.agent"
 
 :put ""
 :put "=========================================="
@@ -94,7 +89,7 @@
 :put "=========================================="
 :put ("Agent ID: " . $agentId)
 :put ("Token: " . $agentToken)
-:put ("Config: USB_DISK_QUI/dadude-agent/config.json")
+:put ("Config: usb1/dadude-config/config.json")
 :put ""
 :put "Attendi download immagine..."
 :delay 10s
