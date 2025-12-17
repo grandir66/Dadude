@@ -1179,11 +1179,32 @@ docker compose up -d --force-recreate 2>&1 | logger -t dadude-update
         """
         Riavvio giornaliero programmato.
         Esegue git fetch + reset + rebuild + restart ogni 24 ore.
+        NOTA: Su MikroTik RouterOS container, questo comando viene saltato
+        perché il container è gestito da RouterOS, non da docker-compose.
         """
         logger.info("Daily restart triggered - performing full update and restart")
         
         try:
+            # Controlla se siamo su MikroTik RouterOS container
+            # RouterOS container non ha docker-compose e non può fare rebuild
             agent_dir = "/opt/dadude-agent"
+            agent_compose_dir = os.path.join(agent_dir, "dadude-agent")
+            has_docker_compose = os.path.exists(os.path.join(agent_compose_dir, "docker-compose.yml"))
+            
+            # Controlla anche se siamo in un container RouterOS (controlla hostname o env vars)
+            is_routeros = (
+                os.path.exists("/proc/version") and "RouterOS" in open("/proc/version").read()
+            ) or os.environ.get("ROUTEROS_CONTAINER") == "1"
+            
+            # Se non c'è docker-compose O siamo su RouterOS, saltiamo il Daily Restart
+            # RouterOS gestisce il container, non possiamo fare rebuild/restart
+            if not has_docker_compose or is_routeros:
+                logger.info("Daily restart skipped: running in MikroTik RouterOS container (no docker-compose)")
+                return CommandResult(
+                    success=True,
+                    status="skipped",
+                    data={"message": "Daily restart skipped: MikroTik RouterOS container"},
+                )
             
             # Se è un repository git, aggiorna prima
             if os.path.exists(os.path.join(agent_dir, ".git")):
@@ -1212,32 +1233,56 @@ docker compose up -d --force-recreate 2>&1 | logger -t dadude-update
             # Rebuild e restart
             agent_compose_dir = os.path.join(agent_dir, "dadude-agent")
             if os.path.exists(os.path.join(agent_compose_dir, "docker-compose.yml")):
-                # Build in background
-                subprocess.Popen(
+                # Build in background (non blocca)
+                build_process = subprocess.Popen(
                     ["docker", "compose", "build", "--quiet"],
                     cwd=agent_compose_dir,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                 )
                 
-                # Attendi build
-                await asyncio.sleep(30)
+                # Attendi build (max 2 minuti)
+                try:
+                    build_process.wait(timeout=120)
+                except subprocess.TimeoutExpired:
+                    logger.warning("Build timeout, continuing anyway...")
+                    build_process.kill()
                 
-                # Restart (in background, non aspettare)
-                subprocess.Popen(
-                    ["docker", "compose", "up", "-d", "--force-recreate"],
+                # Restart usando restart invece di up --force-recreate
+                # Questo evita di fermare il container corrente durante l'esecuzione
+                restart_result = subprocess.run(
+                    ["docker", "compose", "restart"],
                     cwd=agent_compose_dir,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
                 )
+                
+                if restart_result.returncode != 0:
+                    logger.warning(f"Restart failed, trying up -d: {restart_result.stderr}")
+                    # Fallback: usa up -d (ma senza --force-recreate per evitare di fermare se stesso)
+                    subprocess.Popen(
+                        ["docker", "compose", "up", "-d"],
+                        cwd=agent_compose_dir,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
                 
                 return CommandResult(
                     success=True,
                     status="success",
-                    data={"message": "Daily restart: rebuild and restart initiated"},
+                    data={"message": "Daily restart: rebuild and restart completed"},
                 )
             else:
-                # Fallback: semplice restart
+                # Fallback: semplice restart (solo se non siamo su RouterOS)
+                # Su RouterOS, il container è gestito da RouterOS stesso
+                if is_routeros:
+                    logger.info("Daily restart skipped: RouterOS container (fallback)")
+                    return CommandResult(
+                        success=True,
+                        status="skipped",
+                        data={"message": "Daily restart skipped: RouterOS container"},
+                    )
                 return await self._restart()
                 
         except Exception as e:
