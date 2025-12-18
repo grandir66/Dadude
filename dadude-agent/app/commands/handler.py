@@ -1010,38 +1010,6 @@ class CommandHandler:
         except Exception as e:
             logger.error(f"Update error: {e}")
             return CommandResult(success=False, status="error", error=str(e))
-                        success=True,
-                        status="success",
-                        data={
-                            "message": "Update completed. Container restart initiated in background.",
-                            "restarting": True,
-                            "restart_flag_file": restart_flag_file,
-                        },
-                    )
-                else:
-                    logger.warning(f"Docker build failed: {build_result.stderr[:200]}")
-                    return CommandResult(
-                        success=True,
-                        status="success",
-                        data={
-                            "message": "Code updated but Docker build failed. Manual restart required.",
-                            "needs_restart": True,
-                            "build_error": build_result.stderr[:200],
-                        },
-                    )
-            
-            return CommandResult(
-                success=True,
-                status="success",
-                data={
-                    "message": "Code updated successfully. Container restart required.",
-                    "needs_restart": True,
-                },
-            )
-            
-        except Exception as e:
-            logger.error(f"Internal update error: {e}", exc_info=True)
-            return CommandResult(success=False, status="error", error=str(e))
     
     async def _restart(self) -> CommandResult:
         """Riavvia agent (container/service)"""
