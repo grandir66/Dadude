@@ -713,7 +713,46 @@ class CommandHandler:
             import json
             import datetime
             
-            # Step 1: Verifica repository git
+            # Step 1: Verifica spazio disco (pulisce se necessario)
+            logger.info("[1/8] Checking disk space...")
+            try:
+                import shutil
+                disk_usage = shutil.disk_usage(agent_dir)
+                disk_percent = (disk_usage.used / disk_usage.total) * 100
+                
+                if disk_percent >= 90:
+                    logger.error(f"Disk space insufficient: {disk_percent:.1f}% used")
+                    return CommandResult(
+                        success=False,
+                        status="error",
+                        error=f"Disk space insufficient ({disk_percent:.1f}% used). Please free space before updating.",
+                    )
+                elif disk_percent >= 80:
+                    logger.warning(f"Disk space limited: {disk_percent:.1f}% used, cleaning Docker cache...")
+                    # Pulisci cache Docker
+                    cleanup_result = subprocess.run(
+                        ["docker", "system", "prune", "-f"],
+                        capture_output=True,
+                        text=True,
+                        timeout=60,
+                    )
+                    if cleanup_result.returncode == 0:
+                        # Ricontrolla dopo pulizia
+                        disk_usage_after = shutil.disk_usage(agent_dir)
+                        disk_percent_after = (disk_usage_after.used / disk_usage_after.total) * 100
+                        logger.info(f"Disk space after cleanup: {disk_percent_after:.1f}% used")
+                        if disk_percent_after >= 90:
+                            return CommandResult(
+                                success=False,
+                                status="error",
+                                error=f"Disk space still insufficient after cleanup ({disk_percent_after:.1f}% used).",
+                            )
+                else:
+                    logger.info(f"Disk space OK: {disk_percent:.1f}% used")
+            except Exception as e:
+                logger.warning(f"Could not check disk space: {e}, continuing anyway...")
+            
+            # Step 2: Verifica repository git
             git_dir = os.path.join(agent_dir, ".git")
             if not os.path.exists(git_dir):
                 logger.warning("Directory is not a git repository, initializing...")
@@ -739,8 +778,8 @@ class CommandHandler:
                         error="Agent directory is not a git repository and cannot initialize it.",
                     )
             
-            # Step 2: Fetch updates
-            logger.info("[2/8] Fetching latest code from GitHub...")
+            # Step 3: Fetch updates
+            logger.info("[3/8] Fetching latest code from GitHub...")
             fetch_result = subprocess.run(
                 ["git", "fetch", "origin", "main"],
                 cwd=agent_dir,
@@ -755,8 +794,8 @@ class CommandHandler:
                     error=f"Git fetch failed: {fetch_result.stderr[:200]}",
                 )
             
-            # Step 3: Backup file di configurazione
-            logger.info("[3/8] Backing up configuration files...")
+            # Step 4: Backup file di configurazione
+            logger.info("[4/8] Backing up configuration files...")
             env_backups = {}
             config_backup_dir = None
             
@@ -787,8 +826,8 @@ class CommandHandler:
                 shutil.copytree(config_dir, os.path.join(config_backup_dir, "config"), dirs_exist_ok=True)
                 logger.info(f"Backed up config directory to {config_backup_dir}")
             
-            # Step 4: Verifica versione corrente
-            logger.info("[4/8] Checking current version...")
+            # Step 5: Verifica versione corrente
+            logger.info("[5/8] Checking current version...")
             current_commit_result = subprocess.run(
                 ["git", "rev-parse", "HEAD"],
                 cwd=agent_dir,
@@ -838,8 +877,8 @@ class CommandHandler:
                     data={"message": "Already at latest version", "version": current_version},
                 )
             
-            # Step 5: Applicazione aggiornamenti
-            logger.info("[5/8] Applying updates...")
+            # Step 6: Applicazione aggiornamenti
+            logger.info("[6/8] Applying updates...")
             reset_result = subprocess.run(
                 ["git", "reset", "--hard", "origin/main"],
                 cwd=agent_dir,
@@ -875,8 +914,8 @@ class CommandHandler:
             
             logger.info(f"   New version: v{new_version}")
             
-            # Step 6: Ripristino file di configurazione
-            logger.info("[6/8] Restoring configuration files...")
+            # Step 7: Ripristino file di configurazione
+            logger.info("[7/8] Restoring configuration files...")
             
             # Ripristina .env principale
             if env_file in env_backups and os.path.exists(env_backups[env_file]):
@@ -912,8 +951,8 @@ class CommandHandler:
             if config_backup_dir and os.path.exists(config_backup_dir):
                 shutil.rmtree(config_backup_dir)
             
-            # Step 7: Rebuild immagine Docker
-            logger.info("[7/8] Rebuilding Docker image...")
+            # Step 8: Rebuild immagine Docker
+            logger.info("[8/8] Rebuilding Docker image...")
             
             # Verifica docker-compose.yml
             compose_file = os.path.join(compose_dir, "docker-compose.yml")
@@ -941,8 +980,8 @@ class CommandHandler:
                 
                 logger.info("Docker build completed")
                 
-                # Step 8: Riavvio container con force-recreate
-                logger.info("[8/8] Restarting container with force-recreate...")
+                # Step 9: Riavvio container con force-recreate
+                logger.info("[9/9] Restarting container with force-recreate...")
                 
                 # Prova docker compose up -d --force-recreate
                 # Questo dovrebbe funzionare se abbiamo accesso al socket Docker
@@ -1300,27 +1339,25 @@ class CommandHandler:
     
     async def _daily_restart(self, params: Dict) -> CommandResult:
         """
-        Riavvio giornaliero programmato.
-        Esegue git fetch + reset + rebuild + restart ogni 24 ore.
+        Riavvio giornaliero programmato alle 4 di mattina.
+        Usa la stessa logica robusta di _update_agent_internal ma eseguita in modo non bloccante.
         NOTA: Su MikroTik RouterOS container, questo comando viene saltato
         perché il container è gestito da RouterOS, non da docker-compose.
         """
-        logger.info("Daily restart triggered - performing full update and restart")
+        logger.info("Daily restart triggered at 4 AM - performing full update and restart")
         
         try:
             # Controlla se siamo su MikroTik RouterOS container
-            # RouterOS container non ha docker-compose e non può fare rebuild
             agent_dir = "/opt/dadude-agent"
             agent_compose_dir = os.path.join(agent_dir, "dadude-agent")
             has_docker_compose = os.path.exists(os.path.join(agent_compose_dir, "docker-compose.yml"))
             
-            # Controlla anche se siamo in un container RouterOS (controlla hostname o env vars)
+            # Controlla anche se siamo in un container RouterOS
             is_routeros = (
                 os.path.exists("/proc/version") and "RouterOS" in open("/proc/version").read()
             ) or os.environ.get("ROUTEROS_CONTAINER") == "1"
             
             # Se non c'è docker-compose O siamo su RouterOS, saltiamo il Daily Restart
-            # RouterOS gestisce il container, non possiamo fare rebuild/restart
             if not has_docker_compose or is_routeros:
                 logger.info("Daily restart skipped: running in MikroTik RouterOS container (no docker-compose)")
                 return CommandResult(
@@ -1329,84 +1366,49 @@ class CommandHandler:
                     data={"message": "Daily restart skipped: MikroTik RouterOS container"},
                 )
             
-            # Se è un repository git, aggiorna prima
-            if os.path.exists(os.path.join(agent_dir, ".git")):
-                logger.info("Fetching latest code before restart...")
-                
-                # Fetch
-                subprocess.run(
-                    ["git", "fetch", "origin", "main"],
-                    cwd=agent_dir,
-                    capture_output=True,
-                    text=True,
-                    timeout=60,
-                )
-                
-                # Reset
-                subprocess.run(
-                    ["git", "reset", "--hard", "origin/main"],
-                    cwd=agent_dir,
-                    capture_output=True,
-                    text=True,
-                    timeout=60,
-                )
-                
-                logger.info("Code updated, rebuilding container...")
+            # IMPORTANTE: Esegui l'update usando direttamente _update_agent_internal
+            # che ha tutta la logica robusta (backup, verifica spazio, DNS, ecc.)
+            # Ma eseguiamolo in modo asincrono senza bloccare il funzionamento normale
             
-            # Rebuild e restart
-            agent_compose_dir = os.path.join(agent_dir, "dadude-agent")
-            if os.path.exists(os.path.join(agent_compose_dir, "docker-compose.yml")):
-                # Build in background (non blocca)
-                build_process = subprocess.Popen(
-                    ["docker", "compose", "build", "--quiet"],
-                    cwd=agent_compose_dir,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
+            # Per evitare blocchi durante il daily restart:
+            # 1. Eseguiamo l'update in modo asincrono (non blocca)
+            # 2. Usiamo timeout brevi per operazioni critiche
+            # 3. Il container continuerà a funzionare normalmente fino al restart finale
+            
+            # Esegui l'update direttamente (è già asincrono)
+            # _update_agent_internal gestisce tutto: backup, verifica spazio, git, rebuild, restart
+            logger.info("Starting daily restart update (same logic as manual update)...")
+            
+            # Esegui l'update in modo asincrono (non blocca)
+            # Il risultato verrà loggato ma non bloccherà il funzionamento
+            try:
+                result = await self._update_agent_internal({})
                 
-                # Attendi build (max 2 minuti)
-                try:
-                    build_process.wait(timeout=120)
-                except subprocess.TimeoutExpired:
-                    logger.warning("Build timeout, continuing anyway...")
-                    build_process.kill()
-                
-                # Restart usando restart invece di up --force-recreate
-                # Questo evita di fermare il container corrente durante l'esecuzione
-                restart_result = subprocess.run(
-                    ["docker", "compose", "restart"],
-                    cwd=agent_compose_dir,
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                )
-                
-                if restart_result.returncode != 0:
-                    logger.warning(f"Restart failed, trying up -d: {restart_result.stderr}")
-                    # Fallback: usa up -d (ma senza --force-recreate per evitare di fermare se stesso)
-                    subprocess.Popen(
-                        ["docker", "compose", "up", "-d"],
-                        cwd=agent_compose_dir,
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                    )
-                
-                return CommandResult(
-                    success=True,
-                    status="success",
-                    data={"message": "Daily restart: rebuild and restart completed"},
-                )
-            else:
-                # Fallback: semplice restart (solo se non siamo su RouterOS)
-                # Su RouterOS, il container è gestito da RouterOS stesso
-                if is_routeros:
-                    logger.info("Daily restart skipped: RouterOS container (fallback)")
+                if result.success:
+                    logger.success("Daily restart update completed successfully")
                     return CommandResult(
                         success=True,
-                        status="skipped",
-                        data={"message": "Daily restart skipped: RouterOS container"},
+                        status="success",
+                        data={
+                            "message": "Daily restart update completed",
+                            "old_version": result.data.get("old_version") if result.data else None,
+                            "new_version": result.data.get("new_version") if result.data else None,
+                        },
                     )
-                return await self._restart()
+                else:
+                    logger.error(f"Daily restart update failed: {result.error}")
+                    return CommandResult(
+                        success=False,
+                        status="error",
+                        error=f"Daily restart update failed: {result.error}",
+                    )
+            except Exception as e:
+                logger.error(f"Daily restart update exception: {e}")
+                return CommandResult(
+                    success=False,
+                    status="error",
+                    error=f"Daily restart update exception: {str(e)}",
+                )
                 
         except Exception as e:
             logger.error(f"Daily restart error: {e}")

@@ -3,6 +3,9 @@ DaDude - Agents Router
 API endpoints per registrazione e gestione dinamica degli agent
 """
 import asyncio
+import os
+import re
+import subprocess
 from fastapi import APIRouter, HTTPException, Query, Header, Request
 from typing import Optional, List
 from pydantic import BaseModel
@@ -456,7 +459,7 @@ async def list_pending_agents():
 # ==========================================
 
 # Versione corrente del server
-SERVER_VERSION = "2.3.29"
+SERVER_VERSION = "2.3.30"
 GITHUB_REPO = "grandir66/dadude"
 GITHUB_API = f"https://api.github.com/repos/{GITHUB_REPO}"
 
@@ -1404,9 +1407,9 @@ async def trigger_agent_update(agent_db_id: str):
                 
                 if container_id:
                     
-                    # Esegui lo script di update esterno
-                    update_script_path = "/opt/dadude-agent/dadude-agent/deploy/proxmox/update-agent.sh"
-                    update_cmd = f"ssh -o StrictHostKeyChecking=no root@{proxmox_host} 'bash {update_script_path} {container_id}'"
+                    # Esegui lo script di update esterno (usa update-agent-remote.sh che è più robusto)
+                    # Lo script viene scaricato direttamente da GitHub per assicurarsi di avere l'ultima versione
+                    update_cmd = f"ssh -o StrictHostKeyChecking=no root@{proxmox_host} 'curl -fsSL https://raw.githubusercontent.com/grandir66/Dadude/main/dadude-agent/deploy/proxmox/update-agent-remote.sh | bash -s -- {proxmox_host} {container_id}'"
                     
                     logger.info(f"Executing external update script for agent {agent.name}")
                     update_result = subprocess.run(
