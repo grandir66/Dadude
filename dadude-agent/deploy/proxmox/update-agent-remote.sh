@@ -74,55 +74,75 @@ if ! pct exec $CONTAINER_ID -- ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; then
 fi
 echo \"   Connettività internet: OK\"
 
+# Verifica se il container usa DHCP
+GATEWAY=\$(pct exec $CONTAINER_ID -- ip route | grep default | awk '{print \$3}' | head -1 || echo '')
+echo \"   Gateway: \$GATEWAY\"
+
 # Verifica risoluzione DNS - prova più percorsi per trovare DNS configurato
 DNS_SERVERS=\"\"
-# Metodo 1: /etc/resolv.conf
+DNS_FOUND=false
+
+# Metodo 1: /etc/resolv.conf (può essere gestito da DHCP o systemd-resolved)
 if pct exec $CONTAINER_ID -- test -f /etc/resolv.conf 2>/dev/null; then
-    DNS_SERVERS=\$(pct exec $CONTAINER_ID -- cat /etc/resolv.conf 2>/dev/null | grep nameserver | awk '{print \$2}' | head -1 || echo '')
+    RESOLV_CONTENT=\$(pct exec $CONTAINER_ID -- cat /etc/resolv.conf 2>/dev/null || echo '')
+    if echo \"\$RESOLV_CONTENT\" | grep -q nameserver; then
+        DNS_SERVERS=\$(echo \"\$RESOLV_CONTENT\" | grep nameserver | awk '{print \$2}' | head -1 || echo '')
+        if [ -n \"\$DNS_SERVERS\" ]; then
+            echo \"   DNS da /etc/resolv.conf: \$DNS_SERVERS\"
+            DNS_FOUND=true
+        fi
+    fi
 fi
 
-# Metodo 2: systemd-resolve
-if [ -z \"\$DNS_SERVERS\" ] && pct exec $CONTAINER_ID -- test -f /run/systemd/resolve/resolv.conf 2>/dev/null; then
-    DNS_SERVERS=\$(pct exec $CONTAINER_ID -- cat /run/systemd/resolve/resolv.conf 2>/dev/null | grep nameserver | awk '{print \$2}' | head -1 || echo '')
+# Metodo 2: systemd-resolved (se attivo)
+if [ \"\$DNS_FOUND\" = false ] && pct exec $CONTAINER_ID -- systemctl is-active systemd-resolved >/dev/null 2>&1; then
+    if pct exec $CONTAINER_ID -- test -f /run/systemd/resolve/resolv.conf 2>/dev/null; then
+        DNS_SERVERS=\$(pct exec $CONTAINER_ID -- cat /run/systemd/resolve/resolv.conf 2>/dev/null | grep nameserver | awk '{print \$2}' | head -1 || echo '')
+        if [ -n \"\$DNS_SERVERS\" ]; then
+            echo \"   DNS da systemd-resolved: \$DNS_SERVERS\"
+            DNS_FOUND=true
+        fi
+    fi
 fi
 
-# Metodo 3: Verifica configurazione Proxmox
-if [ -z \"\$DNS_SERVERS\" ]; then
-    # Prova a leggere dalla configurazione Proxmox
+# Metodo 3: Verifica configurazione DHCP (se il container usa DHCP)
+if [ \"\$DNS_FOUND\" = false ]; then
+    echo \"   Verifica configurazione DHCP...\"
+    # Prova a forzare il rinnovo DHCP se disponibile
+    if pct exec $CONTAINER_ID -- which dhclient >/dev/null 2>&1; then
+        echo \"   Tentativo rinnovo DHCP...\"
+        pct exec $CONTAINER_ID -- dhclient -r 2>/dev/null || true
+        sleep 1
+        pct exec $CONTAINER_ID -- dhclient 2>/dev/null || true
+        sleep 2
+        # Ricontrolla /etc/resolv.conf dopo rinnovo DHCP
+        if pct exec $CONTAINER_ID -- test -f /etc/resolv.conf 2>/dev/null; then
+            DNS_SERVERS=\$(pct exec $CONTAINER_ID -- cat /etc/resolv.conf 2>/dev/null | grep nameserver | awk '{print \$2}' | head -1 || echo '')
+            if [ -n \"\$DNS_SERVERS\" ]; then
+                echo \"   DNS dopo rinnovo DHCP: \$DNS_SERVERS\"
+                DNS_FOUND=true
+            fi
+        fi
+    fi
+fi
+
+# Metodo 4: Verifica configurazione Proxmox
+if [ \"\$DNS_FOUND\" = false ]; then
     PROXMOX_DNS=\$(ssh -o StrictHostKeyChecking=no root@$PROXMOX_IP \"pct config $CONTAINER_ID | grep nameserver | awk '{print \\\$2}'\" 2>/dev/null | head -1 || echo '')
     if [ -n \"\$PROXMOX_DNS\" ]; then
         DNS_SERVERS=\"\$PROXMOX_DNS\"
-        echo \"   DNS trovato nella configurazione Proxmox: \$DNS_SERVERS\"
+        echo \"   DNS dalla configurazione Proxmox: \$DNS_SERVERS\"
+        DNS_FOUND=true
     fi
 fi
 
-# Se non c'è DNS configurato, prova a configurarlo automaticamente
-if [ -z \"\$DNS_SERVERS\" ]; then
-    echo \"WARNING: Nessun DNS server configurato, tentativo configurazione automatica...\"
-    # Prova a configurare DNS usando il gateway del container o 8.8.8.8
-    GATEWAY=\$(pct exec $CONTAINER_ID -- ip route | grep default | awk '{print \$3}' | head -1 || echo '')
-    if [ -n \"\$GATEWAY\" ]; then
-        echo \"   Configurazione DNS con gateway: \$GATEWAY\"
-        ssh -o StrictHostKeyChecking=no root@$PROXMOX_IP \"pct set $CONTAINER_ID --nameserver \$GATEWAY\" 2>/dev/null || true
-        sleep 1
-        DNS_SERVERS=\"\$GATEWAY\"
-    else
-        echo \"   Configurazione DNS con 8.8.8.8\"
-        ssh -o StrictHostKeyChecking=no root@$PROXMOX_IP \"pct set $CONTAINER_ID --nameserver 8.8.8.8\" 2>/dev/null || true
-        sleep 1
-        DNS_SERVERS=\"8.8.8.8\"
-    fi
-    
-    # Riavvia il container per applicare DNS (se necessario)
-    echo \"   Riavvio container per applicare DNS...\"
-    ssh -o StrictHostKeyChecking=no root@$PROXMOX_IP \"pct shutdown $CONTAINER_ID && sleep 2 && pct start $CONTAINER_ID\" 2>/dev/null || true
-    sleep 3
-    
-    # Verifica che il DNS sia configurato
-    DNS_CHECK=\$(pct exec $CONTAINER_ID -- cat /etc/resolv.conf 2>/dev/null | grep nameserver | awk '{print \$2}' | head -1 || echo '')
-    if [ -n \"\$DNS_CHECK\" ]; then
-        echo \"   DNS configurato: \$DNS_CHECK\"
-        DNS_SERVERS=\"\$DNS_CHECK\"
+# Se ancora non trovato, usa il gateway come DNS (comune per container DHCP)
+if [ \"\$DNS_FOUND\" = false ] && [ -n \"\$GATEWAY\" ]; then
+    echo \"   WARNING: DNS non trovato, uso gateway come DNS: \$GATEWAY\"
+    DNS_SERVERS=\"\$GATEWAY\"
+    # Aggiungi temporaneamente in /etc/resolv.conf se non presente
+    if ! pct exec $CONTAINER_ID -- grep -q \"\$GATEWAY\" /etc/resolv.conf 2>/dev/null; then
+        pct exec $CONTAINER_ID -- bash -c \"echo 'nameserver \$GATEWAY' >> /etc/resolv.conf\" 2>/dev/null || true
     fi
 fi
 
@@ -133,14 +153,20 @@ if [ -n \"\$DNS_SERVERS\" ]; then
         echo \"   Risoluzione DNS: OK\"
     else
         echo \"   WARNING: DNS configurato ma risoluzione non funziona\"
-        echo \"   Tentativo con IP diretto di GitHub (140.82.121.4)...\"
-        # Configura temporaneamente l'IP di GitHub in /etc/hosts
-        pct exec $CONTAINER_ID -- bash -c \"echo '140.82.121.4 github.com' >> /etc/hosts\" 2>/dev/null || true
+        echo \"   Tentativo con IP diretto di GitHub...\"
+        # Verifica se già presente in /etc/hosts
+        if ! pct exec $CONTAINER_ID -- grep -q \"github.com\" /etc/hosts 2>/dev/null; then
+            # Aggiungi IP diretto di GitHub (usa IP più recente)
+            pct exec $CONTAINER_ID -- bash -c \"echo '140.82.121.4 github.com' >> /etc/hosts\" 2>/dev/null || true
+            echo \"   Aggiunto IP diretto di GitHub in /etc/hosts\"
+        fi
     fi
 else
-    echo \"   WARNING: Impossibile configurare DNS automaticamente\"
-    echo \"   Tentativo con IP diretto di GitHub (140.82.121.4)...\"
-    pct exec $CONTAINER_ID -- bash -c \"echo '140.82.121.4 github.com' >> /etc/hosts\" 2>/dev/null || true
+    echo \"   WARNING: Impossibile trovare DNS, uso IP diretto di GitHub\"
+    if ! pct exec $CONTAINER_ID -- grep -q \"github.com\" /etc/hosts 2>/dev/null; then
+        pct exec $CONTAINER_ID -- bash -c \"echo '140.82.121.4 github.com' >> /etc/hosts\" 2>/dev/null || true
+        echo \"   Aggiunto IP diretto di GitHub in /etc/hosts\"
+    fi
 fi
 
 echo \"[2/7] Verifica repository git...\"
