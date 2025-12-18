@@ -44,6 +44,9 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock  # Per auto-restart
       # Monta il repository git per permettere auto-update (read-write per git pull)
       - ${DADUDE_REPO_PATH:-./dadude}:/app/repo
+      # IMPORTANTE: Monta il codice direttamente invece di copiarlo nel Dockerfile
+      # Questo permette git pull senza rebuild dell'immagine Docker
+      - ${DADUDE_REPO_PATH:-./dadude}/dadude/app:/app/app:ro
 
     networks:
       - dadude_network

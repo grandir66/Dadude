@@ -40,14 +40,14 @@ RUN mkdir -p /usr/local/lib/docker/cli-plugins && \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application
-COPY app/ ./app/
+# NON copiare più il codice app/ - verrà montato come volume
+# Questo permette git pull senza rebuild dell'immagine
 
 # Create directories
 RUN mkdir -p /app/data /app/logs
 
-# Make run script executable
-RUN chmod +x /app/app/run_dual.py
+# Crea directory per il codice montato
+RUN mkdir -p /app/app
 
 # Non-root user
 RUN useradd -m -u 1000 dadude && \

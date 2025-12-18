@@ -427,7 +427,7 @@ async def list_pending_agents():
 # ==========================================
 
 # Versione corrente del server
-SERVER_VERSION = "2.3.22"
+SERVER_VERSION = "2.3.23"
 GITHUB_REPO = "grandir66/dadude"
 GITHUB_API = f"https://api.github.com/repos/{GITHUB_REPO}"
 
@@ -805,71 +805,41 @@ async def trigger_server_update():
         if needs_restart_after_update and already_up_to_date:
             messages.append(f"Versione su disco: v{new_version} (serve riavvio per applicare)")
         
-        # 4. Se siamo in Docker e ci sono aggiornamenti, ricostruisci l'immagine
-        rebuild_needed = not already_up_to_date or needs_restart_after_update
-        rebuild_success = False
-        rebuild_output = ""
-        
-        if rebuild_needed and os.path.exists("/.dockerenv"):
+        # 4. Se siamo in Docker, verifica se il codice è montato come volume
+        # Se il codice è montato (non copiato), git pull è sufficiente e serve solo riavvio
+        # Se il codice è copiato nel Dockerfile, serve rebuild (ma non lo facciamo più automaticamente)
+        code_is_mounted = False
+        if os.path.exists("/.dockerenv"):
+            # Verifica se /app/app è un mount point (volume montato)
             try:
-                # Trova il docker-compose.yml nella directory del progetto
-                compose_files = [
-                    os.path.join(project_dir, "docker-compose-dual.yml"),
-                    os.path.join(project_dir, "docker-compose.yml"),
-                ]
-                compose_file = None
-                for cf in compose_files:
-                    if os.path.exists(cf):
-                        compose_file = cf
-                        break
-                
-                if compose_file:
-                    # Usa docker compose (plugin) invece di docker-compose
-                    # Il container deve avere accesso al socket Docker
-                    compose_cmd = ["docker", "compose", "-f", compose_file, "up", "-d", "--build"]
-                    
-                    # Se siamo dentro il container, dobbiamo eseguire dall'host
-                    # Verifica se abbiamo accesso al socket Docker
-                    docker_sock = "/var/run/docker.sock"
-                    if os.path.exists(docker_sock):
-                        # Esegui docker compose per ricostruire
-                        rebuild_result = subprocess.run(
-                            compose_cmd,
-                            cwd=os.path.dirname(compose_file),
-                            capture_output=True,
-                            text=True,
-                            timeout=300  # 5 minuti per il build
-                        )
-                        
-                        rebuild_output = rebuild_result.stdout + "\n" + rebuild_result.stderr
-                        
-                        if rebuild_result.returncode == 0:
-                            rebuild_success = True
-                            messages.append("Immagine Docker ricostruita")
-                            logger.info("Docker image rebuilt successfully")
-                        else:
-                            logger.warning(f"Docker rebuild failed: {rebuild_output}")
-                            messages.append("⚠️ Ricostruzione Docker fallita (esegui manualmente)")
-                    else:
-                        messages.append("⚠️ Ricostruzione Docker richiede accesso al socket Docker")
-                        logger.warning("Docker socket not accessible, cannot rebuild image")
-                else:
-                    logger.warning("docker-compose.yml not found, cannot rebuild")
-            except subprocess.TimeoutExpired:
-                messages.append("⚠️ Timeout durante ricostruzione Docker")
-                logger.error("Docker rebuild timed out")
-            except Exception as e:
-                logger.error(f"Failed to rebuild Docker image: {e}")
-                messages.append(f"⚠️ Errore ricostruzione: {str(e)[:50]}")
+                mount_check = subprocess.run(
+                    ["mountpoint", "-q", "/app/app"],
+                    capture_output=True,
+                    timeout=2
+                )
+                code_is_mounted = mount_check.returncode == 0
+            except:
+                # Se mountpoint non disponibile, verifica in altro modo
+                # Controlla se /app/app è un symlink o se esiste /app/repo/dadude/app
+                if os.path.exists("/app/repo/dadude/app"):
+                    code_is_mounted = True
+        
+        # Se il codice è montato come volume, git pull è sufficiente
+        # Serve solo riavvio per ricaricare i moduli Python
+        if code_is_mounted:
+            messages.append("✅ Codice montato come volume - git pull applicato")
+            logger.info("Code is mounted as volume, git pull is sufficient")
+        elif rebuild_needed:
+            messages.append("⚠️ Codice copiato nel Dockerfile - serve rebuild manuale:")
+            messages.append(f"   cd {compose_dir or project_dir} && docker compose up -d --build")
         
         return {
             "success": True,
             "already_up_to_date": already_up_to_date,
             "message": " | ".join(messages),
             "output": output,
-            "rebuild_output": rebuild_output if rebuild_needed else None,
-            "rebuild_success": rebuild_success if rebuild_needed else None,
-            "needs_restart": needs_restart and not rebuild_success,  # Se rebuild ha successo, non serve riavvio manuale
+            "code_is_mounted": code_is_mounted if os.path.exists("/.dockerenv") else None,
+            "needs_restart": needs_restart and not code_is_mounted,  # Se codice montato, serve riavvio per ricaricare moduli
             "version_changed": new_version != old_version if new_version and old_version else False,
             "version_disk_different": needs_restart_after_update,
             "current_version_memory": SERVER_VERSION,
