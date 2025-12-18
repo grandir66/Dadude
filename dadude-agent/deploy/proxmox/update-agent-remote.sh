@@ -80,9 +80,18 @@ if [ \"\$DISK_USAGE\" -gt 90 ]; then
     echo \"   pct exec $CONTAINER_ID -- df -h\"
     exit 1
 elif [ \"\$DISK_USAGE\" -gt 80 ]; then
-    echo \"   WARNING: Spazio disco limitato (\${DISK_USAGE}%), procedo con cautela...\"
-    # Pulisci cache Docker se possibile
+    echo \"   WARNING: Spazio disco limitato (\${DISK_USAGE}%), pulizia automatica...\"
+    # Pulisci cache Docker (container fermati, reti non utilizzate, build cache)
+    echo \"   Pulizia cache Docker...\"
     pct exec $CONTAINER_ID -- docker system prune -f 2>/dev/null || true
+    # Pulisci anche immagini non utilizzate se ancora sopra 85%
+    sleep 1
+    DISK_USAGE_AFTER=\$(pct exec $CONTAINER_ID -- df -h / | tail -1 | awk '{print \$5}' | sed 's/%//' || echo '100')
+    if [ \"\$DISK_USAGE_AFTER\" -gt 85 ]; then
+        echo \"   Spazio ancora limitato (\${DISK_USAGE_AFTER}%), pulizia immagini non utilizzate...\"
+        pct exec $CONTAINER_ID -- docker image prune -f 2>/dev/null || true
+    fi
+    echo \"   Pulizia completata\"
 else
     echo \"   Spazio disco: OK (\${DISK_USAGE}% utilizzato)\"
 fi
