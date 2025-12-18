@@ -1010,18 +1010,6 @@ class CommandHandler:
         except Exception as e:
             logger.error(f"Update error: {e}")
             return CommandResult(success=False, status="error", error=str(e))
-                            ["nohup", "bash", restart_script, ">", "/dev/null", "2>&1", "&"],
-                            shell=True,
-                            cwd=agent_compose_dir,
-                            stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL,
-                            preexec_fn=os.setsid,  # Crea un nuovo process group
-                        )
-                        logger.info("Initiated background restart script")
-                    except Exception as e:
-                        logger.warning(f"Could not initiate background restart: {e}")
-                    
-                    return CommandResult(
                         success=True,
                         status="success",
                         data={
