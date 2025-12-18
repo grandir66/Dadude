@@ -1,0 +1,193 @@
+# DaDude v2.0 - Docker Compose Configuration
+# PostgreSQL + Redis + FastAPI Backend + Vue.js Frontend
+# =========================================================
+
+version: "3.8"
+
+services:
+  # ===========================================
+  # PostgreSQL Database
+  # ===========================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: dadude-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-dadude}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dadude_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-dadude}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - dadude_network
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dadude} -d ${POSTGRES_DB:-dadude}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ===========================================
+  # Redis Cache / Session Store
+  # ===========================================
+  redis:
+    image: redis:7-alpine
+    container_name: dadude-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    networks:
+      - dadude_network
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ===========================================
+  # DaDude Backend (FastAPI)
+  # ===========================================
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.v2
+    container_name: dadude-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      # Database
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-dadude}:${POSTGRES_PASSWORD:-dadude_secret}@postgres:5432/${POSTGRES_DB:-dadude}
+      - DATABASE_URL_SYNC=postgresql://${POSTGRES_USER:-dadude}:${POSTGRES_PASSWORD:-dadude_secret}@postgres:5432/${POSTGRES_DB:-dadude}
+      # Redis
+      - REDIS_URL=redis://redis:6379/0
+      # Dude Server
+      - DUDE_HOST=${DUDE_HOST:-192.168.1.1}
+      - DUDE_API_PORT=${DUDE_API_PORT:-8728}
+      - DUDE_USE_SSL=${DUDE_USE_SSL:-false}
+      - DUDE_USERNAME=${DUDE_USERNAME:-admin}
+      - DUDE_PASSWORD=${DUDE_PASSWORD:-}
+      # DaDude
+      - DADUDE_HOST=0.0.0.0
+      - DADUDE_PORT=8000
+      - DADUDE_API_KEY=${DADUDE_API_KEY:-}
+      # Polling
+      - POLL_INTERVAL=${POLL_INTERVAL:-60}
+      - FULL_SYNC_INTERVAL=${FULL_SYNC_INTERVAL:-300}
+      - CONNECTION_TIMEOUT=${CONNECTION_TIMEOUT:-30}
+      # Logging
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      # Webhook
+      - WEBHOOK_URL=${WEBHOOK_URL:-}
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET:-}
+      # Encryption
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-}
+    volumes:
+      - backend_data:/app/data
+      - backend_logs:/app/logs
+      - backend_backups:/app/backups
+    networks:
+      - dadude_network
+    ports:
+      - "${DADUDE_PORT:-8000}:8000"
+    dns:
+      - ${DNS_PRIMARY:-8.8.8.8}
+      - ${DNS_SECONDARY:-8.8.4.4}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ===========================================
+  # DaDude Frontend (Vue.js + Nginx)
+  # ===========================================
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    container_name: dadude-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    networks:
+      - dadude_network
+    ports:
+      - "${FRONTEND_PORT:-80}:80"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ===========================================
+  # Adminer (Database Management UI) - DEV ONLY
+  # ===========================================
+  adminer:
+    image: adminer:latest
+    container_name: dadude-adminer
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    networks:
+      - dadude_network
+    ports:
+      - "${ADMINER_PORT:-8080}:8080"
+    environment:
+      - ADMINER_DEFAULT_SERVER=postgres
+    profiles:
+      - dev
+
+  # ===========================================
+  # Redis Commander (Redis UI) - DEV ONLY
+  # ===========================================
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: dadude-redis-commander
+    restart: unless-stopped
+    depends_on:
+      - redis
+    networks:
+      - dadude_network
+    ports:
+      - "${REDIS_COMMANDER_PORT:-8081}:8081"
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+    profiles:
+      - dev
+
+# ===========================================
+# Volumes
+# ===========================================
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  backend_data:
+    driver: local
+  backend_logs:
+    driver: local
+  backend_backups:
+    driver: local
+
+# ===========================================
+# Networks
+# ===========================================
+networks:
+  dadude_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16

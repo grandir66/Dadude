@@ -1,0 +1,52 @@
+# DaDude v2.0 - Backend Dockerfile
+# PostgreSQL + Redis support
+
+FROM python:3.11-slim AS base
+
+# Metadata
+LABEL maintainer="Domarc Srl"
+LABEL description="DaDude v2.0 - The Dude MikroTik Connector API"
+LABEL version="2.0.0"
+
+# Environment
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV TZ=Europe/Rome
+
+# System dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    curl \
+    libpq-dev \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Working directory
+WORKDIR /app
+
+# Install Python dependencies
+COPY requirements.v2.txt ./requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application
+COPY app/ ./app/
+COPY alembic/ ./alembic/
+COPY alembic.ini ./
+
+# Create directories
+RUN mkdir -p /app/data /app/logs /app/backups
+
+# Non-root user
+RUN useradd -m -u 1000 dadude && \
+    chown -R dadude:dadude /app
+USER dadude
+
+# Expose port
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Run with alembic upgrade on startup
+CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]

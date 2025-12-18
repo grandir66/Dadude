@@ -1,0 +1,159 @@
+/**
+ * DaDude v2.0 - API Service
+ * Centralized API client with Axios
+ */
+import axios from 'axios'
+
+// Create axios instance
+const api = axios.create({
+  baseURL: import.meta.env.VITE_API_URL || '/api/v1',
+  timeout: 30000,
+  headers: {
+    'Content-Type': 'application/json',
+  }
+})
+
+// Request interceptor - add auth token
+api.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('api_key')
+    if (token) {
+      config.headers['X-API-Key'] = token
+    }
+    return config
+  },
+  (error) => {
+    return Promise.reject(error)
+  }
+)
+
+// Response interceptor - handle errors
+api.interceptors.response.use(
+  (response) => response.data,
+  (error) => {
+    if (error.response) {
+      // Handle specific error codes
+      switch (error.response.status) {
+        case 401:
+          // Unauthorized - redirect to login
+          window.location.href = '/login'
+          break
+        case 403:
+          console.error('Forbidden:', error.response.data)
+          break
+        case 404:
+          console.error('Not found:', error.response.data)
+          break
+        case 500:
+          console.error('Server error:', error.response.data)
+          break
+      }
+    }
+    return Promise.reject(error)
+  }
+)
+
+// ===========================================
+// CUSTOMERS
+// ===========================================
+export const customersApi = {
+  getAll: (params) => api.get('/customers', { params }),
+  getById: (id) => api.get(`/customers/${id}`),
+  create: (data) => api.post('/customers', data),
+  update: (id, data) => api.put(`/customers/${id}`, data),
+  delete: (id) => api.delete(`/customers/${id}`),
+  // Networks
+  getNetworks: (customerId) => api.get(`/customers/${customerId}/networks`),
+  createNetwork: (customerId, data) => api.post(`/customers/${customerId}/networks`, data),
+  // Credentials
+  getCredentials: (customerId) => api.get(`/customers/${customerId}/credentials`),
+}
+
+// ===========================================
+// AGENTS
+// ===========================================
+export const agentsApi = {
+  getAll: (params) => api.get('/agents', { params }),
+  getById: (id) => api.get(`/agents/${id}`),
+  create: (data) => api.post('/agents', data),
+  update: (id, data) => api.put(`/agents/${id}`, data),
+  delete: (id) => api.delete(`/agents/${id}`),
+  // Actions
+  testConnection: (id) => api.post(`/agents/${id}/test`),
+  startScan: (id, data) => api.post(`/agents/${id}/scan`, data),
+  getStatus: (id) => api.get(`/agents/${id}/status`),
+}
+
+// ===========================================
+// DEVICES (INVENTORY)
+// ===========================================
+export const devicesApi = {
+  getAll: (params) => api.get('/inventory', { params }),
+  getById: (id) => api.get(`/inventory/${id}`),
+  create: (data) => api.post('/inventory', data),
+  update: (id, data) => api.put(`/inventory/${id}`, data),
+  delete: (id) => api.delete(`/inventory/${id}`),
+  // Actions
+  probe: (id) => api.post(`/inventory/${id}/probe`),
+  getDetails: (id) => api.get(`/inventory/${id}/details`),
+}
+
+// ===========================================
+// DISCOVERY
+// ===========================================
+export const discoveryApi = {
+  getScanResults: (params) => api.get('/discovery/scans', { params }),
+  getDiscoveredDevices: (scanId) => api.get(`/discovery/scans/${scanId}/devices`),
+  startScan: (data) => api.post('/discovery/scan', data),
+  importDevice: (deviceId, customerId) => api.post(`/discovery/devices/${deviceId}/import`, { customer_id: customerId }),
+}
+
+// ===========================================
+// BACKUPS
+// ===========================================
+export const backupsApi = {
+  getAll: (params) => api.get('/backups', { params }),
+  getById: (id) => api.get(`/backups/${id}`),
+  download: (id) => api.get(`/backups/${id}/download`, { responseType: 'blob' }),
+  delete: (id) => api.delete(`/backups/${id}`),
+  // Schedules
+  getSchedules: (params) => api.get('/backups/schedules', { params }),
+  createSchedule: (data) => api.post('/backups/schedules', data),
+  updateSchedule: (id, data) => api.put(`/backups/schedules/${id}`, data),
+  deleteSchedule: (id) => api.delete(`/backups/schedules/${id}`),
+  // Jobs
+  getJobs: (params) => api.get('/backups/jobs', { params }),
+  startJob: (data) => api.post('/backups/jobs', data),
+}
+
+// ===========================================
+// ALERTS
+// ===========================================
+export const alertsApi = {
+  getAll: (params) => api.get('/alerts', { params }),
+  getById: (id) => api.get(`/alerts/${id}`),
+  acknowledge: (id) => api.post(`/alerts/${id}/acknowledge`),
+  resolve: (id, notes) => api.post(`/alerts/${id}/resolve`, { notes }),
+  delete: (id) => api.delete(`/alerts/${id}`),
+}
+
+// ===========================================
+// SYSTEM
+// ===========================================
+export const systemApi = {
+  getHealth: () => api.get('/system/health'),
+  getInfo: () => api.get('/system/info'),
+  getStats: () => api.get('/system/stats'),
+}
+
+// ===========================================
+// DASHBOARD
+// ===========================================
+export const dashboardApi = {
+  getStats: () => api.get('/dashboard/stats'),
+  getRecentAlerts: () => api.get('/dashboard/alerts'),
+  getAgentStatus: () => api.get('/dashboard/agents'),
+  getDeviceSummary: () => api.get('/dashboard/devices'),
+}
+
+export default api
