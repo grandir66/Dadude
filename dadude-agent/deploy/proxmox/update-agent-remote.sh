@@ -301,6 +301,16 @@ elif [ -n \"\$ENV_BACKUP_ROOT\" ] && [ -f \"\$ENV_BACKUP_ROOT\" ]; then
     echo \"   .env copiato in subdirectory\"
 fi
 
+# IMPORTANTE: Assicura che .env esista nel percorso corretto per docker-compose
+# docker-compose.yml legge da /opt/dadude-agent/.env
+if [ -n \"\$ENV_BACKUP_ROOT\" ] && [ -f \"\$ENV_BACKUP_ROOT\" ]; then
+    # Verifica che il file .env principale esista e sia corretto
+    if ! pct exec $CONTAINER_ID -- test -f \"\${AGENT_DIR}/.env\" 2>/dev/null; then
+        pct exec $CONTAINER_ID -- bash -c \"cat > \${AGENT_DIR}/.env\" < \"\$ENV_BACKUP_ROOT\"
+        echo \"   .env principale ripristinato per docker-compose\"
+    fi
+fi
+
 # Ripristina config personalizzati (solo se esistevano)
 if [ -n \"\$CONFIG_BACKUP\" ] && [ -d \"\$CONFIG_BACKUP/config\" ]; then
     pct exec $CONTAINER_ID -- mkdir -p \"\${COMPOSE_DIR}/config\" 2>/dev/null || true
