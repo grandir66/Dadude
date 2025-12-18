@@ -77,7 +77,34 @@ pct exec $CONTAINER_ID -- bash -c \"cd \${AGENT_DIR} && git fetch origin main 2>
     exit 1
 }
 
-echo \"[3/6] Verifica versione corrente...\"
+echo \"[3/6] Backup file di configurazione...\"
+# Backup file .env principale
+ENV_BACKUP_ROOT=\"\"
+ENV_BACKUP_SUBDIR=\"\"
+if pct exec $CONTAINER_ID -- test -f \"\${AGENT_DIR}/.env\" 2>/dev/null; then
+    ENV_BACKUP_ROOT=\$(mktemp)
+    pct exec $CONTAINER_ID -- cat \"\${AGENT_DIR}/.env\" > \"\$ENV_BACKUP_ROOT\"
+    echo \"   Backup .env principale salvato\"
+fi
+
+# Backup file .env nella subdirectory
+if pct exec $CONTAINER_ID -- test -f \"\${COMPOSE_DIR}/.env\" 2>/dev/null; then
+    ENV_BACKUP_SUBDIR=\$(mktemp)
+    pct exec $CONTAINER_ID -- cat \"\${COMPOSE_DIR}/.env\" > \"\$ENV_BACKUP_SUBDIR\"
+    echo \"   Backup .env subdirectory salvato\"
+fi
+
+# Backup file config personalizzati
+CONFIG_BACKUP=\"\"
+if pct exec $CONTAINER_ID -- test -d \"\${COMPOSE_DIR}/config\" 2>/dev/null; then
+    CONFIG_BACKUP=\$(mktemp -d)
+    pct exec $CONTAINER_ID -- bash -c \"cd \${COMPOSE_DIR} && tar czf - config/\" 2>/dev/null | tar xzf - -C \"\$CONFIG_BACKUP\" 2>/dev/null || true
+    if [ -d \"\$CONFIG_BACKUP/config\" ]; then
+        echo \"   Backup directory config salvato\"
+    fi
+fi
+
+echo \"[4/6] Verifica versione corrente...\"
 CURRENT_COMMIT=\$(pct exec $CONTAINER_ID -- bash -c \"cd \${AGENT_DIR} && git rev-parse HEAD 2>/dev/null || echo 'unknown'\")
 REMOTE_COMMIT=\$(pct exec $CONTAINER_ID -- bash -c \"cd \${AGENT_DIR} && git rev-parse origin/main 2>/dev/null || echo 'unknown'\")
 CURRENT_VERSION=\$(pct exec $CONTAINER_ID -- bash -c \"cd \${AGENT_DIR}/dadude-agent && grep -oP 'AGENT_VERSION\\s*=\\s*\\\"\\K[^\\\"]+' app/agent.py 2>/dev/null || echo 'unknown'\")
@@ -88,19 +115,54 @@ echo \"   Versione corrente: v\${CURRENT_VERSION}\"
 
 if [ \"\$CURRENT_COMMIT\" = \"\$REMOTE_COMMIT\" ] && [ \"\$CURRENT_COMMIT\" != \"unknown\" ]; then
     echo \"[INFO] Agent già aggiornato all'ultima versione\"
+    # Cleanup backup files
+    [ -n \"\$ENV_BACKUP_ROOT\" ] && [ -f \"\$ENV_BACKUP_ROOT\" ] && rm -f \"\$ENV_BACKUP_ROOT\"
+    [ -n \"\$ENV_BACKUP_SUBDIR\" ] && [ -f \"\$ENV_BACKUP_SUBDIR\" ] && rm -f \"\$ENV_BACKUP_SUBDIR\"
+    [ -n \"\$CONFIG_BACKUP\" ] && [ -d \"\$CONFIG_BACKUP\" ] && rm -rf \"\$CONFIG_BACKUP\"
     exit 0
 fi
 
-echo \"[4/6] Applicazione aggiornamenti...\"
+echo \"[5/6] Applicazione aggiornamenti...\"
 pct exec $CONTAINER_ID -- bash -c \"cd \${AGENT_DIR} && git reset --hard origin/main 2>&1\" || {
     echo \"ERROR: Git reset fallito\"
+    # Ripristina backup in caso di errore
+    if [ -n \"\$ENV_BACKUP_ROOT\" ] && [ -f \"\$ENV_BACKUP_ROOT\" ]; then
+        pct exec $CONTAINER_ID -- bash -c \"cat > \${AGENT_DIR}/.env\" < \"\$ENV_BACKUP_ROOT\"
+        echo \"   .env ripristinato dopo errore\"
+    fi
     exit 1
 }
 
 NEW_VERSION=\$(pct exec $CONTAINER_ID -- bash -c \"cd \${AGENT_DIR}/dadude-agent && grep -oP 'AGENT_VERSION\\s*=\\s*\\\"\\K[^\\\"]+' app/agent.py 2>/dev/null || echo 'unknown'\")
 echo \"   Nuova versione: v\${NEW_VERSION}\"
 
-echo \"[5/6] Rebuild immagine Docker...\"
+echo \"[6/7] Ripristino file di configurazione...\"
+# Ripristina .env principale
+if [ -n \"\$ENV_BACKUP_ROOT\" ] && [ -f \"\$ENV_BACKUP_ROOT\" ]; then
+    pct exec $CONTAINER_ID -- bash -c \"cat > \${AGENT_DIR}/.env\" < \"\$ENV_BACKUP_ROOT\"
+    echo \"   .env principale ripristinato\"
+fi
+
+# Ripristina .env subdirectory
+if [ -n \"\$ENV_BACKUP_SUBDIR\" ] && [ -f \"\$ENV_BACKUP_SUBDIR\" ]; then
+    pct exec $CONTAINER_ID -- mkdir -p \"\${COMPOSE_DIR}\" 2>/dev/null || true
+    pct exec $CONTAINER_ID -- bash -c \"cat > \${COMPOSE_DIR}/.env\" < \"\$ENV_BACKUP_SUBDIR\"
+    echo \"   .env subdirectory ripristinato\"
+elif [ -n \"\$ENV_BACKUP_ROOT\" ] && [ -f \"\$ENV_BACKUP_ROOT\" ]; then
+    # Se non esiste backup subdirectory, copia dalla root
+    pct exec $CONTAINER_ID -- mkdir -p \"\${COMPOSE_DIR}\" 2>/dev/null || true
+    pct exec $CONTAINER_ID -- cp \"\${AGENT_DIR}/.env\" \"\${COMPOSE_DIR}/.env\" 2>/dev/null || true
+    echo \"   .env copiato in subdirectory\"
+fi
+
+# Ripristina config personalizzati (solo se esistevano)
+if [ -n \"\$CONFIG_BACKUP\" ] && [ -d \"\$CONFIG_BACKUP/config\" ]; then
+    pct exec $CONTAINER_ID -- mkdir -p \"\${COMPOSE_DIR}/config\" 2>/dev/null || true
+    cd \"\$CONFIG_BACKUP\" && tar czf - config/ | pct exec $CONTAINER_ID -- bash -c \"cd \${COMPOSE_DIR} && tar xzf -\" 2>/dev/null || true
+    echo \"   Directory config ripristinata\"
+fi
+
+echo \"[7/8] Rebuild immagine Docker...\"
 if ! pct exec $CONTAINER_ID -- test -d \"\${COMPOSE_DIR}\" 2>/dev/null; then
     echo \"WARNING: Directory \${COMPOSE_DIR} non trovata, creazione...\"
     pct exec $CONTAINER_ID -- mkdir -p \"\${COMPOSE_DIR}\"
@@ -118,7 +180,7 @@ pct exec $CONTAINER_ID -- bash -c \"cd \${COMPOSE_DIR} && docker compose build -
     exit 1
 }
 
-echo \"[6/6] Riavvio container con force-recreate...\"
+echo \"[8/8] Riavvio container con force-recreate...\"
 # Stop container esistente
 pct exec $CONTAINER_ID -- docker stop dadude-agent 2>/dev/null || true
 sleep 2
@@ -153,6 +215,11 @@ echo \"==========================================\"
 echo \"Update completato con successo!\"
 echo \"Versione: v\${NEW_VERSION}\"
 echo \"==========================================\"
+
+# Cleanup backup files
+[ -n \"\$ENV_BACKUP_ROOT\" ] && [ -f \"\$ENV_BACKUP_ROOT\" ] && rm -f \"\$ENV_BACKUP_ROOT\"
+[ -n \"\$ENV_BACKUP_SUBDIR\" ] && [ -f \"\$ENV_BACKUP_SUBDIR\" ] && rm -f \"\$ENV_BACKUP_SUBDIR\"
+[ -n \"\$CONFIG_BACKUP\" ] && [ -d \"\$CONFIG_BACKUP\" ] && rm -rf \"\$CONFIG_BACKUP\"
 "
 
 # Esegui comando via SSH
