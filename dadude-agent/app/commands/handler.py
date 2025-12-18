@@ -49,6 +49,7 @@ class CommandAction(str, Enum):
     # Remote shell
     EXEC_COMMAND = "exec_command"
     EXEC_SSH = "exec_ssh"
+    UPDATE_AGENT_PROXMOX = "update_agent_proxmox"
 
 
 @dataclass
