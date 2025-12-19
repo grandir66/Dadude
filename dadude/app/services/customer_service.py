@@ -33,10 +33,10 @@ class CustomerService:
     
     def __init__(self):
         settings = get_settings()
-        # Usa database sincrono (sqlite standard, non aiosqlite)
-        db_url = settings.database_url.replace("+aiosqlite", "")
+        # Usa database sincrono (sia per SQLite che PostgreSQL)
+        db_url = settings.database_url_sync_computed
         self._engine = init_db(db_url)
-        logger.info("CustomerService initialized with database")
+        logger.info(f"CustomerService initialized with database: {db_url.split('@')[0]}@***")
     
     def _get_session(self) -> Session:
         """Ottiene sessione database"""

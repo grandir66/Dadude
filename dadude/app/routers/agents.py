@@ -152,7 +152,7 @@ async def register_agent(
                 from ..models.database import AgentAssignmentDB, init_db, get_session
                 from ..config import get_settings
                 settings = get_settings()
-                db_url = settings.database_url.replace("+aiosqlite", "")
+                db_url = settings.database_url_sync_computed
                 engine = init_db(db_url)
                 fix_session = get_session(engine)
                 
@@ -197,7 +197,7 @@ async def register_agent(
         import os
         
         settings = get_settings()
-        db_url = settings.database_url.replace("+aiosqlite", "")
+        db_url = settings.database_url_sync_computed
         engine = init_db(db_url)
         session = get_session(engine)
         
@@ -312,7 +312,7 @@ async def agent_heartbeat(
                     from ..config import get_settings
                     
                     settings = get_settings()
-                    db_url = settings.database_url.replace("+aiosqlite", "")
+                    db_url = settings.database_url_sync_computed
                     engine = init_db(db_url)
                     session = get_session(engine)
                     
@@ -416,7 +416,7 @@ async def list_pending_agents():
     from ..config import get_settings
     
     settings = get_settings()
-    db_url = settings.database_url.replace("+aiosqlite", "")
+    db_url = settings.database_url_sync_computed
     engine = init_db(db_url)
     session = get_session(engine)
     
@@ -997,7 +997,7 @@ async def approve_agent(
         from ..config import get_settings
         
         settings = get_settings()
-        db_url = settings.database_url.replace("+aiosqlite", "")
+        db_url = settings.database_url_sync_computed
         engine = init_db(db_url)
         session = get_session(engine)
         
@@ -1077,7 +1077,7 @@ async def update_agent_config(
         from ..config import get_settings
         
         settings = get_settings()
-        db_url = settings.database_url.replace("+aiosqlite", "")
+        db_url = settings.database_url_sync_computed
         engine = init_db(db_url)
         session = get_session(engine)
         
@@ -1687,7 +1687,7 @@ async def list_outdated_agents():
         logger.warning(f"Could not fetch agent version from GitHub: {e}")
     
     settings = get_settings()
-    db_url = settings.database_url.replace("+aiosqlite", "")
+    db_url = settings.database_url_sync_computed
     engine = init_db(db_url)
     session = get_session(engine)
     

@@ -726,7 +726,7 @@ async def reassign_agent(
     from ..config import get_settings
     
     settings = get_settings()
-    db_url = settings.database_url.replace("+aiosqlite", "")
+    db_url = settings.database_url_sync_computed
     engine = init_db(db_url)
     session = get_session(engine)
     
@@ -768,7 +768,7 @@ async def unassign_agent(agent_id: str):
     from ..config import get_settings
     
     settings = get_settings()
-    db_url = settings.database_url.replace("+aiosqlite", "")
+    db_url = settings.database_url_sync_computed
     engine = init_db(db_url)
     session = get_session(engine)
     
@@ -1488,7 +1488,7 @@ async def scan_customer_networks(
     
     # Salva risultati nel database
     settings = get_settings()
-    db_url = settings.database_url.replace("+aiosqlite", "")
+    db_url = settings.database_url_sync_computed
     engine = init_db(db_url)
     session = get_session(engine)
     
@@ -1675,7 +1675,7 @@ async def list_customer_scans(
         raise HTTPException(status_code=404, detail="Cliente non trovato")
     
     settings = get_settings()
-    db_url = settings.database_url.replace("+aiosqlite", "")
+    db_url = settings.database_url_sync_computed
     engine = init_db(db_url)
     session = get_session(engine)
     
@@ -1710,7 +1710,7 @@ async def get_scan_details(customer_id: str, scan_id: str):
     from ..config import get_settings
     
     settings = get_settings()
-    db_url = settings.database_url.replace("+aiosqlite", "")
+    db_url = settings.database_url_sync_computed
     engine = init_db(db_url)
     session = get_session(engine)
     
@@ -1773,7 +1773,7 @@ async def delete_scan(customer_id: str, scan_id: str):
     from ..config import get_settings
     
     settings = get_settings()
-    db_url = settings.database_url.replace("+aiosqlite", "")
+    db_url = settings.database_url_sync_computed
     engine = init_db(db_url)
     session = get_session(engine)
     
