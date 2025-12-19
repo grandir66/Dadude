@@ -5,6 +5,7 @@ Esegue backup secondo schedule configurati per cliente
 
 Non modifica servizi esistenti
 """
+from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime, time, timedelta
