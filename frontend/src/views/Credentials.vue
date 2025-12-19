@@ -566,6 +566,19 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <!-- Snackbar for notifications -->
+    <v-snackbar
+      v-model="snackbar.show"
+      :color="snackbar.color"
+      :timeout="4000"
+      location="top"
+    >
+      {{ snackbar.text }}
+      <template v-slot:actions>
+        <v-btn variant="text" @click="snackbar.show = false">Close</v-btn>
+      </template>
+    </v-snackbar>
   </div>
 </template>
 
@@ -601,6 +614,9 @@ const credentialToDelete = ref(null)
 const credentialToTest = ref(null)
 const testTargetIp = ref('')
 const testResult = ref(null)
+
+// Snackbar notifications
+const snackbar = ref({ show: false, text: '', color: 'success' })
 
 const emptyForm = {
   name: '',
@@ -714,6 +730,8 @@ async function loadCredentials() {
   } catch (error) {
     console.error('Error loading credentials:', error)
     credentials.value = []
+    const errorMsg = error.response?.data?.detail || error.message || 'Unknown error'
+    snackbar.value = { show: true, text: `Error loading credentials: ${errorMsg}`, color: 'error' }
   } finally {
     loading.value = false
   }
@@ -781,14 +799,18 @@ async function saveCredential() {
 
     if (isEditing.value && selectedCredential.value) {
       await credentialsApi.update(selectedCredential.value.id, data)
+      snackbar.value = { show: true, text: `Credential "${data.name}" updated successfully`, color: 'success' }
     } else {
       await credentialsApi.create(data)
+      snackbar.value = { show: true, text: `Credential "${data.name}" created successfully`, color: 'success' }
     }
 
     closeDialog()
     loadCredentials()
   } catch (error) {
     console.error('Error saving credential:', error)
+    const errorMsg = error.response?.data?.detail || error.message || 'Unknown error'
+    snackbar.value = { show: true, text: `Error saving credential: ${errorMsg}`, color: 'error' }
   } finally {
     saving.value = false
   }
@@ -799,12 +821,16 @@ async function confirmDelete() {
 
   try {
     deleting.value = true
+    const name = credentialToDelete.value.name
     await credentialsApi.delete(credentialToDelete.value.id)
     showDeleteDialog.value = false
     credentialToDelete.value = null
+    snackbar.value = { show: true, text: `Credential "${name}" deleted`, color: 'success' }
     loadCredentials()
   } catch (error) {
     console.error('Error deleting credential:', error)
+    const errorMsg = error.response?.data?.detail || error.message || 'Unknown error'
+    snackbar.value = { show: true, text: `Error deleting credential: ${errorMsg}`, color: 'error' }
   } finally {
     deleting.value = false
   }

@@ -427,14 +427,17 @@ async function saveAgent() {
 
     if (editingAgent.value) {
       await agentsApi.update(editingAgent.value.id, agentForm.value)
+      snackbar.value = { show: true, text: `Agent "${agentForm.value.name}" updated successfully`, color: 'success' }
     } else {
       await agentsApi.create(agentForm.value)
+      snackbar.value = { show: true, text: `Agent "${agentForm.value.name}" created successfully`, color: 'success' }
     }
 
     closeDialog()
     loadAgents()
   } catch (error) {
     console.error('Error saving agent:', error)
+    snackbar.value = { show: true, text: 'Save failed: ' + (error.response?.data?.detail || error.message), color: 'error' }
   } finally {
     saving.value = false
   }

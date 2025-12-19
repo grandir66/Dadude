@@ -412,6 +412,19 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <!-- Snackbar for notifications -->
+    <v-snackbar
+      v-model="snackbar.show"
+      :color="snackbar.color"
+      :timeout="4000"
+      location="top"
+    >
+      {{ snackbar.text }}
+      <template v-slot:actions>
+        <v-btn variant="text" @click="snackbar.show = false">Close</v-btn>
+      </template>
+    </v-snackbar>
   </div>
 </template>
 
@@ -443,6 +456,7 @@ const showImportDialog = ref(false)
 const showDeviceDialog = ref(false)
 const selectedDevice = ref(null)
 const importCustomerId = ref(null)
+const snackbar = ref({ show: false, text: '', color: 'success' })
 
 // Scan form
 const scanForm = ref(null)
@@ -604,7 +618,7 @@ async function startScan() {
 
   try {
     scanning.value = true
-    await discoveryApi.startScan({
+    const result = await discoveryApi.startScan({
       customer_id: scanFormData.value.customer_id,
       agent_id: scanFormData.value.agent_id,
       scan_type: scanFormData.value.scan_type,
@@ -612,12 +626,20 @@ async function startScan() {
       include_neighbors: scanFormData.value.include_neighbors
     })
     showScanDialog.value = false
+    snackbar.value = {
+      show: true,
+      text: result.message || `Scan started: ${result.devices_found || 0} devices found`,
+      color: result.success !== false ? 'success' : 'warning'
+    }
     // Reload scans after a delay
     setTimeout(() => {
       loadScans()
+      loadDiscoveredDevices()
     }, 2000)
   } catch (error) {
     console.error('Error starting scan:', error)
+    const errorMsg = error.response?.data?.detail || error.message || 'Unknown error'
+    snackbar.value = { show: true, text: `Scan failed: ${errorMsg}`, color: 'error' }
   } finally {
     scanning.value = false
   }
@@ -663,14 +685,32 @@ async function importDevices() {
 
   try {
     importing.value = true
+    let successCount = 0
+    let failCount = 0
+
     for (const deviceId of selectedDevices.value) {
-      await discoveryApi.importDevice(deviceId, importCustomerId.value)
+      try {
+        await discoveryApi.importDevice(deviceId, importCustomerId.value)
+        successCount++
+      } catch (e) {
+        failCount++
+      }
     }
+
     showImportDialog.value = false
     selectedDevices.value = []
+
+    if (failCount === 0) {
+      snackbar.value = { show: true, text: `Successfully imported ${successCount} device(s)`, color: 'success' }
+    } else {
+      snackbar.value = { show: true, text: `Imported ${successCount}, failed ${failCount}`, color: 'warning' }
+    }
+
     loadDiscoveredDevices()
   } catch (error) {
     console.error('Error importing devices:', error)
+    const errorMsg = error.response?.data?.detail || error.message || 'Unknown error'
+    snackbar.value = { show: true, text: `Import failed: ${errorMsg}`, color: 'error' }
   } finally {
     importing.value = false
   }

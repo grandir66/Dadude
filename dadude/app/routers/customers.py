@@ -287,7 +287,7 @@ async def list_all_credentials(include_usage: bool = True):
     return {"total": len(credentials), "credentials": credentials}
 
 
-@router.get("/credentials", response_model=CredentialListResponse)
+@router.get("/credentials")
 async def list_credentials(
     credential_type: Optional[str] = Query(None, description="Filtra per tipo"),
     global_only: bool = Query(False, description="Solo credenziali globali"),
@@ -300,15 +300,19 @@ async def list_credentials(
 
     if global_only:
         credentials = service.list_global_credentials(credential_type=credential_type)
+        # Convert CredentialSafe to dict for consistent response format
+        credentials = [c.model_dump() if hasattr(c, 'model_dump') else c for c in credentials]
     elif customer_id:
         credentials = service.list_credentials(customer_id=customer_id, credential_type=credential_type)
+        # Convert CredentialSafe to dict for consistent response format
+        credentials = [c.model_dump() if hasattr(c, 'model_dump') else c for c in credentials]
     else:
         # Return all credentials (global + customer-specific)
         credentials = service.get_all_credentials()
         if credential_type:
-            credentials = [c for c in credentials if c.credential_type == credential_type]
+            credentials = [c for c in credentials if c.get('credential_type') == credential_type]
 
-    return CredentialListResponse(total=len(credentials), credentials=credentials)
+    return {"total": len(credentials), "credentials": credentials}
 
 
 @router.post("/credentials", response_model=CredentialSafe, status_code=201)
