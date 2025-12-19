@@ -350,9 +350,15 @@ async function loadCustomers() {
 async function testConnection(agent) {
   try {
     testingAgent.value = agent.id
-    await agentsApi.testConnection(agent.id)
+    const result = await agentsApi.testConnection(agent.id)
+    if (result.success) {
+      snackbar.value = { show: true, text: result.message || 'Connection successful!', color: 'success' }
+    } else {
+      snackbar.value = { show: true, text: result.message || 'Connection failed', color: 'error' }
+    }
   } catch (error) {
     console.error('Connection test failed:', error)
+    snackbar.value = { show: true, text: 'Connection test failed: ' + (error.response?.data?.detail || error.message), color: 'error' }
   } finally {
     testingAgent.value = null
   }

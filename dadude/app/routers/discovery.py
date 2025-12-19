@@ -209,7 +209,7 @@ async def list_scans(
         query = session.query(ScanResult)
         if customer_id:
             query = query.filter(ScanResult.customer_id == customer_id)
-        query = query.order_by(ScanResult.started_at.desc()).limit(limit)
+        query = query.order_by(ScanResult.created_at.desc()).limit(limit)
 
         scans = []
         for s in query.all():
@@ -217,13 +217,12 @@ async def list_scans(
                 "id": s.id,
                 "customer_id": s.customer_id,
                 "agent_id": s.agent_id,
-                "network": s.network,
-                "network_cidr": s.network,
+                "network": s.network_cidr,
+                "network_cidr": s.network_cidr,
                 "scan_type": s.scan_type,
                 "status": s.status,
                 "devices_found": s.devices_found or 0,
-                "started_at": s.started_at.isoformat() if s.started_at else None,
-                "completed_at": s.completed_at.isoformat() if s.completed_at else None,
+                "created_at": s.created_at.isoformat() if s.created_at else None,
             })
         return {"scans": scans, "total": len(scans)}
     finally:
@@ -260,7 +259,7 @@ async def get_scan_devices(scan_id: str):
                 "source": d.source,
                 "imported": d.imported,
                 "customer_id": d.customer_id,
-                "discovered_at": d.discovered_at.isoformat() if d.discovered_at else None,
+                "created_at": d.created_at.isoformat() if d.created_at else None,
             })
         return {"devices": result, "total": len(result)}
     finally:
@@ -307,10 +306,9 @@ async def start_scan(data: dict):
             id=scan_id,
             customer_id=customer_id,
             agent_id=agent_id,
-            network=network_cidr,
+            network_cidr=network_cidr,
             scan_type=scan_type,
             status="running",
-            started_at=datetime.utcnow(),
         )
         session.add(scan)
         session.commit()
@@ -341,7 +339,6 @@ async def start_scan(data: dict):
                         hostname=dev.get("hostname", ""),
                         platform=dev.get("platform", "unknown"),
                         source="discovery_scan",
-                        discovered_at=datetime.utcnow(),
                     )
                     session.add(device)
                     devices_found += 1
@@ -349,7 +346,6 @@ async def start_scan(data: dict):
             # Update scan record
             scan.status = "completed" if scan_results.get("success") else "failed"
             scan.devices_found = devices_found
-            scan.completed_at = datetime.utcnow()
             session.commit()
 
             return {

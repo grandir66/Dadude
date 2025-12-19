@@ -296,10 +296,9 @@ async def start_agent_scan(agent_id: str, data: ScanRequest):
             id=scan_id,
             customer_id=agent.customer_id,
             agent_id=agent_id,
-            network=network,
+            network_cidr=network,
             scan_type=scan_type,
             status="running",
-            started_at=datetime.utcnow(),
         )
         session.add(scan_record)
         session.commit()
@@ -330,7 +329,6 @@ async def start_agent_scan(agent_id: str, data: ScanRequest):
                         hostname=dev.get("hostname", ""),
                         platform=dev.get("platform", "unknown"),
                         source="mikrotik_scan",
-                        discovered_at=datetime.utcnow(),
                     )
                     session.add(device)
                     devices_found += 1
@@ -338,7 +336,6 @@ async def start_agent_scan(agent_id: str, data: ScanRequest):
             # Update scan record
             scan_record.status = "completed" if scan_results.get("success") else "failed"
             scan_record.devices_found = devices_found
-            scan_record.completed_at = datetime.utcnow()
             session.commit()
 
             return {
