@@ -21,12 +21,9 @@ from .services import get_dude_service, get_sync_service
 from .services.websocket_hub import get_websocket_hub
 
 # Device Backup Module - optional scheduler
-try:
-    from .services.backup_scheduler import BackupScheduler
-    BACKUP_SCHEDULER_AVAILABLE = True
-except ImportError:
-    BACKUP_SCHEDULER_AVAILABLE = False
-    BackupScheduler = None
+# Disabled for v2.0 async PostgreSQL - needs refactoring
+BACKUP_SCHEDULER_AVAILABLE = False
+BackupScheduler = None
 from .routers import devices, probes, alerts, webhook, system, customers, import_export, dashboard, discovery, mikrotik, inventory, agents, device_backup
 
 
