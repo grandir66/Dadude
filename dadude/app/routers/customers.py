@@ -288,14 +288,26 @@ async def list_all_credentials(include_usage: bool = True):
 
 
 @router.get("/credentials", response_model=CredentialListResponse)
-async def list_global_credentials(
+async def list_credentials(
     credential_type: Optional[str] = Query(None, description="Filtra per tipo"),
+    global_only: bool = Query(False, description="Solo credenziali globali"),
+    customer_id: Optional[str] = Query(None, description="Filtra per cliente"),
 ):
     """
-    Lista credenziali globali (disponibili a tutti i clienti).
+    Lista credenziali. Per default ritorna tutte (globali + customer-specific).
     """
     service = get_customer_service()
-    credentials = service.list_global_credentials(credential_type=credential_type)
+
+    if global_only:
+        credentials = service.list_global_credentials(credential_type=credential_type)
+    elif customer_id:
+        credentials = service.list_credentials(customer_id=customer_id, credential_type=credential_type)
+    else:
+        # Return all credentials (global + customer-specific)
+        credentials = service.get_all_credentials()
+        if credential_type:
+            credentials = [c for c in credentials if c.credential_type == credential_type]
+
     return CredentialListResponse(total=len(credentials), credentials=credentials)
 
 

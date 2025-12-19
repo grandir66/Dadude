@@ -143,7 +143,13 @@ export const alertsApi = {
 export const credentialsApi = {
   getAll: (params) => api.get('/customers/credentials', { params }),
   getById: (id) => api.get(`/customers/credentials/${id}`),
-  create: (data) => api.post('/customers/credentials', data),
+  // Create: uses customer-specific endpoint if customer_id provided, otherwise global
+  create: (data) => {
+    if (data.customer_id) {
+      return api.post(`/customers/${data.customer_id}/credentials`, data)
+    }
+    return api.post('/customers/credentials', data)
+  },
   update: (id, data) => api.put(`/customers/credentials/${id}`, data),
   delete: (id) => api.delete(`/customers/credentials/${id}`),
   // Global credentials
