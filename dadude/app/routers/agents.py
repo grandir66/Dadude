@@ -14,7 +14,12 @@ from loguru import logger
 
 from ..services.customer_service import get_customer_service
 from ..services.encryption_service import get_encryption_service
-from ..models.customer_schemas import AgentAssignmentListResponse
+from ..models.customer_schemas import (
+    AgentAssignmentListResponse,
+    AgentAssignmentCreate,
+    AgentAssignmentUpdate,
+    AgentAssignmentSafe
+)
 
 router = APIRouter(prefix="/agents", tags=["Agents"])
 
@@ -124,6 +129,63 @@ async def get_agent(agent_id: str):
         raise HTTPException(status_code=404, detail=f"Agent {agent_id} non trovato")
 
     return agent
+
+
+@router.post("", response_model=AgentAssignmentSafe, status_code=201)
+async def create_agent(data: AgentAssignmentCreate):
+    """
+    Crea un nuovo agent (MikroTik o Docker).
+
+    Richiede customer_id per associare l'agent a un cliente.
+    """
+    try:
+        if not data.customer_id:
+            raise HTTPException(status_code=400, detail="customer_id è richiesto")
+
+        service = get_customer_service()
+        agent = service.create_agent(data)
+        return agent
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error creating agent: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/{agent_id}", response_model=AgentAssignmentSafe)
+async def update_agent(agent_id: str, data: AgentAssignmentUpdate):
+    """
+    Aggiorna configurazione di un agent.
+    """
+    try:
+        service = get_customer_service()
+        agent = service.update_agent(agent_id, data)
+
+        if not agent:
+            raise HTTPException(status_code=404, detail=f"Agent {agent_id} non trovato")
+
+        return agent
+    except Exception as e:
+        logger.error(f"Error updating agent: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/{agent_id}")
+async def delete_agent(agent_id: str):
+    """
+    Elimina un agent.
+    """
+    try:
+        service = get_customer_service()
+        success = service.delete_agent(agent_id)
+
+        if not success:
+            raise HTTPException(status_code=404, detail=f"Agent {agent_id} non trovato")
+
+        return {"message": f"Agent {agent_id} eliminato"}
+    except Exception as e:
+        logger.error(f"Error deleting agent: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ==========================================
