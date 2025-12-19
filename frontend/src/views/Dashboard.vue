@@ -302,11 +302,23 @@ async function loadDashboardData() {
 
     // Load recent alerts
     const alertsData = await alertsApi.getAll({ limit: 5 })
-    recentAlerts.value = alertsData.items || alertsData || []
+    recentAlerts.value = alertsData.alerts || alertsData.items || alertsData || []
 
     // Load agents
     const agentsData = await agentsApi.getAll()
-    agents.value = agentsData.items || agentsData || []
+    agents.value = agentsData.agents || agentsData.items || agentsData || []
+
+    // Update device type chart with actual data if available
+    if (statsData.device_types) {
+      const types = statsData.device_types
+      deviceTypeData.value = {
+        labels: Object.keys(types),
+        datasets: [{
+          data: Object.values(types),
+          backgroundColor: ['#1976D2', '#00BCD4', '#FF9800', '#9C27B0', '#757575', '#4CAF50', '#F44336']
+        }]
+      }
+    }
 
   } catch (error) {
     console.error('Error loading dashboard data:', error)

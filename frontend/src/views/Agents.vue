@@ -142,6 +142,70 @@
       </v-col>
     </v-row>
 
+    <!-- Delete Confirmation Dialog -->
+    <v-dialog v-model="showDeleteDialog" max-width="400">
+      <v-card>
+        <v-card-title>Delete Agent</v-card-title>
+        <v-card-text>
+          Are you sure you want to delete agent <strong>{{ agentToDelete?.name }}</strong>?
+          This action cannot be undone.
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer></v-spacer>
+          <v-btn variant="text" @click="showDeleteDialog = false">Cancel</v-btn>
+          <v-btn
+            color="error"
+            @click="confirmDelete"
+            :loading="deleting"
+          >
+            Delete
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- Scan Dialog -->
+    <v-dialog v-model="showScanDialog" max-width="500">
+      <v-card>
+        <v-card-title>Start Network Scan</v-card-title>
+        <v-card-text>
+          <v-alert type="info" variant="tonal" class="mb-4">
+            Scanning networks via agent: <strong>{{ scanAgent?.name }}</strong>
+          </v-alert>
+          <v-text-field
+            v-model="scanNetwork"
+            label="Network CIDR"
+            placeholder="192.168.1.0/24"
+            hint="Enter network in CIDR format"
+            persistent-hint
+          ></v-text-field>
+          <v-select
+            v-model="scanType"
+            :items="['ping', 'arp', 'snmp', 'full']"
+            label="Scan Type"
+            class="mt-4"
+          ></v-select>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer></v-spacer>
+          <v-btn variant="text" @click="showScanDialog = false">Cancel</v-btn>
+          <v-btn
+            color="primary"
+            @click="executeScan"
+            :loading="scanning"
+            :disabled="!scanNetwork"
+          >
+            Start Scan
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- Snackbar for notifications -->
+    <v-snackbar v-model="snackbar.show" :color="snackbar.color" :timeout="3000">
+      {{ snackbar.text }}
+    </v-snackbar>
+
     <!-- Create/Edit Dialog -->
     <v-dialog v-model="showCreateDialog" max-width="600">
       <v-card>
@@ -235,12 +299,21 @@ const wsStore = useWebSocketStore()
 // State
 const loading = ref(false)
 const saving = ref(false)
+const deleting = ref(false)
+const scanning = ref(false)
 const testingAgent = ref(null)
 const agents = ref([])
 const customers = ref([])
 const showCreateDialog = ref(false)
+const showDeleteDialog = ref(false)
+const showScanDialog = ref(false)
 const editingAgent = ref(null)
+const agentToDelete = ref(null)
+const scanAgent = ref(null)
+const scanNetwork = ref('')
+const scanType = ref('ping')
 const formValid = ref(false)
+const snackbar = ref({ show: false, text: '', color: 'success' })
 
 const agentForm = ref({
   name: '',
@@ -286,8 +359,29 @@ async function testConnection(agent) {
 }
 
 function startScan(agent) {
-  // Emit to start scan
-  wsStore.send('start_scan', { agent_id: agent.id })
+  scanAgent.value = agent
+  scanNetwork.value = ''
+  scanType.value = 'ping'
+  showScanDialog.value = true
+}
+
+async function executeScan() {
+  if (!scanAgent.value || !scanNetwork.value) return
+
+  try {
+    scanning.value = true
+    await agentsApi.startScan(scanAgent.value.id, {
+      network: scanNetwork.value,
+      scan_type: scanType.value
+    })
+    showScanDialog.value = false
+    snackbar.value = { show: true, text: 'Scan started successfully', color: 'success' }
+  } catch (error) {
+    console.error('Scan failed:', error)
+    snackbar.value = { show: true, text: 'Scan failed: ' + (error.response?.data?.detail || error.message), color: 'error' }
+  } finally {
+    scanning.value = false
+  }
 }
 
 function editAgent(agent) {
@@ -297,8 +391,26 @@ function editAgent(agent) {
 }
 
 function deleteAgent(agent) {
-  // TODO: Implement delete confirmation
-  console.log('Delete agent:', agent)
+  agentToDelete.value = agent
+  showDeleteDialog.value = true
+}
+
+async function confirmDelete() {
+  if (!agentToDelete.value) return
+
+  try {
+    deleting.value = true
+    await agentsApi.delete(agentToDelete.value.id)
+    showDeleteDialog.value = false
+    agentToDelete.value = null
+    snackbar.value = { show: true, text: 'Agent deleted successfully', color: 'success' }
+    loadAgents()
+  } catch (error) {
+    console.error('Error deleting agent:', error)
+    snackbar.value = { show: true, text: 'Delete failed: ' + (error.response?.data?.detail || error.message), color: 'error' }
+  } finally {
+    deleting.value = false
+  }
 }
 
 async function saveAgent() {

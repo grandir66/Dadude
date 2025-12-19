@@ -189,6 +189,187 @@ async def stop_discovery(discovery_id: str):
 # Device Management
 # ============================================
 
+@router.get("/scans")
+async def list_scans(
+    customer_id: Optional[str] = None,
+    limit: int = 50
+):
+    """
+    Lista tutte le scansioni dal database locale.
+    """
+    from ..models.database import ScanResult, init_db, get_session
+    from ..config import get_settings
+
+    settings = get_settings()
+    db_url = settings.database_url_sync_computed
+    engine = init_db(db_url)
+    session = get_session(engine)
+
+    try:
+        query = session.query(ScanResult)
+        if customer_id:
+            query = query.filter(ScanResult.customer_id == customer_id)
+        query = query.order_by(ScanResult.started_at.desc()).limit(limit)
+
+        scans = []
+        for s in query.all():
+            scans.append({
+                "id": s.id,
+                "customer_id": s.customer_id,
+                "agent_id": s.agent_id,
+                "network": s.network,
+                "network_cidr": s.network,
+                "scan_type": s.scan_type,
+                "status": s.status,
+                "devices_found": s.devices_found or 0,
+                "started_at": s.started_at.isoformat() if s.started_at else None,
+                "completed_at": s.completed_at.isoformat() if s.completed_at else None,
+            })
+        return {"scans": scans, "total": len(scans)}
+    finally:
+        session.close()
+
+
+@router.get("/scans/{scan_id}/devices")
+async def get_scan_devices(scan_id: str):
+    """
+    Lista dispositivi trovati in una scansione.
+    """
+    from ..models.database import DiscoveredDevice, init_db, get_session
+    from ..config import get_settings
+
+    settings = get_settings()
+    db_url = settings.database_url_sync_computed
+    engine = init_db(db_url)
+    session = get_session(engine)
+
+    try:
+        devices = session.query(DiscoveredDevice).filter(
+            DiscoveredDevice.scan_id == scan_id
+        ).all()
+
+        result = []
+        for d in devices:
+            result.append({
+                "id": d.id,
+                "scan_id": d.scan_id,
+                "address": d.address,
+                "mac_address": d.mac_address,
+                "hostname": d.hostname,
+                "platform": d.platform,
+                "source": d.source,
+                "imported": d.imported,
+                "customer_id": d.customer_id,
+                "discovered_at": d.discovered_at.isoformat() if d.discovered_at else None,
+            })
+        return {"devices": result, "total": len(result)}
+    finally:
+        session.close()
+
+
+@router.post("/scan")
+async def start_scan(data: dict):
+    """
+    Avvia una scansione di rete (endpoint per frontend Vue).
+    """
+    from ..services.customer_service import get_customer_service
+    from ..models.database import ScanResult, init_db, get_session
+    from ..config import get_settings
+    import uuid
+    from datetime import datetime
+
+    customer_id = data.get("customer_id")
+    agent_id = data.get("agent_id")
+    network_cidr = data.get("network_cidr")
+    scan_type = data.get("scan_type", "ping")
+
+    if not customer_id or not agent_id:
+        raise HTTPException(status_code=400, detail="customer_id and agent_id required")
+
+    settings = get_settings()
+    db_url = settings.database_url_sync_computed
+    engine = init_db(db_url)
+    session = get_session(engine)
+
+    try:
+        scan_id = str(uuid.uuid4())[:8]
+        scan = ScanResult(
+            id=scan_id,
+            customer_id=customer_id,
+            agent_id=agent_id,
+            network=network_cidr,
+            scan_type=scan_type,
+            status="running",
+            started_at=datetime.utcnow(),
+        )
+        session.add(scan)
+        session.commit()
+
+        return {
+            "success": True,
+            "scan_id": scan_id,
+            "message": f"Scan started on {network_cidr or 'all networks'}",
+        }
+    finally:
+        session.close()
+
+
+@router.post("/devices/{device_id}/import")
+async def import_device(device_id: str, data: dict):
+    """
+    Importa un dispositivo scoperto nell'inventario.
+    """
+    from ..models.database import DiscoveredDevice, init_db, get_session
+    from ..models.inventory import InventoryDevice
+    from ..config import get_settings
+    import uuid
+    from datetime import datetime
+
+    customer_id = data.get("customer_id")
+    if not customer_id:
+        raise HTTPException(status_code=400, detail="customer_id required")
+
+    settings = get_settings()
+    db_url = settings.database_url_sync_computed
+    engine = init_db(db_url)
+    session = get_session(engine)
+
+    try:
+        # Find discovered device
+        discovered = session.query(DiscoveredDevice).filter(
+            DiscoveredDevice.id == device_id
+        ).first()
+
+        if not discovered:
+            raise HTTPException(status_code=404, detail="Device not found")
+
+        # Create inventory device
+        inventory_device = InventoryDevice(
+            id=str(uuid.uuid4())[:8],
+            customer_id=customer_id,
+            address=discovered.address,
+            hostname=discovered.hostname,
+            mac_address=discovered.mac_address,
+            platform=discovered.platform,
+            source="discovery",
+            discovered_at=datetime.utcnow(),
+        )
+        session.add(inventory_device)
+
+        # Mark as imported
+        discovered.imported = True
+        discovered.customer_id = customer_id
+        session.commit()
+
+        return {
+            "success": True,
+            "device_id": inventory_device.id,
+            "message": f"Device {discovered.address} imported"
+        }
+    finally:
+        session.close()
+
+
 @router.post("/devices/add")
 async def add_device(request: AddDeviceRequest):
     """

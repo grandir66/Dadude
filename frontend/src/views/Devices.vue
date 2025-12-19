@@ -233,7 +233,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import api from '@/services/api'
+import { devicesApi, customersApi, agentsApi } from '@/services/api'
 
 const router = useRouter()
 
@@ -361,14 +361,8 @@ async function sendCommand() {
 
   terminalContent.value += terminalCommand.value + '\n'
 
-  try {
-    const response = await api.post(`/devices/${selectedDevice.value.id}/execute`, {
-      command: terminalCommand.value
-    })
-    terminalContent.value += response.data.output + '\n$ '
-  } catch (error) {
-    terminalContent.value += `Errore: ${error.message}\n$ `
-  }
+  // Terminal feature not yet implemented - show message
+  terminalContent.value += 'Terminal execution not available yet. Use SSH client for remote access.\n$ '
 
   terminalCommand.value = ''
 }
@@ -376,10 +370,11 @@ async function sendCommand() {
 async function loadDevices() {
   loading.value = true
   try {
-    const response = await api.get('/devices')
-    devices.value = response.data || []
+    const data = await devicesApi.getAll()
+    devices.value = data.devices || data.items || data || []
   } catch (error) {
-    console.error('Errore caricamento dispositivi:', error)
+    console.error('Error loading devices:', error)
+    devices.value = []
   } finally {
     loading.value = false
   }
@@ -387,19 +382,19 @@ async function loadDevices() {
 
 async function loadCustomers() {
   try {
-    const response = await api.get('/customers')
-    customers.value = response.data || []
+    const data = await customersApi.getAll()
+    customers.value = data.customers || data || []
   } catch (error) {
-    console.error('Errore caricamento clienti:', error)
+    console.error('Error loading customers:', error)
   }
 }
 
 async function loadAgents() {
   try {
-    const response = await api.get('/agents')
-    agents.value = response.data || []
+    const data = await agentsApi.getAll()
+    agents.value = data.agents || data || []
   } catch (error) {
-    console.error('Errore caricamento agent:', error)
+    console.error('Error loading agents:', error)
   }
 }
 

@@ -188,6 +188,139 @@ async def delete_agent(agent_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/{agent_id}/test")
+async def test_agent_connection(agent_id: str):
+    """
+    Testa la connessione all'agent.
+    """
+    service = get_customer_service()
+    agent = service.get_agent(agent_id, include_password=True)
+
+    if not agent:
+        raise HTTPException(status_code=404, detail=f"Agent {agent_id} non trovato")
+
+    # Test based on agent type
+    try:
+        if agent.agent_type == 'mikrotik':
+            from librouteros import connect
+            from librouteros.exceptions import TrapError, ConnectionClosed
+
+            try:
+                api = connect(
+                    host=agent.address,
+                    username=agent.username or 'admin',
+                    password=agent.password or '',
+                    port=agent.port or 8728,
+                    timeout=10
+                )
+                # Simple test - get identity
+                identity = list(api.path('/system/identity'))
+                api.close()
+                return {
+                    "success": True,
+                    "message": f"Connected to {identity[0].get('name', agent.address)}",
+                    "agent_type": "mikrotik"
+                }
+            except (TrapError, ConnectionClosed, Exception) as e:
+                return {
+                    "success": False,
+                    "message": f"Connection failed: {str(e)}",
+                    "agent_type": "mikrotik"
+                }
+        else:
+            # Docker agent - try HTTP health check
+            import httpx
+            agent_url = agent.agent_url or f"http://{agent.address}:{agent.agent_api_port or 8080}"
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.get(f"{agent_url}/health")
+                if resp.status_code == 200:
+                    return {
+                        "success": True,
+                        "message": "Agent is healthy",
+                        "agent_type": "docker"
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "message": f"Agent returned status {resp.status_code}",
+                        "agent_type": "docker"
+                    }
+    except Exception as e:
+        logger.error(f"Test connection error: {e}")
+        return {
+            "success": False,
+            "message": str(e),
+            "agent_type": agent.agent_type
+        }
+
+
+@router.post("/{agent_id}/scan")
+async def start_agent_scan(
+    agent_id: str,
+    network: str = Query(None, description="Rete CIDR da scansionare"),
+    scan_type: str = Query("ping", description="Tipo scan: ping, arp, snmp, full"),
+):
+    """
+    Avvia una scansione di rete tramite l'agent.
+    """
+    from ..services.scanner_service import get_scanner_service
+    from ..models.database import ScanResult, init_db, get_session
+    from ..config import get_settings
+    import uuid
+    from datetime import datetime
+
+    service = get_customer_service()
+    agent = service.get_agent(agent_id, include_password=True)
+
+    if not agent:
+        raise HTTPException(status_code=404, detail=f"Agent {agent_id} non trovato")
+
+    if not network:
+        # Try to get network from agent's assigned networks
+        if agent.assigned_networks:
+            # Get first assigned network
+            networks = service.list_networks(customer_id=agent.customer_id)
+            if networks:
+                network = networks[0].cidr
+
+        if not network:
+            raise HTTPException(status_code=400, detail="Network CIDR is required")
+
+    try:
+        # Create scan record
+        settings = get_settings()
+        db_url = settings.database_url_sync_computed
+        engine = init_db(db_url)
+        session = get_session(engine)
+
+        scan_id = str(uuid.uuid4())
+        scan_record = ScanResult(
+            id=scan_id,
+            customer_id=agent.customer_id,
+            agent_id=agent_id,
+            network=network,
+            scan_type=scan_type,
+            status="running",
+            started_at=datetime.utcnow(),
+        )
+        session.add(scan_record)
+        session.commit()
+        session.close()
+
+        # Start scan in background (simplified - in production use celery/background tasks)
+        # For now, return immediately with scan ID
+        return {
+            "success": True,
+            "scan_id": scan_id,
+            "message": f"Scan started on network {network}",
+            "agent": agent.name,
+            "scan_type": scan_type
+        }
+    except Exception as e:
+        logger.error(f"Start scan error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ==========================================
 # AGENT SELF-SERVICE ENDPOINTS
 # ==========================================
