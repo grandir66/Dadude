@@ -6,6 +6,7 @@ from typing import Optional, List, Dict, Any
 from loguru import logger
 import routeros_api
 import time
+import ipaddress
 
 
 class ScannerService:
@@ -39,6 +40,17 @@ class ScannerService:
             Dict con risultati della scansione
         """
         try:
+            logger.info(f"[SCAN] Connecting to MikroTik {router_address}:{router_port} user={router_username}")
+
+            # Parse target network upfront
+            target_network = None
+            if network:
+                try:
+                    target_network = ipaddress.ip_network(network, strict=False)
+                    logger.info(f"[SCAN] Target network: {target_network}")
+                except Exception as e:
+                    logger.warning(f"[SCAN] Invalid network CIDR '{network}': {e}")
+
             # Connetti al router
             connection = routeros_api.RouterOsApiPool(
                 host=router_address,
@@ -51,10 +63,19 @@ class ScannerService:
             )
 
             api = connection.get_api()
+            logger.info(f"[SCAN] Connected successfully to {router_address}")
+
+            # Verifica connessione ottenendo identity del router
+            try:
+                identity_resource = api.get_resource('/system/identity')
+                identity = identity_resource.get()
+                router_name = identity[0].get('name', 'Unknown') if identity else 'Unknown'
+                logger.info(f"[SCAN] Router identity: {router_name}")
+            except Exception as e:
+                logger.warning(f"[SCAN] Could not get router identity: {e}")
+
             results = []
             existing_ips = set()
-
-            logger.info(f"[SCAN] Starting scan on {network} via {router_address}:{router_port}")
 
             # 1. SCANSIONE ATTIVA con /tool/ip-scan (ping sweep)
             if scan_type in ["ping", "all"]:
@@ -120,13 +141,6 @@ class ScannerService:
 
                 logger.info(f"[SCAN] Found {len(arps)} ARP entries")
 
-                # Filtra per rete se specificato
-                import ipaddress
-                try:
-                    target_network = ipaddress.ip_network(network, strict=False)
-                except:
-                    target_network = None
-
                 for a in arps:
                     ip = a.get("address", "")
                     if not ip or ip in existing_ips:
@@ -177,9 +191,10 @@ class ScannerService:
                         except:
                             pass
 
-                    # Solo lease attivi
-                    status = lease.get("status", "")
-                    if status not in ["bound", "waiting"]:
+                    # Solo lease attivi (accetta qualsiasi status tranne disabled)
+                    status = lease.get("status", "bound")
+                    disabled = lease.get("disabled", "false")
+                    if disabled == "true":
                         continue
 
                     mac = lease.get("mac-address", "")
