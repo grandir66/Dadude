@@ -254,20 +254,23 @@ async def test_agent_connection(agent_id: str):
         }
 
 
+class ScanRequest(BaseModel):
+    """Schema per richiesta scansione"""
+    network: str
+    scan_type: str = "ping"
+
+
 @router.post("/{agent_id}/scan")
-async def start_agent_scan(
-    agent_id: str,
-    network: str = Query(None, description="Rete CIDR da scansionare"),
-    scan_type: str = Query("ping", description="Tipo scan: ping, arp, snmp, full"),
-):
+async def start_agent_scan(agent_id: str, data: ScanRequest):
     """
-    Avvia una scansione di rete tramite l'agent.
+    Avvia una scansione di rete tramite l'agent MikroTik.
     """
     from ..services.scanner_service import get_scanner_service
-    from ..models.database import ScanResult, init_db, get_session
+    from ..models.database import ScanResult, DiscoveredDevice, init_db, get_session
     from ..config import get_settings
     import uuid
     from datetime import datetime
+    import asyncio
 
     service = get_customer_service()
     agent = service.get_agent(agent_id, include_password=True)
@@ -275,25 +278,20 @@ async def start_agent_scan(
     if not agent:
         raise HTTPException(status_code=404, detail=f"Agent {agent_id} non trovato")
 
-    if not network:
-        # Try to get network from agent's assigned networks
-        if agent.assigned_networks:
-            # Get first assigned network
-            networks = service.list_networks(customer_id=agent.customer_id)
-            if networks:
-                network = networks[0].cidr
+    network = data.network
+    scan_type = data.scan_type
 
-        if not network:
-            raise HTTPException(status_code=400, detail="Network CIDR is required")
+    if not network:
+        raise HTTPException(status_code=400, detail="Network CIDR is required")
+
+    settings = get_settings()
+    db_url = settings.database_url_sync_computed
+    engine = init_db(db_url)
+    session = get_session(engine)
 
     try:
         # Create scan record
-        settings = get_settings()
-        db_url = settings.database_url_sync_computed
-        engine = init_db(db_url)
-        session = get_session(engine)
-
-        scan_id = str(uuid.uuid4())
+        scan_id = str(uuid.uuid4())[:8]
         scan_record = ScanResult(
             id=scan_id,
             customer_id=agent.customer_id,
@@ -305,20 +303,70 @@ async def start_agent_scan(
         )
         session.add(scan_record)
         session.commit()
-        session.close()
 
-        # Start scan in background (simplified - in production use celery/background tasks)
-        # For now, return immediately with scan ID
-        return {
-            "success": True,
-            "scan_id": scan_id,
-            "message": f"Scan started on network {network}",
-            "agent": agent.name,
-            "scan_type": scan_type
-        }
+        # Execute scan via MikroTik router
+        scanner = get_scanner_service()
+        try:
+            scan_results = scanner.scan_network_via_router(
+                router_address=agent.address,
+                router_port=agent.port or 8728,
+                router_username=agent.username or 'admin',
+                router_password=agent.password or '',
+                network=network,
+                scan_type=scan_type,
+                use_ssl=getattr(agent, 'use_ssl', False),
+            )
+
+            # Save discovered devices
+            devices_found = 0
+            if scan_results.get("success") and scan_results.get("devices"):
+                for dev in scan_results["devices"]:
+                    device = DiscoveredDevice(
+                        id=str(uuid.uuid4())[:8],
+                        scan_id=scan_id,
+                        customer_id=agent.customer_id,
+                        address=dev.get("address", ""),
+                        mac_address=dev.get("mac_address", ""),
+                        hostname=dev.get("hostname", ""),
+                        platform=dev.get("platform", "unknown"),
+                        source="mikrotik_scan",
+                        discovered_at=datetime.utcnow(),
+                    )
+                    session.add(device)
+                    devices_found += 1
+
+            # Update scan record
+            scan_record.status = "completed" if scan_results.get("success") else "failed"
+            scan_record.devices_found = devices_found
+            scan_record.completed_at = datetime.utcnow()
+            session.commit()
+
+            return {
+                "success": True,
+                "scan_id": scan_id,
+                "message": f"Scan completed on {network}",
+                "devices_found": devices_found,
+                "agent": agent.name,
+            }
+
+        except Exception as scan_error:
+            # Update scan record with error
+            scan_record.status = "failed"
+            scan_record.completed_at = datetime.utcnow()
+            session.commit()
+            logger.error(f"Scan execution error: {scan_error}")
+            return {
+                "success": False,
+                "scan_id": scan_id,
+                "message": f"Scan failed: {str(scan_error)}",
+                "agent": agent.name,
+            }
+
     except Exception as e:
         logger.error(f"Start scan error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        session.close()
 
 
 # ==========================================

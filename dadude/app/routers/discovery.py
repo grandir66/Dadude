@@ -271,9 +271,11 @@ async def get_scan_devices(scan_id: str):
 async def start_scan(data: dict):
     """
     Avvia una scansione di rete (endpoint per frontend Vue).
+    Esegue la scansione tramite l'agent MikroTik selezionato.
     """
     from ..services.customer_service import get_customer_service
-    from ..models.database import ScanResult, init_db, get_session
+    from ..services.scanner_service import get_scanner_service
+    from ..models.database import ScanResult, DiscoveredDevice, init_db, get_session
     from ..config import get_settings
     import uuid
     from datetime import datetime
@@ -286,12 +288,20 @@ async def start_scan(data: dict):
     if not customer_id or not agent_id:
         raise HTTPException(status_code=400, detail="customer_id and agent_id required")
 
+    # Get agent details
+    customer_service = get_customer_service()
+    agent = customer_service.get_agent(agent_id, include_password=True)
+
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent non trovato")
+
     settings = get_settings()
     db_url = settings.database_url_sync_computed
     engine = init_db(db_url)
     session = get_session(engine)
 
     try:
+        # Create scan record
         scan_id = str(uuid.uuid4())[:8]
         scan = ScanResult(
             id=scan_id,
@@ -305,11 +315,65 @@ async def start_scan(data: dict):
         session.add(scan)
         session.commit()
 
-        return {
-            "success": True,
-            "scan_id": scan_id,
-            "message": f"Scan started on {network_cidr or 'all networks'}",
-        }
+        # Execute scan via MikroTik router
+        scanner = get_scanner_service()
+        try:
+            scan_results = scanner.scan_network_via_router(
+                router_address=agent.address,
+                router_port=agent.port or 8728,
+                router_username=agent.username or 'admin',
+                router_password=agent.password or '',
+                network=network_cidr,
+                scan_type=scan_type,
+                use_ssl=getattr(agent, 'use_ssl', False),
+            )
+
+            # Save discovered devices
+            devices_found = 0
+            if scan_results.get("success") and scan_results.get("devices"):
+                for dev in scan_results["devices"]:
+                    device = DiscoveredDevice(
+                        id=str(uuid.uuid4())[:8],
+                        scan_id=scan_id,
+                        customer_id=customer_id,
+                        address=dev.get("address", ""),
+                        mac_address=dev.get("mac_address", ""),
+                        hostname=dev.get("hostname", ""),
+                        platform=dev.get("platform", "unknown"),
+                        source="discovery_scan",
+                        discovered_at=datetime.utcnow(),
+                    )
+                    session.add(device)
+                    devices_found += 1
+
+            # Update scan record
+            scan.status = "completed" if scan_results.get("success") else "failed"
+            scan.devices_found = devices_found
+            scan.completed_at = datetime.utcnow()
+            session.commit()
+
+            return {
+                "success": True,
+                "scan_id": scan_id,
+                "message": f"Scan completed: {devices_found} devices found",
+                "devices_found": devices_found,
+            }
+
+        except Exception as scan_error:
+            # Update scan record with error
+            scan.status = "failed"
+            scan.completed_at = datetime.utcnow()
+            session.commit()
+            logger.error(f"Scan execution error: {scan_error}")
+            return {
+                "success": False,
+                "scan_id": scan_id,
+                "message": f"Scan failed: {str(scan_error)}",
+            }
+
+    except Exception as e:
+        logger.error(f"Start scan error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         session.close()
 
