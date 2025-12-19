@@ -13,6 +13,103 @@ class ScannerService:
     """Servizio per scansioni di rete tramite router MikroTik"""
 
     @staticmethod
+    def test_connection(
+        router_address: str,
+        router_port: int,
+        router_username: str,
+        router_password: str,
+        use_ssl: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        Testa la connessione a un router MikroTik.
+
+        Returns:
+            Dict con risultati del test:
+            - success: bool
+            - router_name: nome del router
+            - version: versione RouterOS
+            - neighbors_count: numero neighbors
+            - arp_count: numero entry ARP
+            - dhcp_count: numero DHCP leases
+            - error: messaggio errore (se fallisce)
+        """
+        try:
+            logger.info(f"[TEST] Testing connection to MikroTik {router_address}:{router_port} user={router_username}")
+
+            connection = routeros_api.RouterOsApiPool(
+                host=router_address,
+                username=router_username,
+                password=router_password,
+                port=router_port,
+                use_ssl=use_ssl,
+                ssl_verify=False,
+                plaintext_login=True,
+            )
+
+            api = connection.get_api()
+            logger.info(f"[TEST] Connected successfully!")
+
+            # Get router identity
+            router_name = "Unknown"
+            version = "Unknown"
+            try:
+                identity = api.get_resource('/system/identity').get()
+                router_name = identity[0].get('name', 'Unknown') if identity else 'Unknown'
+
+                routerboard = api.get_resource('/system/routerboard').get()
+                if routerboard:
+                    version = routerboard[0].get('current-firmware', 'Unknown')
+            except Exception as e:
+                logger.debug(f"[TEST] Could not get identity/version: {e}")
+
+            # Count neighbors
+            neighbors_count = 0
+            try:
+                neighbors = api.get_resource('/ip/neighbor').get()
+                neighbors_count = len(neighbors)
+            except:
+                pass
+
+            # Count ARP entries
+            arp_count = 0
+            try:
+                arps = api.get_resource('/ip/arp').get()
+                arp_count = len(arps)
+            except:
+                pass
+
+            # Count DHCP leases
+            dhcp_count = 0
+            try:
+                leases = api.get_resource('/ip/dhcp-server/lease').get()
+                dhcp_count = len(leases)
+            except:
+                pass
+
+            connection.disconnect()
+
+            logger.info(f"[TEST] Success! Router: {router_name}, Neighbors: {neighbors_count}, ARP: {arp_count}, DHCP: {dhcp_count}")
+
+            return {
+                "success": True,
+                "router_name": router_name,
+                "version": version,
+                "neighbors_count": neighbors_count,
+                "arp_count": arp_count,
+                "dhcp_count": dhcp_count,
+                "message": f"Connesso a {router_name}. Trovati: {neighbors_count} neighbors, {arp_count} ARP, {dhcp_count} DHCP"
+            }
+
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"[TEST] Connection failed: {error_msg}")
+            return {
+                "success": False,
+                "error": error_msg,
+                "message": f"Errore connessione: {error_msg}"
+            }
+
+    @staticmethod
     def scan_network_via_router(
         router_address: str,
         router_port: int,
@@ -117,20 +214,30 @@ class ScannerService:
 
                     logger.info(f"[SCAN] Found {len(neighbors)} neighbors")
 
+                    # Debug: log first few neighbors raw data
+                    for i, n in enumerate(neighbors[:3]):
+                        logger.debug(f"[SCAN] Neighbor[{i}] raw: {n}")
+
                     for n in neighbors:
                         ip = n.get("address", "")
-                        if ip and ip not in existing_ips:
-                            existing_ips.add(ip)
+                        mac = n.get("mac-address", "")
+                        identity = n.get("identity", "")
+
+                        # Se non ha IP ma ha MAC e identity, usalo comunque
+                        if (ip or mac) and ip not in existing_ips:
+                            if ip:
+                                existing_ips.add(ip)
                             results.append({
                                 "address": ip,
-                                "mac_address": n.get("mac-address", ""),
+                                "mac_address": mac,
                                 "interface": n.get("interface", ""),
-                                "identity": n.get("identity", ""),
+                                "identity": identity,
                                 "platform": n.get("platform", "MikroTik"),
                                 "board": n.get("board", ""),
                                 "version": n.get("version", ""),
                                 "source": "neighbor"
                             })
+                            logger.debug(f"[SCAN] Added neighbor: {ip or mac} - {identity}")
                 except Exception as e:
                     logger.warning(f"Error getting neighbors: {e}")
 
@@ -141,22 +248,37 @@ class ScannerService:
 
                 logger.info(f"[SCAN] Found {len(arps)} ARP entries")
 
+                # Debug: log first few ARPs raw data
+                for i, a in enumerate(arps[:5]):
+                    logger.debug(f"[SCAN] ARP[{i}] raw: {a}")
+
+                arp_added = 0
+                arp_skipped_existing = 0
+                arp_skipped_network = 0
+                arp_skipped_invalid = 0
+
                 for a in arps:
                     ip = a.get("address", "")
-                    if not ip or ip in existing_ips:
+                    if not ip:
+                        continue
+                    if ip in existing_ips:
+                        arp_skipped_existing += 1
                         continue
 
-                    # Verifica se l'IP è nella rete target
+                    # Verifica se l'IP è nella rete target (solo se specificata)
                     if target_network:
                         try:
                             if ipaddress.ip_address(ip) not in target_network:
+                                arp_skipped_network += 1
                                 continue
-                        except:
-                            pass
+                        except Exception as e:
+                            logger.debug(f"[SCAN] Invalid IP address format: {ip}")
+                            continue
 
                     # Salta entry incomplete o invalid
                     mac = a.get("mac-address", "")
                     if not mac or mac == "00:00:00:00:00:00":
+                        arp_skipped_invalid += 1
                         continue
 
                     existing_ips.add(ip)
@@ -168,6 +290,10 @@ class ScannerService:
                         "platform": "",
                         "source": "arp"
                     })
+                    arp_added += 1
+                    logger.debug(f"[SCAN] Added ARP: {ip} - {mac}")
+
+                logger.info(f"[SCAN] ARP: added={arp_added}, skipped_existing={arp_skipped_existing}, skipped_network={arp_skipped_network}, skipped_invalid={arp_skipped_invalid}")
             except Exception as e:
                 logger.warning(f"Error getting ARP: {e}")
 
@@ -177,6 +303,12 @@ class ScannerService:
                 leases = dhcp_resource.get()
 
                 logger.info(f"[SCAN] Found {len(leases)} DHCP leases")
+
+                # Debug: log first few leases raw data
+                for i, l in enumerate(leases[:5]):
+                    logger.debug(f"[SCAN] Lease[{i}] raw: {l}")
+
+                dhcp_added = 0
 
                 for lease in leases:
                     ip = lease.get("address", "")
@@ -192,7 +324,6 @@ class ScannerService:
                             pass
 
                     # Solo lease attivi (accetta qualsiasi status tranne disabled)
-                    status = lease.get("status", "bound")
                     disabled = lease.get("disabled", "false")
                     if disabled == "true":
                         continue
@@ -210,8 +341,12 @@ class ScannerService:
                         "platform": "",
                         "source": "dhcp"
                     })
+                    dhcp_added += 1
+                    logger.debug(f"[SCAN] Added DHCP: {ip} - {hostname}")
+
+                logger.info(f"[SCAN] DHCP: added={dhcp_added} devices")
             except Exception as e:
-                logger.debug(f"Error getting DHCP leases: {e}")
+                logger.warning(f"Error getting DHCP leases: {e}")
 
             connection.disconnect()
 

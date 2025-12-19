@@ -79,7 +79,7 @@ export const agentsApi = {
   update: (id, data) => api.put(`/agents/${id}`, data),
   delete: (id) => api.delete(`/agents/${id}`),
   // Actions
-  testConnection: (id) => api.post(`/agents/${id}/test`),
+  testConnection: (id) => api.post(`/agents/${id}/test-connection`),
   startScan: (id, data) => api.post(`/agents/${id}/scan`, data),
   getStatus: (id) => api.get(`/agents/${id}/status`),
 }

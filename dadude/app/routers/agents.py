@@ -260,6 +260,40 @@ class ScanRequest(BaseModel):
     scan_type: str = "ping"
 
 
+@router.post("/{agent_id}/test-connection")
+async def test_agent_connection(agent_id: str):
+    """
+    Testa la connessione a un agent MikroTik.
+    Utile per verificare che le credenziali siano corrette prima di eseguire scansioni.
+    """
+    from ..services.scanner_service import get_scanner_service
+
+    service = get_customer_service()
+    agent = service.get_agent(agent_id, include_password=True)
+
+    if not agent:
+        raise HTTPException(status_code=404, detail=f"Agent {agent_id} non trovato")
+
+    logger.info(f"Testing connection to agent {agent.name} ({agent.address}:{agent.port})")
+    logger.debug(f"Agent credentials: username={agent.username}, password={'***' if agent.password else 'EMPTY'}")
+
+    scanner = get_scanner_service()
+    result = scanner.test_connection(
+        router_address=agent.address,
+        router_port=agent.port or 8728,
+        router_username=agent.username or 'admin',
+        router_password=agent.password or '',
+        use_ssl=getattr(agent, 'use_ssl', False),
+    )
+
+    return {
+        "agent_id": agent_id,
+        "agent_name": agent.name,
+        "agent_address": agent.address,
+        **result
+    }
+
+
 @router.post("/{agent_id}/scan")
 async def start_agent_scan(agent_id: str, data: ScanRequest):
     """
