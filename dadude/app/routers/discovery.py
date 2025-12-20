@@ -275,6 +275,7 @@ async def start_scan(data: dict):
     """
     from ..services.customer_service import get_customer_service
     from ..services.scanner_service import get_scanner_service
+    from ..services.mac_vendor_service import get_mac_vendor_service
     import uuid
 
     customer_id = data.get("customer_id")
@@ -312,15 +313,24 @@ async def start_scan(data: dict):
         # Prepara i dispositivi per la risposta (senza salvarli nel DB)
         devices_list = scan_results.get("devices") or scan_results.get("results") or []
         devices = []
+        mac_vendor_service = get_mac_vendor_service()
+
         for dev in devices_list:
             hostname = dev.get("hostname") or dev.get("identity") or ""
+            mac_address = dev.get("mac_address", "")
+
+            # Lookup vendor from MAC address
+            vendor_info = mac_vendor_service.lookup_vendor_with_type(mac_address)
+
             devices.append({
                 "id": str(uuid.uuid4())[:8],  # ID temporaneo
                 "address": dev.get("address", ""),
-                "mac_address": dev.get("mac_address", ""),
+                "mac_address": mac_address,
                 "hostname": hostname,
-                "platform": dev.get("platform") or "unknown",
+                "platform": dev.get("platform") or vendor_info.get("category") or "unknown",
                 "source": dev.get("source", "scan"),
+                "vendor": vendor_info.get("vendor") or "",
+                "device_type": vendor_info.get("device_type") or "other",
             })
 
         return {

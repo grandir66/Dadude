@@ -134,6 +134,10 @@
                 <code v-if="item.mac_address">{{ item.mac_address }}</code>
                 <span v-else class="text-grey">-</span>
               </template>
+              <template v-slot:item.vendor="{ item }">
+                <span v-if="item.vendor" class="font-weight-medium">{{ item.vendor }}</span>
+                <span v-else class="text-grey">-</span>
+              </template>
               <template v-slot:item.platform="{ item }">
                 <v-chip v-if="item.platform" size="small" variant="tonal">
                   {{ item.platform }}
@@ -300,6 +304,10 @@
               <v-list-item-subtitle><code>{{ selectedDevice.mac_address || '-' }}</code></v-list-item-subtitle>
             </v-list-item>
             <v-list-item>
+              <v-list-item-title>Vendor</v-list-item-title>
+              <v-list-item-subtitle>{{ selectedDevice.vendor || 'Unknown' }}</v-list-item-subtitle>
+            </v-list-item>
+            <v-list-item>
               <v-list-item-title>Hostname</v-list-item-title>
               <v-list-item-subtitle>{{ selectedDevice.hostname || selectedDevice.identity || '-' }}</v-list-item-subtitle>
             </v-list-item>
@@ -426,6 +434,7 @@ const deviceHeaders = [
   { title: 'IP Address', key: 'address', sortable: true },
   { title: 'MAC', key: 'mac_address', sortable: true },
   { title: 'Hostname', key: 'hostname', sortable: true },
+  { title: 'Vendor', key: 'vendor', sortable: true },
   { title: 'Platform', key: 'platform', sortable: true },
   { title: 'Source', key: 'source', sortable: true },
   { title: 'Imported', key: 'imported', sortable: true, align: 'center' },
