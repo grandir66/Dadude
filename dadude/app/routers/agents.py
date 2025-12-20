@@ -189,7 +189,7 @@ async def delete_agent(agent_id: str):
 
 
 @router.post("/{agent_id}/test")
-async def test_agent_connection(agent_id: str):
+async def test_agent_status(agent_id: str):
     """
     Testa la connessione all'agent.
     """
@@ -202,26 +202,30 @@ async def test_agent_connection(agent_id: str):
     # Test based on agent type
     try:
         if agent.agent_type == 'mikrotik':
-            from librouteros import connect
-            from librouteros.exceptions import TrapError, ConnectionClosed
+            import routeros_api
 
             try:
-                api = connect(
+                connection = routeros_api.RouterOsApiPool(
                     host=agent.address,
                     username=agent.username or 'admin',
                     password=agent.password or '',
                     port=agent.port or 8728,
-                    timeout=10
+                    use_ssl=getattr(agent, 'use_ssl', False),
+                    ssl_verify=False,
+                    plaintext_login=True,
                 )
+                api = connection.get_api()
                 # Simple test - get identity
-                identity = list(api.path('/system/identity'))
-                api.close()
+                identity_resource = api.get_resource('/system/identity')
+                identity = identity_resource.get()
+                router_name = identity[0].get('name', agent.address) if identity else agent.address
+                connection.disconnect()
                 return {
                     "success": True,
-                    "message": f"Connected to {identity[0].get('name', agent.address)}",
+                    "message": f"Connected to {router_name}",
                     "agent_type": "mikrotik"
                 }
-            except (TrapError, ConnectionClosed, Exception) as e:
+            except Exception as e:
                 return {
                     "success": False,
                     "message": f"Connection failed: {str(e)}",
