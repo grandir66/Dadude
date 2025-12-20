@@ -143,6 +143,13 @@ class ScannerService:
             target_network = None
             if network:
                 try:
+                    # Se l'utente ha inserito solo un IP senza CIDR, assumiamo /24
+                    if '/' not in network:
+                        # Converti IP singolo in rete /24
+                        ip_parts = network.split('.')
+                        if len(ip_parts) == 4:
+                            network = f"{ip_parts[0]}.{ip_parts[1]}.{ip_parts[2]}.0/24"
+                            logger.info(f"[SCAN] Auto-converted to network: {network}")
                     target_network = ipaddress.ip_network(network, strict=False)
                     logger.info(f"[SCAN] Target network: {target_network}")
                 except Exception as e:
