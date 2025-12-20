@@ -88,14 +88,14 @@ export const agentsApi = {
 // DEVICES (INVENTORY)
 // ===========================================
 export const devicesApi = {
-  getAll: (params) => api.get('/inventory', { params }),
-  getById: (id) => api.get(`/inventory/${id}`),
-  create: (data) => api.post('/inventory', data),
-  update: (id, data) => api.put(`/inventory/${id}`, data),
-  delete: (id) => api.delete(`/inventory/${id}`),
+  getAll: (params) => api.get('/inventory/devices', { params }),
+  getById: (id) => api.get(`/inventory/devices/${id}`),
+  create: (data) => api.post('/inventory/devices', data),
+  update: (id, data) => api.put(`/inventory/devices/${id}`, data),
+  delete: (id) => api.delete(`/inventory/devices/${id}`),
   // Actions
-  probe: (id) => api.post(`/inventory/${id}/probe`),
-  getDetails: (id) => api.get(`/inventory/${id}/details`),
+  probe: (id) => api.post(`/inventory/devices/${id}/probe`),
+  getDetails: (id) => api.get(`/inventory/devices/${id}/details`),
 }
 
 // ===========================================
