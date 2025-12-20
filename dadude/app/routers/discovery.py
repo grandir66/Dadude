@@ -315,6 +315,8 @@ async def start_scan(data: dict):
 
         # Execute scan via MikroTik router
         scanner = get_scanner_service()
+        logger.info(f"[DISCOVERY] Starting scan: agent={agent.name}, address={agent.address}:{agent.port}, network={network_cidr}, type={scan_type}")
+        logger.info(f"[DISCOVERY] Agent credentials: username={agent.username}, password={'SET' if agent.password else 'EMPTY'}")
         try:
             scan_results = scanner.scan_network_via_router(
                 router_address=agent.address,
@@ -325,6 +327,7 @@ async def start_scan(data: dict):
                 scan_type=scan_type,
                 use_ssl=getattr(agent, 'use_ssl', False),
             )
+            logger.info(f"[DISCOVERY] Scan results: success={scan_results.get('success')}, devices={len(scan_results.get('devices', []))}")
 
             # Save discovered devices
             devices_found = 0
