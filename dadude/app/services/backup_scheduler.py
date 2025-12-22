@@ -13,13 +13,22 @@ from typing import List, Optional
 from sqlalchemy.orm import Session
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from loguru import logger as app_logger
 
 try:
-    from ..models.database import get_db_session
+    from ..models.database import init_db, get_session
     from ..models.backup_models import BackupSchedule, BackupJob
     from .device_backup_service import DeviceBackupService
-except ImportError:
-    pass
+    from ..config import get_settings
+except ImportError as e:
+    app_logger.warning(f"BackupScheduler import error: {e}")
+
+
+def _get_db_session():
+    """Factory function to get database session"""
+    settings = get_settings()
+    engine = init_db(settings.database_url_sync_computed)
+    return get_session(engine)
 
 
 class BackupScheduler:
@@ -31,7 +40,7 @@ class BackupScheduler:
     def __init__(self, db_session_factory=None):
         self.logger = logging.getLogger(self.__class__.__name__)
         self.scheduler = AsyncIOScheduler()
-        self.db_session_factory = db_session_factory or get_db_session
+        self.db_session_factory = db_session_factory or _get_db_session
         self.running = False
 
         self.logger.info("BackupScheduler initialized")
@@ -65,7 +74,7 @@ class BackupScheduler:
     def _load_schedules(self):
         """Carica tutti gli schedule attivi dal database"""
         try:
-            db = next(self.db_session_factory())
+            db = self.db_session_factory()
 
             schedules = db.query(BackupSchedule).filter_by(enabled=True).all()
             self.logger.info(f"Loading {len(schedules)} active schedules...")
@@ -82,7 +91,7 @@ class BackupScheduler:
         """Sincronizza schedule dal database (chiamato periodicamente)"""
         try:
             self.logger.debug("Syncing schedules from database...")
-            db = next(self.db_session_factory())
+            db = self.db_session_factory()
 
             schedules = db.query(BackupSchedule).filter_by(enabled=True).all()
 
@@ -201,7 +210,7 @@ class BackupScheduler:
         db = None
 
         try:
-            db = next(self.db_session_factory())
+            db = self.db_session_factory()
 
             # Recupera schedule
             schedule = db.query(BackupSchedule).filter_by(id=schedule_id).first()
@@ -297,7 +306,7 @@ class BackupScheduler:
             schedule_id: ID schedule da aggiungere
         """
         try:
-            db = next(self.db_session_factory())
+            db = self.db_session_factory()
             schedule = db.query(BackupSchedule).filter_by(id=schedule_id).first()
 
             if schedule and schedule.enabled:
