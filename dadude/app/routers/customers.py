@@ -1301,28 +1301,32 @@ async def scan_customer_networks(
             # Opzione 1: Usa gateway MikroTik specificato - DELEGA ALL'AGENT
             gateway_agent = service.get_agent(gateway_agent_id, include_password=True)
             if gateway_agent:
-                logger.info(f"[ARP CACHE] Delegating MikroTik ARP query to agent {ws_agent_id} -> {gateway_agent.name} ({gateway_agent.address})")
-                try:
-                    arp_result = await hub.send_command(
-                        ws_agent_id,
-                        CommandType.GET_ARP_TABLE,
-                        params={
-                            "method": "mikrotik",
-                            "address": gateway_agent.address,
-                            "port": gateway_agent.port or 8728,
-                            "username": gateway_agent.username or "admin",
-                            "password": gateway_agent.password or "",
-                            "use_ssl": gateway_agent.use_ssl or False,
-                            "network_cidr": network.ip_network,
-                        },
-                        timeout=60.0
-                    )
-                    if arp_result.status == "success" and arp_result.data:
-                        for entry in arp_result.data.get("entries", []):
-                            arp_cache[entry["ip"]] = entry["mac"]
-                        logger.info(f"[ARP CACHE] Got {len(arp_cache)} MAC addresses from MikroTik via agent")
-                except Exception as e:
-                    logger.warning(f"[ARP CACHE] MikroTik via agent failed: {e}")
+                # Verifica che le credenziali siano presenti
+                if not gateway_agent.password or not gateway_agent.password.strip():
+                    logger.warning(f"[ARP CACHE] Agent {gateway_agent.name} ({gateway_agent.address}) has no password configured. Cannot query ARP table.")
+                else:
+                    logger.info(f"[ARP CACHE] Delegating MikroTik ARP query to agent {ws_agent_id} -> {gateway_agent.name} ({gateway_agent.address})")
+                    try:
+                        arp_result = await hub.send_command(
+                            ws_agent_id,
+                            CommandType.GET_ARP_TABLE,
+                            params={
+                                "method": "mikrotik",
+                                "address": gateway_agent.address,
+                                "port": gateway_agent.port or 8728,
+                                "username": gateway_agent.username or "admin",
+                                "password": gateway_agent.password,
+                                "use_ssl": gateway_agent.use_ssl or False,
+                                "network_cidr": network.ip_network,
+                            },
+                            timeout=60.0
+                        )
+                        if arp_result.status == "success" and arp_result.data:
+                            for entry in arp_result.data.get("entries", []):
+                                arp_cache[entry["ip"]] = entry["mac"]
+                            logger.info(f"[ARP CACHE] Got {len(arp_cache)} MAC addresses from MikroTik via agent")
+                    except Exception as e:
+                        logger.warning(f"[ARP CACHE] MikroTik via agent failed: {e}")
         
         elif ws_agent_id and gateway_snmp_address and gateway_snmp_community:
             # Opzione 2: Usa gateway generico via SNMP - DELEGA ALL'AGENT
@@ -1356,6 +1360,11 @@ async def scan_customer_networks(
                 if ag_type == 'mikrotik':
                     mikrotik_agent = service.get_agent(ag.id, include_password=True)
                     if mikrotik_agent:
+                        # Verifica che le credenziali siano presenti
+                        if not mikrotik_agent.password or not mikrotik_agent.password.strip():
+                            logger.debug(f"[ARP CACHE] Skipping MikroTik {mikrotik_agent.name} - no password configured")
+                            continue
+                        
                         logger.info(f"[ARP CACHE] Trying MikroTik {mikrotik_agent.name} via agent {ws_agent_id}")
                         try:
                             arp_result = await hub.send_command(
@@ -1366,7 +1375,7 @@ async def scan_customer_networks(
                                     "address": mikrotik_agent.address,
                                     "port": mikrotik_agent.port or 8728,
                                     "username": mikrotik_agent.username or "admin",
-                                    "password": mikrotik_agent.password or "",
+                                    "password": mikrotik_agent.password,
                                     "use_ssl": mikrotik_agent.use_ssl or False,
                                     "network_cidr": network.ip_network,
                                 },

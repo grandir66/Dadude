@@ -1082,12 +1082,32 @@ class CustomerService:
             
             # Encrypt password, ssh_key e agent_token se presenti
             enc_service = get_encryption_service()
-            if "password" in update_data and update_data["password"]:
-                update_data["password"] = enc_service.encrypt(update_data["password"])
-            if "ssh_key" in update_data and update_data["ssh_key"]:
-                update_data["ssh_key"] = enc_service.encrypt(update_data["ssh_key"])
-            if "agent_token" in update_data and update_data["agent_token"]:
-                update_data["agent_token"] = enc_service.encrypt(update_data["agent_token"])
+            
+            # PRESERVA password esistente se non viene fornita una nuova
+            if "password" in update_data:
+                if update_data["password"] and update_data["password"].strip():
+                    # Nuova password fornita: encrypta e salva
+                    update_data["password"] = enc_service.encrypt(update_data["password"])
+                else:
+                    # Password vuota o None: preserva quella esistente
+                    logger.debug(f"Preserving existing password for agent {agent_id}")
+                    del update_data["password"]
+            
+            # PRESERVA ssh_key esistente se non viene fornita una nuova
+            if "ssh_key" in update_data:
+                if update_data["ssh_key"] and update_data["ssh_key"].strip():
+                    update_data["ssh_key"] = enc_service.encrypt(update_data["ssh_key"])
+                else:
+                    logger.debug(f"Preserving existing ssh_key for agent {agent_id}")
+                    del update_data["ssh_key"]
+            
+            # PRESERVA agent_token esistente se non viene fornito uno nuovo
+            if "agent_token" in update_data:
+                if update_data["agent_token"] and update_data["agent_token"].strip():
+                    update_data["agent_token"] = enc_service.encrypt(update_data["agent_token"])
+                else:
+                    logger.debug(f"Preserving existing agent_token for agent {agent_id}")
+                    del update_data["agent_token"]
             
             for key, value in update_data.items():
                 setattr(agent, key, value)
