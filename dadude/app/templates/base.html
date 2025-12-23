@@ -18,16 +18,83 @@
     
     <style>
         :root {
+            /* Layout */
             --sidebar-width: 250px;
+            
+            /* Colors - Primary Palette */
             --primary-color: #2563eb;
+            --primary-hover: #1d4ed8;
+            --primary-light: #dbeafe;
+            
+            /* Colors - Status */
             --success-color: #10b981;
+            --success-hover: #059669;
+            --success-light: #d1fae5;
+            
             --warning-color: #f59e0b;
+            --warning-hover: #d97706;
+            --warning-light: #fef3c7;
+            
             --danger-color: #ef4444;
+            --danger-hover: #dc2626;
+            --danger-light: #fee2e2;
+            
+            --info-color: #3b82f6;
+            --info-hover: #2563eb;
+            --info-light: #dbeafe;
+            
+            /* Colors - Neutral */
+            --gray-50: #f9fafb;
+            --gray-100: #f3f4f6;
+            --gray-200: #e5e7eb;
+            --gray-300: #d1d5db;
+            --gray-400: #9ca3af;
+            --gray-500: #6b7280;
+            --gray-600: #4b5563;
+            --gray-700: #374151;
+            --gray-800: #1f2937;
+            --gray-900: #111827;
+            
+            /* Typography */
+            --font-family: 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+            --font-size-base: 1rem;
+            --font-size-sm: 0.875rem;
+            --font-size-lg: 1.125rem;
+            --font-weight-normal: 400;
+            --font-weight-medium: 500;
+            --font-weight-semibold: 600;
+            --font-weight-bold: 700;
+            
+            /* Spacing */
+            --spacing-xs: 0.25rem;
+            --spacing-sm: 0.5rem;
+            --spacing-md: 1rem;
+            --spacing-lg: 1.5rem;
+            --spacing-xl: 2rem;
+            
+            /* Border Radius */
+            --radius-sm: 0.375rem;
+            --radius-md: 0.5rem;
+            --radius-lg: 0.75rem;
+            --radius-xl: 1rem;
+            
+            /* Shadows */
+            --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+            --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+            
+            /* Transitions */
+            --transition-fast: 0.15s ease;
+            --transition-base: 0.2s ease;
+            --transition-slow: 0.3s ease;
         }
         
         body {
-            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-            background-color: #f1f5f9;
+            font-family: var(--font-family);
+            background-color: var(--gray-50);
+            color: var(--gray-900);
+            line-height: 1.6;
         }
         
         /* Sidebar */
@@ -57,20 +124,24 @@
         
         .sidebar .nav-link {
             color: rgba(255,255,255,0.7);
-            padding: 0.75rem 1rem;
-            border-radius: 0.5rem;
-            margin-bottom: 0.25rem;
-            transition: all 0.2s;
+            padding: 0.75rem var(--spacing-md);
+            border-radius: var(--radius-md);
+            margin-bottom: var(--spacing-xs);
+            transition: all var(--transition-base);
+            display: flex;
+            align-items: center;
         }
         
         .sidebar .nav-link:hover {
             color: white;
             background: rgba(255,255,255,0.1);
+            transform: translateX(4px);
         }
         
         .sidebar .nav-link.active {
             color: white;
             background: var(--primary-color);
+            box-shadow: var(--shadow-sm);
         }
         
         .sidebar .nav-link i {
@@ -88,14 +159,15 @@
         /* Cards */
         .stat-card {
             background: white;
-            border-radius: 1rem;
-            padding: 1.5rem;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-            transition: transform 0.2s;
+            border-radius: var(--radius-xl);
+            padding: var(--spacing-lg);
+            box-shadow: var(--shadow-sm);
+            transition: transform var(--transition-base), box-shadow var(--transition-base);
         }
         
         .stat-card:hover {
             transform: translateY(-2px);
+            box-shadow: var(--shadow-md);
         }
         
         .stat-card .stat-icon {
@@ -128,17 +200,32 @@
         /* Tables */
         .table-modern {
             background: white;
-            border-radius: 1rem;
+            border-radius: var(--radius-xl);
             overflow: hidden;
+            box-shadow: var(--shadow-sm);
         }
         
         .table-modern th {
-            background: #f8fafc;
-            font-weight: 600;
-            font-size: 0.75rem;
+            background: var(--gray-50);
+            font-weight: var(--font-weight-semibold);
+            font-size: var(--font-size-sm);
             text-transform: uppercase;
             letter-spacing: 0.05em;
-            color: #64748b;
+            color: var(--gray-600);
+            padding: var(--spacing-md);
+        }
+        
+        .table-modern td {
+            padding: var(--spacing-md);
+            vertical-align: middle;
+        }
+        
+        .table-modern tbody tr {
+            transition: background-color var(--transition-fast);
+        }
+        
+        .table-modern tbody tr:hover {
+            background-color: var(--gray-50);
         }
         
         /* Connection status */
@@ -166,8 +253,79 @@
         /* Charts */
         .chart-container {
             background: white;
-            border-radius: 1rem;
-            padding: 1.5rem;
+            border-radius: var(--radius-xl);
+            padding: var(--spacing-lg);
+            box-shadow: var(--shadow-sm);
+            transition: box-shadow var(--transition-base);
+        }
+        
+        .chart-container:hover {
+            box-shadow: var(--shadow-md);
+        }
+        
+        /* Cards generali */
+        .card {
+            border-radius: var(--radius-xl);
+            border: 1px solid var(--gray-200);
+            box-shadow: var(--shadow-sm);
+            transition: transform var(--transition-base), box-shadow var(--transition-base);
+        }
+        
+        .card:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-md);
+        }
+        
+        .card-header {
+            background-color: var(--gray-50);
+            border-bottom: 1px solid var(--gray-200);
+            font-weight: var(--font-weight-semibold);
+            padding: var(--spacing-md) var(--spacing-lg);
+        }
+        
+        /* Buttons migliorati */
+        .btn {
+            border-radius: var(--radius-md);
+            font-weight: var(--font-weight-medium);
+            padding: var(--spacing-sm) var(--spacing-md);
+            transition: all var(--transition-base);
+        }
+        
+        .btn-primary {
+            background-color: var(--primary-color);
+            border-color: var(--primary-color);
+        }
+        
+        .btn-primary:hover {
+            background-color: var(--primary-hover);
+            border-color: var(--primary-hover);
+            transform: translateY(-1px);
+            box-shadow: var(--shadow-sm);
+        }
+        
+        /* Form inputs migliorati */
+        .form-control, .form-select {
+            border-radius: var(--radius-md);
+            border-color: var(--gray-300);
+            transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+        }
+        
+        .form-control:focus, .form-select:focus {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 0.2rem rgba(37, 99, 235, 0.15);
+        }
+        
+        /* Badge migliorati */
+        .badge {
+            padding: var(--spacing-xs) var(--spacing-sm);
+            border-radius: var(--radius-sm);
+            font-weight: var(--font-weight-medium);
+            font-size: var(--font-size-sm);
+            transition: transform var(--transition-fast);
+        }
+        
+        .badge:hover {
+            transform: scale(1.05);
         }
         
         /* Bootstrap Icons */
