@@ -549,11 +549,23 @@ mkdir -p /etc/apparmor.d/docker
 echo "profile docker-default flags=(attach_disconnected,mediate_deleted) {}" > /etc/apparmor.d/docker/docker-default || true
 
 systemctl enable docker
-systemctl restart docker || systemctl start docker || true
+systemctl restart docker || systemctl start docker
 
-# Verifica che Docker funzioni
-sleep 3
-docker info > /dev/null 2>&1 || echo "Docker potrebbe avere problemi, ma continuo..."
+# Verifica che Docker funzioni - ATTENDI fino a quando non è pronto
+echo "Attendo che Docker si avvii..."
+for i in {1..30}; do
+    if systemctl is-active --quiet docker && docker info > /dev/null 2>&1; then
+        echo "Docker avviato correttamente"
+        break
+    fi
+    if [ $i -eq 30 ]; then
+        echo "ERRORE: Docker non si avvia. Verifica i log:"
+        systemctl status docker --no-pager -l || true
+        journalctl -u docker --no-pager -n 20 || true
+        exit 1
+    fi
+    sleep 2
+done
 '
 
 # Clona repository
