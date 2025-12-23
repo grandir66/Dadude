@@ -7,13 +7,13 @@
         <p class="text-muted mb-0" id="device-count">{{ devices|length }} dispositivi totali</p>
     </div>
     <div class="btn-group" role="group">
-        <input type="radio" class="btn-check" name="statusFilter" id="filter-all" value="" {% if not status_filter %}checked{% endif %} @change="filterByStatus('')">
+        <input type="radio" class="btn-check" name="statusFilter" id="filter-all" value="" {% if not status_filter %}checked{% endif %} v-on:change="filterByStatus('')">
         <label class="btn btn-outline-secondary" for="filter-all">Tutti</label>
         
-        <input type="radio" class="btn-check" name="statusFilter" id="filter-up" value="up" {% if status_filter == 'up' %}checked{% endif %} @change="filterByStatus('up')">
+        <input type="radio" class="btn-check" name="statusFilter" id="filter-up" value="up" {% if status_filter == 'up' %}checked{% endif %} v-on:change="filterByStatus('up')">
         <label class="btn btn-outline-success" for="filter-up">UP</label>
         
-        <input type="radio" class="btn-check" name="statusFilter" id="filter-down" value="down" {% if status_filter == 'down' %}checked{% endif %} @change="filterByStatus('down')">
+        <input type="radio" class="btn-check" name="statusFilter" id="filter-down" value="down" {% if status_filter == 'down' %}checked{% endif %} v-on:change="filterByStatus('down')">
         <label class="btn btn-outline-danger" for="filter-down">DOWN</label>
     </div>
 </div>
@@ -37,24 +37,24 @@
                 <i class="bi bi-x-circle"></i> DOWN
             </span>
             <span v-else class="badge bg-secondary">
-                <i class="bi bi-question-circle"></i> {{ value ? value.toUpperCase() : 'UNKNOWN' }}
+                <i class="bi bi-question-circle"></i> <span v-text="value ? value.toUpperCase() : 'UNKNOWN'"></span>
             </span>
         </template>
         
         <template #cell-name="{ value }">
-            <strong>{{ value }}</strong>
+            <strong v-text="value"></strong>
         </template>
         
         <template #cell-address="{ value }">
-            <code>{{ value || '-' }}</code>
+            <code v-text="value || '-'"></code>
         </template>
         
         <template #cell-mac_address="{ value }">
-            <code class="text-muted">{{ value || '-' }}</code>
+            <code class="text-muted" v-text="value || '-'"></code>
         </template>
         
         <template #cell-last_seen="{ value }">
-            <span v-if="value">{{ formatDate(value) }}</span>
+            <span v-if="value" v-text="formatDate(value)"></span>
             <span v-else>-</span>
         </template>
     </data-table>

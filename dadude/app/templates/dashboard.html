@@ -11,8 +11,8 @@
             {% endif %}
         </span>
     </div>
-    <button class="btn btn-primary btn-sm" id="refresh-btn" @click="refreshDashboard">
-        <i class="bi bi-arrow-clockwise" :class="{ 'spinning': isRefreshing }"></i> Aggiorna
+    <button class="btn btn-primary btn-sm" id="refresh-btn" v-on:click="refreshDashboard">
+        <i class="bi bi-arrow-clockwise" v-bind:class="{ 'spinning': isRefreshing }"></i> Aggiorna
     </button>
 </div>
 

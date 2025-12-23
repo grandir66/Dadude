@@ -23,17 +23,17 @@
         empty-message="Nessun cliente configurato"
     >
         <template #cell-code="{ value }">
-            <code class="fw-bold">{{ value }}</code>
+            <code class="fw-bold" v-text="value"></code>
         </template>
         
         <template #cell-name="{ row }">
-            <a :href="'/customers/' + row.id" class="text-decoration-none">
-                <strong>{{ row.name }}</strong>
+            <a v-bind:href="'/customers/' + row.id" class="text-decoration-none">
+                <strong v-text="row.name"></strong>
             </a>
         </template>
         
         <template #cell-contact_email="{ value }">
-            <a v-if="value" :href="'mailto:' + value">{{ value }}</a>
+            <a v-if="value" v-bind:href="'mailto:' + value" v-text="value"></a>
             <span v-else>-</span>
         </template>
         
@@ -44,13 +44,13 @@
         
         <template #cell-actions="{ row }">
             <div class="btn-group btn-group-sm">
-                <a :href="'/customers/' + row.id" class="btn btn-outline-primary" title="Visualizza">
+                <a v-bind:href="'/customers/' + row.id" class="btn btn-outline-primary" title="Visualizza">
                     <i class="bi bi-eye"></i>
                 </a>
-                <button class="btn btn-outline-secondary" @click="showEditModal(row)" title="Modifica">
+                <button class="btn btn-outline-secondary" v-on:click="showEditModal(row)" title="Modifica">
                     <i class="bi bi-pencil"></i>
                 </button>
-                <button class="btn btn-outline-danger" @click="confirmDelete(row)" title="Elimina">
+                <button class="btn btn-outline-danger" v-on:click="confirmDelete(row)" title="Elimina">
                     <i class="bi bi-trash"></i>
                 </button>
             </div>
