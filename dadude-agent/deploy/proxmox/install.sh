@@ -3,7 +3,7 @@
 # DaDude Agent - Installer per Proxmox VE
 # Crea un container LXC con Docker e l'agent preconfigurato
 #
-# Uso: curl -sSL https://raw.githubusercontent.com/grandir66/dadude/main/dadude-agent/deploy/proxmox/install.sh | bash -s -- [OPZIONI]
+# Uso: curl -sSL "https://raw.githubusercontent.com/grandir66/dadude/main/dadude-agent/deploy/proxmox/install.sh?v=$(date +%s)" | bash -s -- [OPZIONI]
 #
 # Opzioni:
 #   --server-url URL      URL del server DaDude (richiesto)
@@ -347,9 +347,44 @@ pct exec $CTID -- bash -c '
     install -m 0755 -d /etc/apt/keyrings
     curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
     chmod a+r /etc/apt/keyrings/docker.gpg
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
-    apt-get update
-    apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+    
+    # Rileva distribuzione (Ubuntu o Debian), fallback a Debian se non rilevata
+    DOCKER_REPO="debian"
+    DOCKER_CODENAME="bookworm"
+    
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        if [ "$ID" = "ubuntu" ]; then
+            DOCKER_REPO="ubuntu"
+            DOCKER_CODENAME="${VERSION_CODENAME:-jammy}"
+        elif [ "$ID" = "debian" ]; then
+            DOCKER_REPO="debian"
+            DOCKER_CODENAME="${VERSION_CODENAME:-bookworm}"
+        fi
+    fi
+    
+    # Debug: mostra cosa è stato rilevato
+    echo "Rilevato: DOCKER_REPO=${DOCKER_REPO}, DOCKER_CODENAME=${DOCKER_CODENAME}"
+    
+    # Prova prima con il repository rilevato
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/${DOCKER_REPO} ${DOCKER_CODENAME} stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+    
+    # Aggiorna repository
+    UPDATE_OUTPUT=$(apt-get update 2>&1)
+    UPDATE_STATUS=$?
+    
+    # Controlla se ci sono errori 404 o Not Found
+    if echo "$UPDATE_OUTPUT" | grep -qE "404|Not Found|does not have a Release file"; then
+        # Repository non disponibile, usa fallback Debian
+        echo "Repository ${DOCKER_REPO} non disponibile per ${DOCKER_CODENAME}, uso fallback Debian..."
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian bookworm stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+        apt-get update
+        apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+    else
+        # Repository OK, installa normalmente
+        apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+    fi
+    
     systemctl enable docker
     systemctl start docker
 '

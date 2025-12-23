@@ -507,10 +507,42 @@ install -m 0755 -d /etc/apt/keyrings
 curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
 chmod a+r /etc/apt/keyrings/docker.gpg
 
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian $(. /etc/os-release && echo $VERSION_CODENAME) stable" > /etc/apt/sources.list.d/docker.list
+# Rileva distribuzione (Ubuntu o Debian), fallback a Debian se non rilevata
+DOCKER_REPO="debian"
+DOCKER_CODENAME="bookworm"
 
-apt-get update
-apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+if [ -f /etc/os-release ]; then
+    . /etc/os-release
+    if [ "$ID" = "ubuntu" ]; then
+        DOCKER_REPO="ubuntu"
+        DOCKER_CODENAME="${VERSION_CODENAME:-jammy}"
+    elif [ "$ID" = "debian" ]; then
+        DOCKER_REPO="debian"
+        DOCKER_CODENAME="${VERSION_CODENAME:-bookworm}"
+    fi
+fi
+
+# Debug: mostra cosa è stato rilevato
+echo "Rilevato: DOCKER_REPO=${DOCKER_REPO}, DOCKER_CODENAME=${DOCKER_CODENAME}"
+
+# Prova prima con il repository rilevato
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/${DOCKER_REPO} ${DOCKER_CODENAME} stable" > /etc/apt/sources.list.d/docker.list
+
+# Aggiorna repository
+UPDATE_OUTPUT=$(apt-get update 2>&1)
+UPDATE_STATUS=$?
+
+# Controlla se ci sono errori 404 o Not Found
+if echo "$UPDATE_OUTPUT" | grep -qE "404|Not Found|does not have a Release file"; then
+    # Repository non disponibile, usa fallback Debian
+    echo "Repository ${DOCKER_REPO} non disponibile per ${DOCKER_CODENAME}, uso fallback Debian..."
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian bookworm stable" > /etc/apt/sources.list.d/docker.list
+    apt-get update
+    apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+else
+    # Repository OK, installa normalmente
+    apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+fi
 '
 
 # Clona repository
