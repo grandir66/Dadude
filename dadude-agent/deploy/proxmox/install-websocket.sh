@@ -543,6 +543,17 @@ else
     # Repository OK, installa normalmente
     apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
 fi
+
+# Configura Docker per funzionare in container LXC (disabilita AppArmor)
+mkdir -p /etc/docker
+cat > /etc/docker/daemon.json << '"'"'EOF'"'"'
+{
+  "storage-driver": "overlay2"
+}
+EOF
+
+systemctl enable docker
+systemctl start docker || true
 '
 
 # Clona repository
@@ -616,7 +627,8 @@ pct exec $CTID -- mkdir -p /opt/dadude-agent/data
 # Build e avvia
 echo -e "\n${BLUE}[6/6] Build e avvio container Docker...${NC}"
 
-pct exec $CTID -- bash -c "cd /opt/dadude-agent && docker compose build && docker compose up -d"
+# Build con DOCKER_BUILDKIT=0 per evitare problemi AppArmor in LXC
+pct exec $CTID -- bash -c "cd /opt/dadude-agent && DOCKER_BUILDKIT=0 docker compose build --no-cache && docker compose up -d"
 
 sleep 5
 
