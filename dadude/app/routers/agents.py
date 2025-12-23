@@ -152,7 +152,7 @@ async def register_agent(
                 from ..models.database import AgentAssignmentDB, init_db, get_session
                 from ..config import get_settings
                 settings = get_settings()
-                db_url = settings.database_url.replace("+aiosqlite", "")
+                db_url = settings.database_url
                 engine = init_db(db_url)
                 fix_session = get_session(engine)
                 
@@ -197,7 +197,7 @@ async def register_agent(
         import os
         
         settings = get_settings()
-        db_url = settings.database_url.replace("+aiosqlite", "")
+        db_url = settings.database_url
         engine = init_db(db_url)
         session = get_session(engine)
         
@@ -212,11 +212,14 @@ async def register_agent(
         
         # Auto-approvazione: se DADUDE_DEFAULT_CUSTOMER_ID è impostato, approva automaticamente
         default_customer_id = os.getenv("DADUDE_DEFAULT_CUSTOMER_ID", None)
+        # Assicurati che customer_id sia None se vuoto o non valido
+        if default_customer_id == '' or default_customer_id is None:
+            default_customer_id = None
         auto_approve = default_customer_id is not None
         
         agent = AgentAssignment(
             id=generate_uuid(),
-            customer_id=default_customer_id,  # Auto-assegna se configurato
+            customer_id=default_customer_id,  # Auto-assegna se configurato, None altrimenti
             dude_agent_id=data.agent_id,  # Salva agent_id per lookup successivi
             name=data.agent_name,
             address=client_ip or "pending",
@@ -312,7 +315,7 @@ async def agent_heartbeat(
                     from ..config import get_settings
                     
                     settings = get_settings()
-                    db_url = settings.database_url.replace("+aiosqlite", "")
+                    db_url = settings.database_url
                     engine = init_db(db_url)
                     session = get_session(engine)
                     
@@ -997,7 +1000,7 @@ async def approve_agent(
         from ..config import get_settings
         
         settings = get_settings()
-        db_url = settings.database_url.replace("+aiosqlite", "")
+        db_url = settings.database_url
         engine = init_db(db_url)
         session = get_session(engine)
         
@@ -1077,7 +1080,7 @@ async def update_agent_config(
         from ..config import get_settings
         
         settings = get_settings()
-        db_url = settings.database_url.replace("+aiosqlite", "")
+        db_url = settings.database_url
         engine = init_db(db_url)
         session = get_session(engine)
         
