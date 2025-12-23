@@ -4,77 +4,58 @@
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
         <h1 class="h3 mb-1">Clienti</h1>
-        <p class="text-muted mb-0">{{ customers|length }} clienti</p>
+        <p class="text-muted mb-0" id="customer-count">{{ customers|length }} clienti</p>
     </div>
     <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newCustomerModal">
         <i class="bi bi-plus-lg"></i> Nuovo Cliente
     </button>
 </div>
 
-<div class="card table-modern">
-    <div class="card-body p-0">
-        <table class="table table-hover mb-0">
-            <thead>
-                <tr>
-                    <th>Codice</th>
-                    <th>Nome</th>
-                    <th>Contatto</th>
-                    <th>Email</th>
-                    <th>Telefono</th>
-                    <th>Stato</th>
-                    <th>Azioni</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for customer in customers %}
-                <tr>
-                    <td><code class="fw-bold">{{ customer.code }}</code></td>
-                    <td>
-                        <a href="/customers/{{ customer.id }}" class="text-decoration-none">
-                            <strong>{{ customer.name }}</strong>
-                        </a>
-                    </td>
-                    <td>{{ customer.contact_name or '-' }}</td>
-                    <td>
-                        {% if customer.contact_email %}
-                        <a href="mailto:{{ customer.contact_email }}">{{ customer.contact_email }}</a>
-                        {% else %}
-                        -
-                        {% endif %}
-                    </td>
-                    <td>{{ customer.contact_phone or '-' }}</td>
-                    <td>
-                        {% if customer.active %}
-                        <span class="badge bg-success">Attivo</span>
-                        {% else %}
-                        <span class="badge bg-secondary">Inattivo</span>
-                        {% endif %}
-                    </td>
-                    <td>
-                        <div class="btn-group btn-group-sm">
-                            <a href="/customers/{{ customer.id }}" class="btn btn-outline-primary" title="Visualizza">
-                                <i class="bi bi-eye"></i>
-                            </a>
-                            <button class="btn btn-outline-secondary" onclick="showEditCustomerModal('{{ customer.id }}', '{{ customer.code }}', '{{ customer.name }}', '{{ customer.description or '' }}', {{ 'true' if customer.active else 'false' }})" title="Modifica">
-                                <i class="bi bi-pencil"></i>
-                            </button>
-                            <button class="btn btn-outline-danger" onclick="deleteCustomer('{{ customer.id }}', '{{ customer.name }}')" title="Elimina">
-                                <i class="bi bi-trash"></i>
-                            </button>
-                        </div>
-                    </td>
-                </tr>
-                {% else %}
-                <tr>
-                    <td colspan="7" class="text-center text-muted py-5">
-                        <i class="bi bi-people display-4 d-block mb-2"></i>
-                        Nessun cliente configurato
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
+<!-- Vue DataTable per Clienti -->
+<div id="customers-app">
+    <data-table
+        :data="customers"
+        :columns="columns"
+        :searchable="true"
+        :sortable="true"
+        :paginated="true"
+        :items-per-page="10"
+        empty-message="Nessun cliente configurato"
+    >
+        <template #cell-code="{ value }">
+            <code class="fw-bold">{{ value }}</code>
+        </template>
+        
+        <template #cell-name="{ row }">
+            <a :href="'/customers/' + row.id" class="text-decoration-none">
+                <strong>{{ row.name }}</strong>
+            </a>
+        </template>
+        
+        <template #cell-contact_email="{ value }">
+            <a v-if="value" :href="'mailto:' + value">{{ value }}</a>
+            <span v-else>-</span>
+        </template>
+        
+        <template #cell-active="{ value }">
+            <span v-if="value" class="badge bg-success">Attivo</span>
+            <span v-else class="badge bg-secondary">Inattivo</span>
+        </template>
+        
+        <template #cell-actions="{ row }">
+            <div class="btn-group btn-group-sm">
+                <a :href="'/customers/' + row.id" class="btn btn-outline-primary" title="Visualizza">
+                    <i class="bi bi-eye"></i>
+                </a>
+                <button class="btn btn-outline-secondary" @click="showEditModal(row)" title="Modifica">
+                    <i class="bi bi-pencil"></i>
+                </button>
+                <button class="btn btn-outline-danger" @click="confirmDelete(row)" title="Elimina">
+                    <i class="bi bi-trash"></i>
+                </button>
+            </div>
+        </template>
+    </data-table>
 </div>
 
 <!-- Modal Nuovo Cliente -->
@@ -101,24 +82,31 @@
                         <label class="form-label">Descrizione</label>
                         <textarea class="form-control" name="description" rows="2"></textarea>
                     </div>
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Nome Contatto</label>
-                            <input type="text" class="form-control" name="contact_name">
-                        </div>
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Email Contatto</label>
-                            <input type="email" class="form-control" name="contact_email">
-                        </div>
+                    <div class="mb-3">
+                        <label class="form-label">Contatto</label>
+                        <input type="text" class="form-control" name="contact_name" placeholder="Mario Rossi">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Email</label>
+                        <input type="email" class="form-control" name="contact_email" placeholder="mario.rossi@example.com">
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Telefono</label>
-                        <input type="text" class="form-control" name="contact_phone">
+                        <input type="tel" class="form-control" name="contact_phone" placeholder="+39 123 456 7890">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Stato</label>
+                        <select class="form-select" name="active">
+                            <option value="true">Attivo</option>
+                            <option value="false">Inattivo</option>
+                        </select>
                     </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annulla</button>
-                    <button type="submit" class="btn btn-primary">Crea Cliente</button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-check-lg"></i> Crea Cliente
+                    </button>
                 </div>
             </form>
         </div>
@@ -130,17 +118,15 @@
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title"><i class="bi bi-pencil"></i> Modifica Cliente</h5>
+                <h5 class="modal-title">Modifica Cliente</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <form id="editCustomerForm">
-                <input type="hidden" id="editCustomerId" name="customer_id">
+                <input type="hidden" id="editCustomerId" name="id">
                 <div class="modal-body">
                     <div class="mb-3">
-                        <label class="form-label">Codice Cliente</label>
-                        <input type="text" class="form-control" id="editCustomerCode" name="code" 
-                               pattern="[A-Za-z0-9_-]+">
-                        <small class="text-muted">Solo lettere, numeri, _ e -</small>
+                        <label class="form-label">Codice Cliente *</label>
+                        <input type="text" class="form-control" id="editCustomerCode" name="code" required>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Nome *</label>
@@ -172,11 +158,118 @@
 
 {% block extra_js %}
 <script>
+// Dati customers passati dal server
+const customersData = {{ customers | tojson }};
+
+// App Vue per customers
+const { createApp } = Vue;
+
+createApp({
+    data() {
+        return {
+            customers: customersData,
+            columns: [
+                { key: 'code', label: 'Codice', field: 'code', sortable: true },
+                { key: 'name', label: 'Nome', field: 'name', sortable: true },
+                { key: 'contact_name', label: 'Contatto', field: 'contact_name', sortable: true },
+                { key: 'contact_email', label: 'Email', field: 'contact_email', sortable: true },
+                { key: 'contact_phone', label: 'Telefono', field: 'contact_phone', sortable: false },
+                { key: 'active', label: 'Stato', field: 'active', sortable: true },
+                { key: 'actions', label: 'Azioni', field: null, sortable: false }
+            ]
+        }
+    },
+    mounted() {
+        // Aggiorna contatore quando cambiano i dati filtrati
+        this.$nextTick(() => {
+            this.updateCustomerCount();
+        });
+    },
+    methods: {
+        showEditModal(customer) {
+            document.getElementById('editCustomerId').value = customer.id;
+            document.getElementById('editCustomerCode').value = customer.code;
+            document.getElementById('editCustomerName').value = customer.name;
+            document.getElementById('editCustomerDescription').value = customer.description || '';
+            document.getElementById('editCustomerActive').value = customer.active ? 'true' : 'false';
+            new bootstrap.Modal(document.getElementById('editCustomerModal')).show();
+        },
+        confirmDelete(customer) {
+            if (!confirm(`⚠️ Eliminare il cliente "${customer.name}"?\n\nATTENZIONE: Verranno eliminati anche tutti gli agent, reti, credenziali e dispositivi associati!`)) {
+                return;
+            }
+            
+            // Doppia conferma per sicurezza
+            if (!confirm(`Conferma finale: eliminare definitivamente "${customer.name}" e tutti i dati associati?`)) {
+                return;
+            }
+            
+            this.deleteCustomer(customer.id, customer.name);
+        },
+        async deleteCustomer(customerId, customerName) {
+            try {
+                const response = await fetch(`/api/v1/customers/${customerId}`, {
+                    method: 'DELETE'
+                });
+                
+                if (response.ok) {
+                    if (window.toastSuccess) {
+                        window.toastSuccess('Cliente eliminato con successo');
+                    }
+                    // Rimuovi dalla lista
+                    this.customers = this.customers.filter(c => c.id !== customerId);
+                    this.updateCustomerCount();
+                    setTimeout(() => location.reload(), 500);
+                } else {
+                    const error = await response.json();
+                    if (window.toastError) {
+                        window.toastError('Errore: ' + (error.detail || 'Eliminazione fallita'));
+                    } else {
+                        alert('Errore: ' + (error.detail || 'Eliminazione fallita'));
+                    }
+                }
+            } catch (e) {
+                if (window.toastError) {
+                    window.toastError('Errore: ' + e.message);
+                } else {
+                    alert('Errore: ' + e.message);
+                }
+            }
+        },
+        updateCustomerCount() {
+            const countEl = document.getElementById('customer-count');
+            if (countEl) {
+                // Il DataTable gestisce il conteggio, ma possiamo aggiornare il totale
+                countEl.textContent = `${this.customers.length} clienti`;
+            }
+        },
+        reloadCustomers() {
+            // Ricarica i clienti dall'API
+            fetch('/api/v1/customers?active_only=true&limit=500')
+                .then(response => response.json())
+                .then(data => {
+                    // Gestisci sia array che oggetto con customers
+                    const customersList = Array.isArray(data) ? data : (data.customers || []);
+                    this.customers = customersList;
+                    this.updateCustomerCount();
+                })
+                .catch(error => {
+                    console.error('Errore caricamento clienti:', error);
+                    if (window.toastError) {
+                        window.toastError('Errore nel caricamento dei clienti');
+                    }
+                });
+        }
+    }
+}).mount('#customers-app');
+
+// Form Nuovo Cliente
 document.getElementById('newCustomerForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     
     const formData = new FormData(e.target);
     const data = Object.fromEntries(formData.entries());
+    data.active = data.active === 'true';
     
     try {
         const response = await fetch('/api/v1/customers', {
@@ -189,6 +282,7 @@ document.getElementById('newCustomerForm').addEventListener('submit', async (e) 
             if (window.toastSuccess) {
                 window.toastSuccess('Cliente creato con successo');
             }
+            bootstrap.Modal.getInstance(document.getElementById('newCustomerModal')).hide();
             setTimeout(() => location.reload(), 500);
         } else {
             const error = await response.json();
@@ -207,17 +301,7 @@ document.getElementById('newCustomerForm').addEventListener('submit', async (e) 
     }
 });
 
-// Mostra modal modifica cliente
-function showEditCustomerModal(customerId, code, name, description, active) {
-    document.getElementById('editCustomerId').value = customerId;
-    document.getElementById('editCustomerCode').value = code;
-    document.getElementById('editCustomerName').value = name;
-    document.getElementById('editCustomerDescription').value = description;
-    document.getElementById('editCustomerActive').value = active ? 'true' : 'false';
-    new bootstrap.Modal(document.getElementById('editCustomerModal')).show();
-}
-
-// Submit form modifica cliente
+// Form Modifica Cliente
 document.getElementById('editCustomerForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const customerId = document.getElementById('editCustomerId').value;
@@ -260,44 +344,5 @@ document.getElementById('editCustomerForm').addEventListener('submit', async (e)
         }
     }
 });
-
-async function deleteCustomer(customerId, customerName) {
-    if (!confirm(`⚠️ Eliminare il cliente "${customerName}"?\n\nATTENZIONE: Verranno eliminati anche tutti gli agent, reti, credenziali e dispositivi associati!`)) {
-        return;
-    }
-    
-    // Doppia conferma per sicurezza
-    if (!confirm(`Conferma finale: eliminare definitivamente "${customerName}" e tutti i dati associati?`)) {
-        return;
-    }
-    
-    try {
-        const response = await fetch(`/api/v1/customers/${customerId}`, {
-            method: 'DELETE'
-        });
-        
-        if (response.ok) {
-            if (window.toastSuccess) {
-                window.toastSuccess('Cliente eliminato con successo');
-            } else {
-                alert('Cliente eliminato con successo');
-            }
-            setTimeout(() => location.reload(), 500);
-        } else {
-            const error = await response.json();
-            if (window.toastError) {
-                window.toastError('Errore: ' + (error.detail || 'Eliminazione fallita'));
-            } else {
-                alert('Errore: ' + (error.detail || 'Eliminazione fallita'));
-            }
-        }
-    } catch (e) {
-        if (window.toastError) {
-            window.toastError('Errore di connessione: ' + e.message);
-        } else {
-            alert('Errore di connessione: ' + e.message);
-        }
-    }
-}
 </script>
 {% endblock %}
