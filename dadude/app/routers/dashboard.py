@@ -42,7 +42,8 @@ def get_dashboard_data():
     dude_config = settings_service.get_dude_config()
     
     # Dati clienti
-    customers = customer_service.list_customers(active_only=True, limit=1000)
+    customers_raw = customer_service.list_customers(active_only=True, limit=1000)
+    customers = [c.model_dump() if hasattr(c, 'model_dump') else dict(c) for c in customers_raw]
     
     # Dati inventario locale
     try:
@@ -227,10 +228,24 @@ async def dashboard(request: Request):
 async def devices_page(request: Request, status: Optional[str] = None):
     """Pagina dispositivi"""
     sync = get_sync_service()
-    devices = sync.devices
+    devices_raw = sync.devices
     
     if status:
-        devices = [d for d in devices if d.status.value == status]
+        devices_raw = [d for d in devices_raw if d.status.value == status]
+    
+    # Converti devices in dizionari per JSON serialization
+    devices = []
+    for d in devices_raw:
+        device_dict = {
+            'name': d.name,
+            'address': d.address,
+            'mac_address': getattr(d, 'mac_address', None),
+            'device_type': getattr(d, 'device_type', None),
+            'group': getattr(d, 'group', None),
+            'status': {'value': d.status.value},
+            'last_seen': d.last_seen.isoformat() if hasattr(d, 'last_seen') and d.last_seen else None
+        }
+        devices.append(device_dict)
     
     return templates.TemplateResponse("devices.html", {
         "request": request,
@@ -261,11 +276,14 @@ async def customers_page(request: Request):
     customer_service = get_customer_service()
     customers = customer_service.list_customers(active_only=True, limit=500)
     
+    # Converti customers in dizionari per JSON serialization
+    customers_dict = [c.model_dump() if hasattr(c, 'model_dump') else dict(c) for c in customers]
+    
     return templates.TemplateResponse("customers.html", {
         "request": request,
         "page": "customers",
         "title": "Clienti",
-        "customers": customers,
+        "customers": customers_dict,
     })
 
 
