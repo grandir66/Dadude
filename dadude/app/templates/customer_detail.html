@@ -1938,6 +1938,133 @@ document.getElementById('editCredentialForm').addEventListener('submit', async (
 <script>
 const customerId = '{{ customer.id }}';
 
+// Cache per valori autocompletamento
+const autocompleteCache = {
+    device_types: null,
+    categories: null,
+    os_families: null,
+    manufacturers: null
+};
+
+// Carica opzioni autocompletamento da API
+async function loadAutocompleteOptions(fieldName, apiEndpoint) {
+    // Usa cache se disponibile
+    if (autocompleteCache[fieldName]) {
+        return autocompleteCache[fieldName];
+    }
+    
+    try {
+        const response = await fetch(apiEndpoint);
+        if (!response.ok) {
+            return [];
+        }
+        const data = await response.json();
+        const values = data.values || [];
+        autocompleteCache[fieldName] = values;
+        return values;
+    } catch (e) {
+        console.error(`Error loading autocomplete options for ${fieldName}:`, e);
+        return [];
+    }
+}
+
+// Popola datalist con opzioni
+async function populateDatalist(datalistId, apiEndpoint, fieldName) {
+    const datalist = document.getElementById(datalistId);
+    if (!datalist) return;
+    
+    // Se già popolato, skip
+    if (datalist.children.length > 0) return;
+    
+    const options = await loadAutocompleteOptions(fieldName, apiEndpoint);
+    options.forEach(value => {
+        const option = document.createElement('option');
+        option.value = value;
+        datalist.appendChild(option);
+    });
+}
+
+// Popola tutti i datalist quando viene caricato l'inventario
+async function populateAllDatalists() {
+    const autocompleteFields = document.querySelectorAll('.autocomplete-field');
+    const promises = [];
+    
+    autocompleteFields.forEach(field => {
+        const deviceId = field.getAttribute('data-device-id');
+        const fieldName = field.getAttribute('data-field');
+        const apiEndpoint = field.getAttribute('data-api-endpoint');
+        const listId = field.getAttribute('list');
+        
+        if (listId && apiEndpoint) {
+            // Estrai nome campo dalla API endpoint
+            const cacheKey = apiEndpoint.split('/').pop().replace('-', '_');
+            promises.push(populateDatalist(listId, apiEndpoint, cacheKey));
+        }
+    });
+    
+    await Promise.all(promises);
+}
+
+// Aggiorna campo device da input
+async function updateDeviceFieldFromInput(input) {
+    const deviceId = input.getAttribute('data-device-id');
+    const fieldName = input.getAttribute('data-field');
+    const fieldValue = input.value.trim();
+    
+    if (!deviceId || !fieldName) return;
+    
+    // Se il valore non è cambiato, non fare nulla
+    const device = window.inventoryDevices?.find(d => d.id === deviceId);
+    if (device && device[fieldName] === fieldValue) {
+        return;
+    }
+    
+    await updateDeviceField(deviceId, fieldName, fieldValue || null);
+}
+
+// Aggiorna un campo specifico di un device
+async function updateDeviceField(deviceId, fieldName, fieldValue) {
+    try {
+        const response = await fetch(`/api/v1/inventory/devices/${deviceId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ [fieldName]: fieldValue })
+        });
+        
+        if (response.ok) {
+            const result = await response.json();
+            // Aggiorna il device nella lista locale
+            if (window.inventoryDevices) {
+                const device = window.inventoryDevices.find(d => d.id === deviceId);
+                if (device) {
+                    device[fieldName] = fieldValue;
+                }
+            }
+            // Mostra notifica di successo (se disponibile)
+            if (window.toastSuccess) {
+                window.toastSuccess(`Campo ${fieldName} aggiornato`);
+            }
+            return result;
+        } else {
+            const error = await response.json();
+            if (window.toastError) {
+                window.toastError(`Errore aggiornamento: ${error.detail || 'Errore sconosciuto'}`);
+            } else {
+                alert(`Errore: ${error.detail || 'Errore sconosciuto'}`);
+            }
+            throw new Error(error.detail || 'Errore aggiornamento');
+        }
+    } catch (e) {
+        console.error(`Error updating device field ${fieldName}:`, e);
+        if (window.toastError) {
+            window.toastError(`Errore: ${e.message}`);
+        } else {
+            alert(`Errore: ${e.message}`);
+        }
+        throw e;
+    }
+}
+
 // Helper per parsare open_ports (può essere stringa JSON o array)
 function parseOpenPorts(openPorts) {
     if (!openPorts) return [];
@@ -3127,10 +3254,62 @@ async function loadInventory() {
                         </td>
                         <td><code class="small">${dev.primary_ip || '-'}</code></td>
                         <td><code class="small">${dev.mac_address || '-'}</code></td>
-                        <td>${typeIcon} <span class="small">${dev.device_type}</span></td>
-                        <td><span class="small">${dev.category || '-'}</span></td>
-                        <td><span class="small">${dev.os_family || '-'}</span></td>
-                        <td><span class="small">${dev.manufacturer || '-'}</span></td>
+                        <td>
+                            <input type="text" 
+                                   class="form-control form-control-sm autocomplete-field" 
+                                   data-device-id="${dev.id}" 
+                                   data-field="device_type"
+                                   data-api-endpoint="/api/v1/inventory/device-types"
+                                   value="${dev.device_type || ''}" 
+                                   placeholder="Tipo..."
+                                   list="device-types-list-${dev.id}"
+                                   style="min-width: 120px; font-size: 0.875rem;"
+                                   onblur="updateDeviceFieldFromInput(this)"
+                                   onkeypress="if(event.key==='Enter') this.blur()">
+                            <datalist id="device-types-list-${dev.id}"></datalist>
+                        </td>
+                        <td>
+                            <input type="text" 
+                                   class="form-control form-control-sm autocomplete-field" 
+                                   data-device-id="${dev.id}" 
+                                   data-field="category"
+                                   data-api-endpoint="/api/v1/inventory/categories"
+                                   value="${dev.category || ''}" 
+                                   placeholder="Categoria..."
+                                   list="categories-list-${dev.id}"
+                                   style="min-width: 120px; font-size: 0.875rem;"
+                                   onblur="updateDeviceFieldFromInput(this)"
+                                   onkeypress="if(event.key==='Enter') this.blur()">
+                            <datalist id="categories-list-${dev.id}"></datalist>
+                        </td>
+                        <td>
+                            <input type="text" 
+                                   class="form-control form-control-sm autocomplete-field" 
+                                   data-device-id="${dev.id}" 
+                                   data-field="os_family"
+                                   data-api-endpoint="/api/v1/inventory/os-families"
+                                   value="${dev.os_family || ''}" 
+                                   placeholder="OS..."
+                                   list="os-families-list-${dev.id}"
+                                   style="min-width: 120px; font-size: 0.875rem;"
+                                   onblur="updateDeviceFieldFromInput(this)"
+                                   onkeypress="if(event.key==='Enter') this.blur()">
+                            <datalist id="os-families-list-${dev.id}"></datalist>
+                        </td>
+                        <td>
+                            <input type="text" 
+                                   class="form-control form-control-sm autocomplete-field" 
+                                   data-device-id="${dev.id}" 
+                                   data-field="manufacturer"
+                                   data-api-endpoint="/api/v1/inventory/manufacturers"
+                                   value="${dev.manufacturer || ''}" 
+                                   placeholder="Vendor..."
+                                   list="manufacturers-list-${dev.id}"
+                                   style="min-width: 120px; font-size: 0.875rem;"
+                                   onblur="updateDeviceFieldFromInput(this)"
+                                   onkeypress="if(event.key==='Enter') this.blur()">
+                            <datalist id="manufacturers-list-${dev.id}"></datalist>
+                        </td>
                         <td style="min-width: 120px;">${servicesDisplay}</td>
                         <td>${credSelect}</td>
                         <td>${monitoringHtml}</td>
@@ -3166,6 +3345,9 @@ async function loadInventory() {
             
             // Aggiorna icone di ordinamento
             updateSortIcons();
+            
+            // Popola i datalist per autocompletamento
+            await populateAllDatalists();
         }
     } catch (e) {
         tbody.innerHTML = `<tr><td colspan="13" class="text-center py-4 text-danger">Errore: ${e.message}</td></tr>`;

@@ -417,18 +417,44 @@ async def auto_detect_device(
                     # prova ad associare quella usata
                     if result.get("credentials_tested") and not existing_credential_id:
                         # Cerca la credenziale usata tra quelle del cliente
+                        # Prova prima con l'ID se disponibile
                         tested_cred = result["credentials_tested"][0]
+                        cred_id = tested_cred.get("id")
                         cred_name = tested_cred.get("name")
-                        if cred_name:
-                            # Cerca credenziale per nome
-                            from ..models.database import Credential as CredentialDB
+                        
+                        from ..models.database import Credential as CredentialDB
+                        cred = None
+                        
+                        # Cerca per ID se disponibile
+                        if cred_id:
+                            cred = session.query(CredentialDB).filter(
+                                CredentialDB.id == cred_id
+                            ).first()
+                        
+                        # Fallback: cerca per nome se ID non disponibile o non trovato
+                        if not cred and cred_name:
+                            # Cerca prima tra credenziali del cliente
                             cred = session.query(CredentialDB).filter(
                                 CredentialDB.customer_id == device.customer_id,
                                 CredentialDB.name == cred_name
                             ).first()
-                            if cred:
-                                device.credential_id = cred.id
-                                logger.info(f"Auto-detect: Associated credential '{cred_name}' ({cred.id}) to device {data.device_id}")
+                            
+                            # Se non trovata, cerca tra credenziali globali
+                            if not cred:
+                                cred = session.query(CredentialDB).filter(
+                                    CredentialDB.is_global == True,
+                                    CredentialDB.name == cred_name
+                                ).first()
+                        
+                        if cred:
+                            device.credential_id = cred.id
+                            logger.info(f"Auto-detect: Associated credential '{cred_name}' ({cred.id}) to device {data.device_id}")
+                        else:
+                            logger.warning(f"Auto-detect: Credential '{cred_name}' used but not found in database for device {data.device_id}")
+                    
+                    # Se c'è già una credential_id, preservala sempre
+                    elif existing_credential_id:
+                        logger.debug(f"Auto-detect: Preserving existing credential_id {existing_credential_id} for device {data.device_id}")
                     
                     # Hostname
                     hostname = scan_result.get("hostname") or scan_result.get("sysName") or scan_result.get("computer_name")
@@ -497,6 +523,85 @@ async def auto_detect_device(
                             device.disk_free_gb = float(disk_free)
                         except (ValueError, TypeError):
                             pass
+                    
+                    # Device Type e Category - Assegnazione automatica in base al risultato probe
+                    identified_by = scan_result.get("identified_by") or scan_result.get("probe_type")
+                    
+                    # Determina device_type in base al metodo di identificazione e ai dati raccolti
+                    if not device.device_type or device.device_type == "other":
+                        if identified_by:
+                            if "wmi" in identified_by.lower() or "windows" in identified_by.lower():
+                                device.device_type = "windows"
+                            elif "ssh" in identified_by.lower() or "linux" in identified_by.lower():
+                                device.device_type = "linux"
+                            elif "mikrotik" in identified_by.lower() or "routeros" in identified_by.lower():
+                                device.device_type = "mikrotik"
+                            elif "snmp" in identified_by.lower():
+                                # SNMP può essere router, switch, server, etc.
+                                device.device_type = "network"
+                        
+                        # Fallback: determina da os_family
+                        if (not device.device_type or device.device_type == "other") and device.os_family:
+                            os_family_lower = device.os_family.lower()
+                            if "windows" in os_family_lower:
+                                device.device_type = "windows"
+                            elif "linux" in os_family_lower or "unix" in os_family_lower:
+                                device.device_type = "linux"
+                            elif "routeros" in os_family_lower or "mikrotik" in os_family_lower:
+                                device.device_type = "mikrotik"
+                            elif "ios" in os_family_lower or "nx-os" in os_family_lower:
+                                device.device_type = "network"
+                    
+                    # Determina category in base ai dati raccolti
+                    if not device.category:
+                        # Categoria basata su porte aperte e tipo dispositivo
+                        windows_ports = [3389, 445, 139, 389, 135, 5985, 5986]
+                        server_ports = [3306, 5432, 1433, 1521, 27017, 6379]  # Database
+                        network_ports = [161, 162, 8728, 8729, 8291]  # SNMP, MikroTik
+                        
+                        open_port_numbers = [p.get("port") for p in open_ports if p.get("open")]
+                        
+                        if device.device_type == "windows":
+                            # Windows: determina se server o workstation
+                            if any(p in open_port_numbers for p in server_ports):
+                                device.category = "server"
+                            elif 3389 in open_port_numbers:  # RDP
+                                device.category = "workstation"
+                            else:
+                                device.category = "server"  # Default per Windows
+                        elif device.device_type == "linux":
+                            # Linux: determina se server o workstation
+                            if any(p in open_port_numbers for p in server_ports):
+                                device.category = "server"
+                            elif 22 in open_port_numbers and not any(p in open_port_numbers for p in server_ports):
+                                device.category = "workstation"
+                            else:
+                                device.category = "server"  # Default per Linux
+                        elif device.device_type == "mikrotik":
+                            device.category = "router"
+                        elif device.device_type == "network":
+                            # Network device: determina tipo
+                            if any(p in open_port_numbers for p in [8728, 8729, 8291]):
+                                device.category = "router"
+                            elif 161 in open_port_numbers:
+                                # SNMP: potrebbe essere switch, router, firewall
+                                device.category = "switch"  # Default, può essere cambiato manualmente
+                            else:
+                                device.category = "network"
+                        else:
+                            # Tipo sconosciuto: prova a determinare da porte
+                            if any(p in open_port_numbers for p in network_ports):
+                                device.category = "network"
+                            elif any(p in open_port_numbers for p in server_ports):
+                                device.category = "server"
+                            else:
+                                device.category = "other"
+                    
+                    # Salva anche device_type e category espliciti dal scan_result se presenti
+                    if scan_result.get("device_type") and scan_result["device_type"] != "unknown":
+                        device.device_type = scan_result["device_type"]
+                    if scan_result.get("category"):
+                        device.category = scan_result["category"]
                     
                     # Firmware/Version
                     firmware = scan_result.get("firmware_version") or scan_result.get("bios_version")
@@ -787,6 +892,27 @@ async def suggest_credential_type(address: str):
 
 
 @router.get("/reverse-dns/{address}")
+async def reverse_dns_lookup(
+    address: str,
+    dns_server: Optional[str] = Query(None, description="DNS server da usare (opzionale)"),
+):
+    """
+    Esegue reverse DNS lookup per un indirizzo IP.
+    Supporta fallback DNS server se quello specificato non risponde.
+    """
+    from ..services.device_probe_service import get_device_probe_service
+    
+    probe_service = get_device_probe_service()
+    
+    # Usa il nuovo metodo con fallback
+    result = await probe_service.reverse_dns_lookup(
+        address=address,
+        dns_server=dns_server,
+        fallback_dns=["8.8.8.8", "1.1.1.1"],
+        timeout=5
+    )
+    
+    return result
 async def reverse_dns_lookup(address: str):
     """Esegue reverse DNS lookup per ottenere hostname da IP"""
     from ..services.device_probe_service import get_device_probe_service
@@ -1485,7 +1611,10 @@ async def configure_device_monitoring(device_id: str, config: dict):
     """
     Configura il monitoraggio per un dispositivo.
     
-    monitoring_type: none, netwatch, agent
+    monitoring_type: none, icmp, tcp, mikrotik, agent
+    monitoring_port: porta TCP (richiesto se monitoring_type == "tcp")
+    monitoring_agent_id: ID agent per mikrotik/agent (opzionale)
+    interval: intervallo check in secondi (opzionale, default: 30)
     """
     from ..models.database import init_db, get_session
     from ..models.inventory import InventoryDevice
@@ -1507,7 +1636,14 @@ async def configure_device_monitoring(device_id: str, config: dict):
             raise HTTPException(status_code=404, detail="Dispositivo non trovato")
         
         monitoring_type = config.get("monitoring_type", "none")
+        monitoring_port = config.get("monitoring_port")
+        monitoring_agent_id = config.get("monitoring_agent_id")
+        interval = config.get("interval", 30)
         customer_id = config.get("customer_id", device.customer_id)
+        
+        # Validazione
+        if monitoring_type == "tcp" and not monitoring_port:
+            raise HTTPException(status_code=400, detail="monitoring_port è richiesto per monitoraggio TCP")
         
         # Risultato operazione
         result = {
@@ -1515,6 +1651,8 @@ async def configure_device_monitoring(device_id: str, config: dict):
             "device_id": device_id,
             "device_ip": device.primary_ip,
             "monitoring_type": monitoring_type,
+            "monitoring_port": monitoring_port,
+            "monitoring_agent_id": monitoring_agent_id,
             "netwatch_configured": False,
             "agent_configured": False,
         }
@@ -1580,7 +1718,8 @@ async def configure_device_monitoring(device_id: str, config: dict):
                 
                 if netwatch_result.get("success"):
                     device.monitored = True
-                    device.monitoring_type = "netwatch"
+                    device.monitoring_type = "mikrotik"
+                    device.monitoring_port = None  # Netwatch usa ICMP di default
                     device.monitoring_agent_id = mikrotik_agent.id
                     device.netwatch_id = netwatch_result.get("netwatch_id")
                     result["netwatch_configured"] = True
@@ -1951,5 +2090,153 @@ async def add_device_to_dude(device_id: str):
                 "message": "Errore aggiunta a The Dude",
             }
         
+    finally:
+        session.close()
+
+
+# ==========================================
+# UNIQUE VALUES ENDPOINTS (for autocomplete)
+# ==========================================
+
+@router.get("/device-types")
+async def get_device_types(customer_id: Optional[str] = Query(None)):
+    """
+    Restituisce lista di valori unici per device_type dall'inventario.
+    Utile per autocompletamento nei form.
+    """
+    from ..models.database import init_db, get_session
+    from ..models.inventory import InventoryDevice
+    from ..config import get_settings
+    from sqlalchemy import distinct
+    
+    settings = get_settings()
+    db_url = settings.database_url
+    engine = init_db(db_url)
+    session = get_session(engine)
+    
+    try:
+        query = session.query(InventoryDevice.device_type).distinct()
+        
+        if customer_id:
+            query = query.filter(InventoryDevice.customer_id == customer_id)
+        
+        types = [t[0] for t in query.filter(InventoryDevice.device_type.isnot(None)).all() if t[0]]
+        types.sort()
+        
+        return {
+            "success": True,
+            "values": types
+        }
+    except Exception as e:
+        logger.error(f"Error fetching device types: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        session.close()
+
+
+@router.get("/categories")
+async def get_categories(customer_id: Optional[str] = Query(None)):
+    """
+    Restituisce lista di valori unici per category dall'inventario.
+    Utile per autocompletamento nei form.
+    """
+    from ..models.database import init_db, get_session
+    from ..models.inventory import InventoryDevice
+    from ..config import get_settings
+    from sqlalchemy import distinct
+    
+    settings = get_settings()
+    db_url = settings.database_url
+    engine = init_db(db_url)
+    session = get_session(engine)
+    
+    try:
+        query = session.query(InventoryDevice.category).distinct()
+        
+        if customer_id:
+            query = query.filter(InventoryDevice.customer_id == customer_id)
+        
+        categories = [c[0] for c in query.filter(InventoryDevice.category.isnot(None)).all() if c[0]]
+        categories.sort()
+        
+        return {
+            "success": True,
+            "values": categories
+        }
+    except Exception as e:
+        logger.error(f"Error fetching categories: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        session.close()
+
+
+@router.get("/os-families")
+async def get_os_families(customer_id: Optional[str] = Query(None)):
+    """
+    Restituisce lista di valori unici per os_family dall'inventario.
+    Utile per autocompletamento nei form.
+    """
+    from ..models.database import init_db, get_session
+    from ..models.inventory import InventoryDevice
+    from ..config import get_settings
+    from sqlalchemy import distinct
+    
+    settings = get_settings()
+    db_url = settings.database_url
+    engine = init_db(db_url)
+    session = get_session(engine)
+    
+    try:
+        query = session.query(InventoryDevice.os_family).distinct()
+        
+        if customer_id:
+            query = query.filter(InventoryDevice.customer_id == customer_id)
+        
+        os_families = [o[0] for o in query.filter(InventoryDevice.os_family.isnot(None)).all() if o[0]]
+        os_families.sort()
+        
+        return {
+            "success": True,
+            "values": os_families
+        }
+    except Exception as e:
+        logger.error(f"Error fetching OS families: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        session.close()
+
+
+@router.get("/manufacturers")
+async def get_manufacturers(customer_id: Optional[str] = Query(None)):
+    """
+    Restituisce lista di valori unici per manufacturer dall'inventario.
+    Utile per autocompletamento nei form.
+    """
+    from ..models.database import init_db, get_session
+    from ..models.inventory import InventoryDevice
+    from ..config import get_settings
+    from sqlalchemy import distinct
+    
+    settings = get_settings()
+    db_url = settings.database_url
+    engine = init_db(db_url)
+    session = get_session(engine)
+    
+    try:
+        query = session.query(InventoryDevice.manufacturer).distinct()
+        
+        if customer_id:
+            query = query.filter(InventoryDevice.customer_id == customer_id)
+        
+        manufacturers = [m[0] for m in query.filter(InventoryDevice.manufacturer.isnot(None)).all() if m[0]]
+        manufacturers.sort()
+        
+        return {
+            "success": True,
+            "values": manufacturers
+        }
+    except Exception as e:
+        logger.error(f"Error fetching manufacturers: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         session.close()
