@@ -11,8 +11,8 @@
             {% endif %}
         </span>
     </div>
-    <button class="btn btn-primary btn-sm" onclick="location.reload()">
-        <i class="bi bi-arrow-clockwise"></i> Aggiorna
+    <button class="btn btn-primary btn-sm" id="refresh-btn" @click="refreshDashboard">
+        <i class="bi bi-arrow-clockwise" :class="{ 'spinning': isRefreshing }"></i> Aggiorna
     </button>
 </div>
 
@@ -27,7 +27,7 @@
                         <i class="bi bi-hdd-network text-primary"></i>
                     </div>
                     <div>
-                        <h4 class="mb-0">{{ inventory.total }}</h4>
+                        <h4 class="mb-0" id="stat-devices">{{ inventory.total }}</h4>
                         <small class="text-muted">Dispositivi</small>
                     </div>
                 </div>
@@ -44,7 +44,7 @@
                         <i class="bi bi-broadcast text-success"></i>
                     </div>
                     <div>
-                        <h4 class="mb-0">{{ inventory.monitored }}</h4>
+                        <h4 class="mb-0" id="stat-monitored">{{ inventory.monitored }}</h4>
                         <small class="text-muted">Monitorati</small>
                     </div>
                 </div>
@@ -61,7 +61,7 @@
                         <i class="bi bi-router text-info"></i>
                     </div>
                     <div>
-                        <h4 class="mb-0">{{ agents.total }}</h4>
+                        <h4 class="mb-0" id="stat-agents">{{ agents.total }}</h4>
                         <small class="text-muted">Sonde</small>
                     </div>
                 </div>
@@ -78,7 +78,7 @@
                         <i class="bi bi-people text-warning"></i>
                     </div>
                     <div>
-                        <h4 class="mb-0">{{ customers.total }}</h4>
+                        <h4 class="mb-0" id="stat-customers">{{ customers.total }}</h4>
                         <small class="text-muted">Clienti</small>
                     </div>
                 </div>
@@ -236,4 +236,116 @@
     </div>
 </div>
 {% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Animazioni smooth per i numeri nella dashboard
+function animateValue(element, start, end, duration) {
+    const startTime = performance.now();
+    const animate = (currentTime) => {
+        const elapsed = currentTime - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        const easeOut = 1 - Math.pow(1 - progress, 3);
+        const current = Math.floor(start + (end - start) * easeOut);
+        element.textContent = current;
+        if (progress < 1) {
+            requestAnimationFrame(animate);
+        } else {
+            element.textContent = end;
+        }
+    };
+    requestAnimationFrame(animate);
+}
+
+// Anima i valori quando la pagina è caricata
+document.addEventListener('DOMContentLoaded', () => {
+    const stats = [
+        { id: 'stat-devices', value: {{ inventory.total }}, delay: 0 },
+        { id: 'stat-monitored', value: {{ inventory.monitored }}, delay: 100 },
+        { id: 'stat-agents', value: {{ agents.total }}, delay: 200 },
+        { id: 'stat-customers', value: {{ customers.total }}, delay: 300 }
+    ];
+    
+    stats.forEach(stat => {
+        setTimeout(() => {
+            const element = document.getElementById(stat.id);
+            if (element) {
+                animateValue(element, 0, stat.value, 1000);
+            }
+        }, stat.delay);
+    });
+    
+    // Aggiungi animazione al pulsante refresh
+    const refreshBtn = document.getElementById('refresh-btn');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', function() {
+            this.querySelector('i').classList.add('spinning');
+            setTimeout(() => {
+                this.querySelector('i').classList.remove('spinning');
+            }, 1000);
+        });
+    }
+});
+
+// App Vue per refresh button
+const { createApp: createDashboardApp } = Vue;
+createDashboardApp({
+    data() {
+        return {
+            isRefreshing: false
+        }
+    },
+    methods: {
+        refreshDashboard() {
+            this.isRefreshing = true;
+            setTimeout(() => {
+                location.reload();
+            }, 500);
+        }
+    }
+}).mount('#refresh-btn');
+</script>
+
+<style>
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.spinning {
+    animation: spin 1s linear infinite;
+}
+
+/* Animazioni smooth per le card */
+.card {
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+}
+
+/* Animazione fade-in per le card */
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.row > div {
+    animation: fadeInUp 0.5s ease-out;
+}
+
+.row > div:nth-child(1) { animation-delay: 0.1s; }
+.row > div:nth-child(2) { animation-delay: 0.2s; }
+.row > div:nth-child(3) { animation-delay: 0.3s; }
+.row > div:nth-child(4) { animation-delay: 0.4s; }
+</style>
 {% endblock %}
