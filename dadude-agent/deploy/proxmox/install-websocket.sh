@@ -490,9 +490,20 @@ pct create $CTID $TEMPLATE \
 pct stop $CTID 2>/dev/null || true
 sleep 2
 echo "lxc.apparmor.profile = unconfined" >> /etc/pve/lxc/${CTID}.conf
+echo "lxc.mount.auto = proc:rw sys:rw" >> /etc/pve/lxc/${CTID}.conf
 pct start $CTID
 
 sleep 5
+
+# Disabilita AppArmor anche dentro il container
+pct exec $CTID -- bash -c '
+    # Disabilita AppArmor a livello di sistema
+    systemctl stop apparmor 2>/dev/null || true
+    systemctl disable apparmor 2>/dev/null || true
+    apt-get install -y apparmor-utils 2>/dev/null || true
+    aa-teardown 2>/dev/null || true
+    echo "AppArmor disabilitato nel container"
+' || true
 
 # Attendi avvio
 echo -e "\n${BLUE}[3/6] Attendo avvio container...${NC}"
