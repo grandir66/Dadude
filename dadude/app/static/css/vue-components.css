@@ -94,3 +94,29 @@
     transform: scale(1.05);
 }
 
+/* DataTable Styles */
+.data-table-wrapper {
+    background: white;
+    border-radius: 1rem;
+    padding: 1.5rem;
+}
+
+.data-table-wrapper .table th.sortable:hover {
+    background-color: #f1f5f9;
+}
+
+.data-table-wrapper .pagination .page-link {
+    color: var(--primary-color);
+    border-color: #e2e8f0;
+}
+
+.data-table-wrapper .pagination .page-item.active .page-link {
+    background-color: var(--primary-color);
+    border-color: var(--primary-color);
+}
+
+.data-table-wrapper .pagination .page-item.disabled .page-link {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+

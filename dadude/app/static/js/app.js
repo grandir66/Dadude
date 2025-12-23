@@ -39,7 +39,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const app = createApp({
         components: {
             ToastNotifications,
-            LoadingOverlay
+            LoadingOverlay,
+            DataTable
         }
     });
     
