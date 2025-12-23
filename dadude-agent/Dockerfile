@@ -12,7 +12,12 @@ LABEL version="1.1.0"
 WORKDIR /app
 
 # Install system dependencies + network tools + nmap + git + docker-cli
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Retry apt-get update in case of network issues
+RUN set -e; \
+    for i in 1 2 3; do \
+        apt-get update && break || sleep 5; \
+    done && \
+    apt-get install -y --no-install-recommends \
     gcc \
     libffi-dev \
     iputils-ping \
