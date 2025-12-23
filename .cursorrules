@@ -1,0 +1,75 @@
+# Cursor Rules per DaDude Project
+
+## Principi Fondamentali
+
+1. **NON MODIFICARE CODICE FUNZIONANTE**
+   - Se qualcosa funziona, NON toccarlo
+   - Prima di modificare, verificare SE è davvero necessario
+   - Se l'utente dice "funzionava prima", REVERT alle modifiche invece di aggiungere fix
+
+2. **SEMPLICITÀ PRIMA DI TUTTO**
+   - La soluzione più semplice è sempre la migliore
+   - Se c'è una soluzione semplice (es: usare sempre Debian), NON cercare di supportare alternative
+   - Evitare "feature creep" - non aggiungere funzionalità non richieste
+
+3. **COMPRENDERE PRIMA DI MODIFICARE**
+   - Leggere TUTTO il codice rilevante prima di modificare
+   - Capire PERCHÉ qualcosa non funziona prima di aggiungere fix
+   - Se l'utente dice "funzionava con X", usare X invece di cercare alternative
+
+4. **NON INSISTERE SU SOLUZIONI COMPLESSE**
+   - Se una soluzione non funziona dopo 2-3 tentativi, cambiare approccio
+   - Se l'utente dice "non funziona", NON aggiungere più complessità
+   - Chiedere all'utente cosa funzionava prima invece di indovinare
+
+5. **TESTARE PRIMA DI COMMITTARE**
+   - Non fare commit multipli per la stessa cosa
+   - Se qualcosa non funziona, REVERT invece di aggiungere più fix
+   - Un commit che rompe qualcosa è peggio di nessun commit
+
+## Regole Specifiche per Install Scripts
+
+- **Template/Immagine**: Se l'utente dice "funzionava con Debian", usare SEMPRE Debian
+- **Repository Docker**: Usare sempre Debian repository, NON cercare di rilevare Ubuntu/Debian
+- **AppArmor**: NON aggiungere configurazioni AppArmor a meno che non sia esplicitamente richiesto
+- **Docker daemon.json**: Mantenere minimo, solo storage-driver se necessario
+- **Fallback**: Se qualcosa fallisce, usare la versione che funzionava prima
+
+## Regole per Database/Backend
+
+- **Foreign Keys**: Se customer_id può essere NULL, gestirlo come None, NON come stringa vuota
+- **Migration**: Testare sempre le migration su dati reali prima di applicare
+- **PostgreSQL**: Verificare che tutte le query siano compatibili con PostgreSQL
+
+## Regole per Agent Registration
+
+- **customer_id vuoto**: Convertire sempre in None, mai stringa vuota
+- **Auto-approval**: Verificare che DADUDE_DEFAULT_CUSTOMER_ID sia None se vuoto
+- **Token**: Gestire correttamente token encryption/decryption
+
+## Workflow Consigliato
+
+1. **Leggere** il codice esistente e capire come funziona
+2. **Identificare** il problema reale (non quello che pensi sia)
+3. **Proporre** la soluzione più semplice possibile
+4. **Testare** prima di commitare
+5. **Se non funziona**: REVERT e riprovare con approccio diverso
+
+## Cosa NON Fare
+
+- ❌ NON aggiungere configurazioni complesse "per sicurezza"
+- ❌ NON cercare di supportare più opzioni quando una funziona
+- ❌ NON fare commit multipli per la stessa cosa
+- ❌ NON aggiungere "fix" su "fix" - meglio revert e ripartire
+- ❌ NON modificare codice funzionante "per migliorarlo"
+- ❌ NON aggiungere feature non richieste dall'utente
+
+## Cosa Fare
+
+- ✅ Chiedere all'utente cosa funzionava prima
+- ✅ Usare sempre la soluzione più semplice
+- ✅ Testare prima di commitare
+- ✅ REVERT se qualcosa si rompe
+- ✅ Mantenere il codice semplice e leggibile
+- ✅ Seguire il principio KISS (Keep It Simple, Stupid)
+
