@@ -161,10 +161,9 @@
 // Dati customers passati dal server
 const customersData = {{ customers | tojson }};
 
-// App Vue per customers
-const { createApp } = Vue;
-
-createApp({
+// App Vue per customers (usa createApp già disponibile globalmente da app.js)
+if (typeof Vue !== 'undefined' && Vue.createApp) {
+    Vue.createApp({
     data() {
         return {
             customers: customersData,

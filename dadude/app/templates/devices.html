@@ -67,10 +67,9 @@
 const devicesData = {{ devices | tojson }};
 const statusFilter = {{ status_filter | tojson if status_filter else 'null' }};
 
-// App Vue per devices
-const { createApp } = Vue;
-
-createApp({
+// App Vue per devices (usa createApp già disponibile globalmente da app.js)
+if (typeof Vue !== 'undefined' && Vue.createApp) {
+    Vue.createApp({
     data() {
         return {
             devices: devicesData,
@@ -144,6 +143,7 @@ createApp({
             this.updateDeviceCount();
         }
     }
-}).mount('#devices-app');
+    }).mount('#devices-app');
+}
 </script>
 {% endblock %}

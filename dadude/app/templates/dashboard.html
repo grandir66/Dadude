@@ -288,9 +288,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
-// App Vue per refresh button
-const { createApp: createDashboardApp } = Vue;
-createDashboardApp({
+// App Vue per refresh button (usa createApp già disponibile globalmente da app.js)
+if (typeof Vue !== 'undefined' && Vue.createApp) {
+    Vue.createApp({
     data() {
         return {
             isRefreshing: false
@@ -304,7 +304,8 @@ createDashboardApp({
             }, 500);
         }
     }
-}).mount('#refresh-btn');
+    }).mount('#refresh-btn');
+}
 </script>
 
 <style>
