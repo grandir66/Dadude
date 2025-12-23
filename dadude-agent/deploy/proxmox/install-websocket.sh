@@ -492,25 +492,6 @@ pct create $CTID $TEMPLATE \
     --unprivileged 0 \
     --start 1
 
-# Disabilita AppArmor per permettere Docker build in container LXC
-# Riavvia container per applicare modifiche
-pct stop $CTID 2>/dev/null || true
-sleep 2
-echo "lxc.apparmor.profile = unconfined" >> /etc/pve/lxc/${CTID}.conf
-echo "lxc.mount.auto = proc:rw sys:rw" >> /etc/pve/lxc/${CTID}.conf
-pct start $CTID
-
-sleep 5
-
-# Disabilita AppArmor anche dentro il container
-pct exec $CTID -- bash -c '
-    # Disabilita AppArmor a livello di sistema
-    systemctl stop apparmor 2>/dev/null || true
-    systemctl disable apparmor 2>/dev/null || true
-    apt-get install -y apparmor-utils 2>/dev/null || true
-    aa-teardown 2>/dev/null || true
-    echo "AppArmor disabilitato nel container"
-' || true
 
 # Attendi avvio
 echo -e "\n${BLUE}[3/6] Attendo avvio container...${NC}"
@@ -616,21 +597,7 @@ pct exec $CTID -- mkdir -p /opt/dadude-agent/data
 # Build e avvia
 echo -e "\n${BLUE}[6/6] Build e avvio container Docker...${NC}"
 
-# Verifica che Docker sia attivo prima del build
-pct exec $CTID -- bash -c "
-    if ! systemctl is-active --quiet docker; then
-        echo 'ERRORE: Docker non è attivo!'
-        systemctl status docker --no-pager -l || true
-        exit 1
-    fi
-    
-    if ! docker info > /dev/null 2>&1; then
-        echo 'ERRORE: Docker non risponde!'
-        exit 1
-    fi
-    
-    cd /opt/dadude-agent && DOCKER_BUILDKIT=0 docker compose build --no-cache && docker compose up -d
-"
+pct exec $CTID -- bash -c "cd /opt/dadude-agent && docker compose build && docker compose up -d"
 
 sleep 5
 
