@@ -73,3 +73,104 @@
 - ✅ Mantenere il codice semplice e leggibile
 - ✅ Seguire il principio KISS (Keep It Simple, Stupid)
 
+## Organizzazione Struttura Progetto
+
+### Separazione Cartelle e Moduli
+
+1. **Moduli/Componenti**
+   - Mantenere moduli separati per funzionalità distinte
+   - Ogni modulo nella sua directory dedicata
+   - Evitare di mescolare logiche diverse nello stesso file
+   - Usare struttura modulare chiara (es: `app/routers/`, `app/services/`, `app/models/`)
+
+2. **Script**
+   - Script di installazione: `deploy/` o `scripts/install/`
+   - Script di utilità: `scripts/` o `tools/`
+   - Script di migrazione: `migrations/` o `scripts/migrate/`
+   - NON mettere script nella root del progetto
+   - Ogni script deve avere uno scopo chiaro e documentato
+
+3. **Test**
+   - Test unitari: `tests/unit/` o `tests/`
+   - Test di integrazione: `tests/integration/`
+   - Test E2E: `tests/e2e/`
+   - NON mescolare test con codice sorgente
+   - Mantenere test separati per ogni modulo
+
+4. **Documentazione**
+   - Documentazione generale: `docs/` o `documentation/`
+   - README: nella root del progetto o del modulo
+   - Guide di installazione: `docs/install/` o `INSTALL.md`
+   - API docs: `docs/api/` o generati automaticamente
+   - NON mettere documentazione sparsa nella root
+
+5. **HTML/Frontend**
+   - Frontend Vue/React: `frontend/` o `web/`
+   - Template HTML: `templates/` o `frontend/templates/`
+   - Assets statici: `static/` o `frontend/static/`
+   - NON mescolare HTML con codice backend
+
+6. **Backup**
+   - Backup database: `backups/` o `data/backups/`
+   - Backup configurazioni: `backups/config/`
+   - Script di backup: `scripts/backup/`
+   - NON committare backup nel repository (usare .gitignore)
+   - Mantenere backup temporanei fuori dal repository
+
+7. **Configurazione**
+   - File di config: `config/` o nella root con nome chiaro (`.env.example`)
+   - Config per ambiente: `config/dev/`, `config/prod/`
+   - NON hardcodare configurazioni nel codice
+   - Usare variabili d'ambiente o file di config separati
+
+8. **Log e Dati Temporanei**
+   - Log: `logs/` o `var/log/` (NON committare)
+   - Dati temporanei: `tmp/` o `var/tmp/` (NON committare)
+   - Cache: `cache/` o `var/cache/` (NON committare)
+   - Aggiungere a `.gitignore` tutti i file temporanei
+
+9. **Build e Distribuzione**
+   - Build artifacts: `dist/` o `build/` (NON committare)
+   - Dockerfiles: nella root o `docker/`
+   - Docker compose: nella root o `deploy/docker/`
+   - Script di deploy: `deploy/` o `scripts/deploy/`
+
+### Regole di Organizzazione
+
+- ✅ Mantenere struttura chiara e coerente
+- ✅ Separare sempre codice, test, documentazione, script
+- ✅ Usare nomi di directory descrittivi e standard
+- ✅ Documentare la struttura nella root README
+- ✅ NON creare file nella root se possono essere organizzati meglio
+- ✅ NON mescolare tipi di file diversi nella stessa directory
+- ✅ Mantenere `.gitignore` aggiornato per escludere file temporanei
+
+### Struttura Consigliata
+
+```
+project/
+├── app/                    # Codice applicazione principale
+│   ├── routers/          # Endpoint API
+│   ├── services/         # Logica di business
+│   ├── models/           # Modelli database
+│   └── config.py         # Configurazione
+├── frontend/              # Frontend (se presente)
+├── scripts/               # Script di utilità
+│   ├── install/          # Script installazione
+│   ├── backup/           # Script backup
+│   └── migrate/           # Script migrazione
+├── deploy/                # Script deployment
+│   ├── docker/           # Dockerfiles e compose
+│   └── proxmox/          # Script Proxmox
+├── tests/                 # Test
+│   ├── unit/             # Test unitari
+│   └── integration/      # Test integrazione
+├── docs/                  # Documentazione
+├── backups/               # Backup (gitignored)
+├── logs/                  # Log (gitignored)
+├── config/                # File configurazione
+├── .gitignore            # File da ignorare
+├── .cursorrules          # Regole Cursor
+└── README.md             # Documentazione principale
+```
+
