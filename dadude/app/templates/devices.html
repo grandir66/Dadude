@@ -68,8 +68,11 @@ const devicesData = {{ devices | tojson }};
 const statusFilter = {{ status_filter | tojson if status_filter else 'null' }};
 
 // App Vue per devices (usa createApp già disponibile globalmente da app.js)
-if (typeof Vue !== 'undefined' && Vue.createApp) {
+if (typeof Vue !== 'undefined' && Vue.createApp && typeof window.DataTable !== 'undefined') {
     Vue.createApp({
+    components: {
+        DataTable: window.DataTable
+    },
     data() {
         return {
             devices: devicesData,

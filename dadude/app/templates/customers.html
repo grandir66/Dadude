@@ -162,8 +162,11 @@
 const customersData = {{ customers | tojson }};
 
 // App Vue per customers (usa createApp già disponibile globalmente da app.js)
-if (typeof Vue !== 'undefined' && Vue.createApp) {
+if (typeof Vue !== 'undefined' && Vue.createApp && typeof window.DataTable !== 'undefined') {
     Vue.createApp({
+    components: {
+        DataTable: window.DataTable
+    },
     data() {
         return {
             customers: customersData,

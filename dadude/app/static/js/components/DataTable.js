@@ -1,7 +1,8 @@
 // DataTable Component per Vue.js 3
 // Tabella moderna con ricerca, ordinamento e paginazione
 
-const DataTable = {
+// Rendi disponibile globalmente
+window.DataTable = {
     props: {
         data: {
             type: Array,

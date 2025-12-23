@@ -40,7 +40,7 @@ document.addEventListener('DOMContentLoaded', () => {
         components: {
             ToastNotifications,
             LoadingOverlay,
-            DataTable,
+            DataTable: window.DataTable || DataTable,
             AnimatedCounter
         }
     });
