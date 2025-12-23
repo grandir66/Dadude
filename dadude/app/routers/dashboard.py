@@ -43,7 +43,16 @@ def get_dashboard_data():
     
     # Dati clienti
     customers_raw = customer_service.list_customers(active_only=True, limit=1000)
-    customers = [c.model_dump() if hasattr(c, 'model_dump') else dict(c) for c in customers_raw]
+    customers = []
+    for c in customers_raw:
+        if hasattr(c, 'model_dump'):
+            customers.append(c.model_dump(mode='json'))
+        else:
+            c_dict = dict(c)
+            for key, value in c_dict.items():
+                if hasattr(value, 'isoformat'):
+                    c_dict[key] = value.isoformat()
+            customers.append(c_dict)
     
     # Dati inventario locale
     try:
@@ -277,7 +286,20 @@ async def customers_page(request: Request):
     customers = customer_service.list_customers(active_only=True, limit=500)
     
     # Converti customers in dizionari per JSON serialization
-    customers_dict = [c.model_dump() if hasattr(c, 'model_dump') else dict(c) for c in customers]
+    import json
+    customers_dict = []
+    for c in customers:
+        if hasattr(c, 'model_dump'):
+            # Usa mode='json' per gestire datetime automaticamente
+            customers_dict.append(c.model_dump(mode='json'))
+        else:
+            # Fallback: converti manualmente
+            c_dict = dict(c)
+            # Converti datetime in stringhe
+            for key, value in c_dict.items():
+                if hasattr(value, 'isoformat'):
+                    c_dict[key] = value.isoformat()
+            customers_dict.append(c_dict)
     
     return templates.TemplateResponse("customers.html", {
         "request": request,
