@@ -485,6 +485,13 @@ pct create $CTID $TEMPLATE \
     --unprivileged 0 \
     --start 1
 
+# Disabilita AppArmor per permettere Docker build in container LXC
+# Riavvia container per applicare modifiche
+pct stop $CTID 2>/dev/null || true
+sleep 2
+echo "lxc.apparmor.profile = unconfined" >> /etc/pve/lxc/${CTID}.conf
+pct start $CTID
+
 sleep 5
 
 # Attendi avvio
