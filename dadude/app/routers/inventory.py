@@ -819,7 +819,7 @@ async def list_inventory_devices(
     from ..config import get_settings
     
     settings = get_settings()
-    db_url = settings.database_url.replace("+aiosqlite", "")
+    db_url = settings.database_url_sync_computed
     engine = init_db(db_url)
     session = get_session(engine)
     
@@ -896,7 +896,7 @@ async def get_inventory_device(device_id: str):
     from ..config import get_settings
     
     settings = get_settings()
-    db_url = settings.database_url.replace("+aiosqlite", "")
+    db_url = settings.database_url_sync_computed
     engine = init_db(db_url)
     session = get_session(engine)
     
@@ -1025,7 +1025,7 @@ async def create_inventory_device(
     from ..config import get_settings
     
     settings = get_settings()
-    db_url = settings.database_url.replace("+aiosqlite", "")
+    db_url = settings.database_url_sync_computed
     engine = init_db(db_url)
     session = get_session(engine)
     
@@ -1095,7 +1095,7 @@ async def bulk_import_devices(
     from ..config import get_settings
     
     settings = get_settings()
-    db_url = settings.database_url.replace("+aiosqlite", "")
+    db_url = settings.database_url_sync_computed
     engine = init_db(db_url)
     session = get_session(engine)
     
@@ -1186,7 +1186,7 @@ async def clear_inventory(customer_id: Optional[str] = Query(None)):
     from ..config import get_settings
 
     settings = get_settings()
-    db_url = settings.database_url.replace("+aiosqlite", "")
+    db_url = settings.database_url_sync_computed
     engine = init_db(db_url)
     session = get_session(engine)
 
@@ -1236,7 +1236,7 @@ async def scan_device_ports(device_id: str):
     from ..config import get_settings
     
     settings = get_settings()
-    db_url = settings.database_url.replace("+aiosqlite", "")
+    db_url = settings.database_url_sync_computed
     engine = init_db(db_url)
     session = get_session(engine)
     
@@ -1303,7 +1303,7 @@ async def batch_scan_device_ports(
     import asyncio
     
     settings = get_settings()
-    db_url = settings.database_url.replace("+aiosqlite", "")
+    db_url = settings.database_url_sync_computed
     engine = init_db(db_url)
     session = get_session(engine)
     
@@ -1396,7 +1396,7 @@ async def delete_inventory_device(device_id: str):
     from ..config import get_settings
     
     settings = get_settings()
-    db_url = settings.database_url.replace("+aiosqlite", "")
+    db_url = settings.database_url_sync_computed
     engine = init_db(db_url)
     session = get_session(engine)
     
@@ -1429,7 +1429,7 @@ async def update_inventory_device(device_id: str, updates: dict):
     from ..config import get_settings
     
     settings = get_settings()
-    db_url = settings.database_url.replace("+aiosqlite", "")
+    db_url = settings.database_url_sync_computed
     engine = init_db(db_url)
     session = get_session(engine)
     
@@ -1494,7 +1494,7 @@ async def configure_device_monitoring(device_id: str, config: dict):
     from ..services.mikrotik_service import get_mikrotik_service
     
     settings = get_settings()
-    db_url = settings.database_url.replace("+aiosqlite", "")
+    db_url = settings.database_url_sync_computed
     engine = init_db(db_url)
     session = get_session(engine)
     
@@ -1651,7 +1651,7 @@ async def identify_inventory_device(
     from ..services.customer_service import get_customer_service
     
     settings = get_settings()
-    db_url = settings.database_url.replace("+aiosqlite", "")
+    db_url = settings.database_url_sync_computed
     engine = init_db(db_url)
     session = get_session(engine)
     
@@ -1838,7 +1838,7 @@ async def get_inventory_stats(customer_id: Optional[str] = None):
     from sqlalchemy import func
     
     settings = get_settings()
-    db_url = settings.database_url.replace("+aiosqlite", "")
+    db_url = settings.database_url_sync_computed
     engine = init_db(db_url)
     session = get_session(engine)
     
@@ -1891,7 +1891,7 @@ async def add_device_to_dude(device_id: str):
     from ..config import get_settings
     
     settings = get_settings()
-    db_url = settings.database_url.replace("+aiosqlite", "")
+    db_url = settings.database_url_sync_computed
     engine = init_db(db_url)
     session = get_session(engine)
     

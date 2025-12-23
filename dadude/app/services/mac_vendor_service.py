@@ -7,7 +7,19 @@ from loguru import logger
 import os
 import json
 
-# Database OUI comuni (può essere espanso o caricato da file)
+# Try to import the mac-vendor-lookup library for comprehensive database
+try:
+    from mac_vendor_lookup import MacLookup
+    _mac_lookup = MacLookup()
+    _MAC_LOOKUP_AVAILABLE = True
+    logger.info("MAC vendor lookup library loaded successfully")
+except ImportError:
+    _mac_lookup = None
+    _MAC_LOOKUP_AVAILABLE = False
+    logger.warning("mac-vendor-lookup not available, using fallback database")
+
+
+# Database OUI comuni (fallback se mac-vendor-lookup non disponibile)
 # Formato: primi 6 caratteri MAC (senza :) -> vendor
 OUI_DATABASE = {
     # MikroTik
@@ -569,31 +581,38 @@ class MacVendorService:
         """
         Cerca il vendor dal MAC address.
         Ritorna il nome del vendor o None se non trovato.
+
+        Uses mac-vendor-lookup library first (comprehensive database with 40,000+ vendors),
+        then falls back to local database.
         """
+        if not mac:
+            return None
+
+        # Try mac-vendor-lookup library first (most comprehensive)
+        if _MAC_LOOKUP_AVAILABLE and _mac_lookup:
+            try:
+                vendor = _mac_lookup.lookup(mac)
+                if vendor:
+                    return vendor
+            except Exception as e:
+                logger.debug(f"mac-vendor-lookup error for {mac}: {e}")
+
+        # Fallback to local database
         oui = self.get_oui(mac)
         if not oui:
             return None
-        
-        # Prova prima formato senza due punti (database locale)
+
+        # Try format without colons (local database)
         vendor = self._oui_db.get(oui)
         if vendor:
             return vendor
-        
-        # Prova formato con due punti (database OUI completo)
+
+        # Try format with colons (some databases use this)
         oui_with_colons = ':'.join([oui[i:i+2] for i in range(0, 6, 2)])
         vendor = self._oui_db.get(oui_with_colons)
         if vendor:
             return vendor
-        
-        # Prova anche usando vendor_database direttamente
-        try:
-            from .vendor_database import lookup_vendor_local
-            result = lookup_vendor_local(mac)
-            if result:
-                return result.get('vendor')
-        except:
-            pass
-        
+
         return None
     
     def lookup_vendor_with_type(self, mac: str) -> Dict[str, Any]:

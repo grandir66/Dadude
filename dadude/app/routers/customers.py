@@ -287,16 +287,32 @@ async def list_all_credentials(include_usage: bool = True):
     return {"total": len(credentials), "credentials": credentials}
 
 
-@router.get("/credentials", response_model=CredentialListResponse)
-async def list_global_credentials(
+@router.get("/credentials")
+async def list_credentials(
     credential_type: Optional[str] = Query(None, description="Filtra per tipo"),
+    global_only: bool = Query(False, description="Solo credenziali globali"),
+    customer_id: Optional[str] = Query(None, description="Filtra per cliente"),
 ):
     """
-    Lista credenziali globali (disponibili a tutti i clienti).
+    Lista credenziali. Per default ritorna tutte (globali + customer-specific).
     """
     service = get_customer_service()
-    credentials = service.list_global_credentials(credential_type=credential_type)
-    return CredentialListResponse(total=len(credentials), credentials=credentials)
+
+    if global_only:
+        credentials = service.list_global_credentials(credential_type=credential_type)
+        # Convert CredentialSafe to dict for consistent response format
+        credentials = [c.model_dump() if hasattr(c, 'model_dump') else c for c in credentials]
+    elif customer_id:
+        credentials = service.list_credentials(customer_id=customer_id, credential_type=credential_type)
+        # Convert CredentialSafe to dict for consistent response format
+        credentials = [c.model_dump() if hasattr(c, 'model_dump') else c for c in credentials]
+    else:
+        # Return all credentials (global + customer-specific)
+        credentials = service.get_all_credentials()
+        if credential_type:
+            credentials = [c for c in credentials if c.get('credential_type') == credential_type]
+
+    return {"total": len(credentials), "credentials": credentials}
 
 
 @router.post("/credentials", response_model=CredentialSafe, status_code=201)
@@ -726,7 +742,7 @@ async def reassign_agent(
     from ..config import get_settings
     
     settings = get_settings()
-    db_url = settings.database_url.replace("+aiosqlite", "")
+    db_url = settings.database_url_sync_computed
     engine = init_db(db_url)
     session = get_session(engine)
     
@@ -768,7 +784,7 @@ async def unassign_agent(agent_id: str):
     from ..config import get_settings
     
     settings = get_settings()
-    db_url = settings.database_url.replace("+aiosqlite", "")
+    db_url = settings.database_url_sync_computed
     engine = init_db(db_url)
     session = get_session(engine)
     
@@ -1488,7 +1504,7 @@ async def scan_customer_networks(
     
     # Salva risultati nel database
     settings = get_settings()
-    db_url = settings.database_url.replace("+aiosqlite", "")
+    db_url = settings.database_url_sync_computed
     engine = init_db(db_url)
     session = get_session(engine)
     
@@ -1675,7 +1691,7 @@ async def list_customer_scans(
         raise HTTPException(status_code=404, detail="Cliente non trovato")
     
     settings = get_settings()
-    db_url = settings.database_url.replace("+aiosqlite", "")
+    db_url = settings.database_url_sync_computed
     engine = init_db(db_url)
     session = get_session(engine)
     
@@ -1710,7 +1726,7 @@ async def get_scan_details(customer_id: str, scan_id: str):
     from ..config import get_settings
     
     settings = get_settings()
-    db_url = settings.database_url.replace("+aiosqlite", "")
+    db_url = settings.database_url_sync_computed
     engine = init_db(db_url)
     session = get_session(engine)
     
@@ -1773,7 +1789,7 @@ async def delete_scan(customer_id: str, scan_id: str):
     from ..config import get_settings
     
     settings = get_settings()
-    db_url = settings.database_url.replace("+aiosqlite", "")
+    db_url = settings.database_url_sync_computed
     engine = init_db(db_url)
     session = get_session(engine)
     

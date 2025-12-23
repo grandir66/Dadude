@@ -21,12 +21,15 @@ from .services import get_dude_service, get_sync_service
 from .services.websocket_hub import get_websocket_hub
 
 # Device Backup Module - optional scheduler
+# Enabled for v2.0 with sync database sessions
+BACKUP_SCHEDULER_AVAILABLE = True
 try:
-    from .services.backup_scheduler import BackupScheduler
-    BACKUP_SCHEDULER_AVAILABLE = True
-except ImportError:
+    from .services.backup_scheduler import BackupScheduler, get_backup_scheduler
+except ImportError as e:
     BACKUP_SCHEDULER_AVAILABLE = False
     BackupScheduler = None
+    from loguru import logger as log_import
+    log_import.warning(f"BackupScheduler not available: {e}")
 from .routers import devices, probes, alerts, webhook, system, customers, import_export, dashboard, discovery, mikrotik, inventory, agents, device_backup
 
 

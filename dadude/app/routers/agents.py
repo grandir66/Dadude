@@ -14,6 +14,12 @@ from loguru import logger
 
 from ..services.customer_service import get_customer_service
 from ..services.encryption_service import get_encryption_service
+from ..models.customer_schemas import (
+    AgentAssignmentListResponse,
+    AgentAssignmentCreate,
+    AgentAssignmentUpdate,
+    AgentAssignmentSafe
+)
 
 router = APIRouter(prefix="/agents", tags=["Agents"])
 
@@ -91,6 +97,317 @@ class AgentUpdateRequest(BaseModel):
 
 
 # ==========================================
+# AGENTS LIST ENDPOINTS
+# ==========================================
+
+@router.get("", response_model=AgentAssignmentListResponse)
+async def list_agents(
+    customer_id: Optional[str] = Query(None, description="Filtra per cliente"),
+    active_only: bool = Query(True, description="Solo agent attivi"),
+):
+    """
+    Lista tutti gli agent registrati nel sistema.
+    """
+    try:
+        service = get_customer_service()
+        agents = service.list_agents(customer_id=customer_id, active_only=active_only)
+        return AgentAssignmentListResponse(total=len(agents), agents=agents)
+    except Exception as e:
+        logger.error(f"Error listing agents: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{agent_id}")
+async def get_agent(agent_id: str):
+    """
+    Ottiene dettagli di un agent specifico.
+    """
+    service = get_customer_service()
+    agent = service.get_agent(agent_id)
+
+    if not agent:
+        raise HTTPException(status_code=404, detail=f"Agent {agent_id} non trovato")
+
+    return agent
+
+
+@router.post("", response_model=AgentAssignmentSafe, status_code=201)
+async def create_agent(data: AgentAssignmentCreate):
+    """
+    Crea un nuovo agent (MikroTik o Docker).
+
+    Richiede customer_id per associare l'agent a un cliente.
+    """
+    try:
+        if not data.customer_id:
+            raise HTTPException(status_code=400, detail="customer_id è richiesto")
+
+        service = get_customer_service()
+        agent = service.create_agent(data)
+        return agent
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error creating agent: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/{agent_id}", response_model=AgentAssignmentSafe)
+async def update_agent(agent_id: str, data: AgentAssignmentUpdate):
+    """
+    Aggiorna configurazione di un agent.
+    """
+    try:
+        service = get_customer_service()
+        agent = service.update_agent(agent_id, data)
+
+        if not agent:
+            raise HTTPException(status_code=404, detail=f"Agent {agent_id} non trovato")
+
+        return agent
+    except Exception as e:
+        logger.error(f"Error updating agent: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/{agent_id}")
+async def delete_agent(agent_id: str):
+    """
+    Elimina un agent.
+    """
+    try:
+        service = get_customer_service()
+        success = service.delete_agent(agent_id)
+
+        if not success:
+            raise HTTPException(status_code=404, detail=f"Agent {agent_id} non trovato")
+
+        return {"message": f"Agent {agent_id} eliminato"}
+    except Exception as e:
+        logger.error(f"Error deleting agent: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{agent_id}/test")
+async def test_agent_status(agent_id: str):
+    """
+    Testa la connessione all'agent.
+    """
+    service = get_customer_service()
+    agent = service.get_agent(agent_id, include_password=True)
+
+    if not agent:
+        raise HTTPException(status_code=404, detail=f"Agent {agent_id} non trovato")
+
+    # Test based on agent type
+    try:
+        if agent.agent_type == 'mikrotik':
+            import routeros_api
+
+            try:
+                connection = routeros_api.RouterOsApiPool(
+                    host=agent.address,
+                    username=agent.username or 'admin',
+                    password=agent.password or '',
+                    port=agent.port or 8728,
+                    use_ssl=getattr(agent, 'use_ssl', False),
+                    ssl_verify=False,
+                    plaintext_login=True,
+                )
+                api = connection.get_api()
+                # Simple test - get identity
+                identity_resource = api.get_resource('/system/identity')
+                identity = identity_resource.get()
+                router_name = identity[0].get('name', agent.address) if identity else agent.address
+                connection.disconnect()
+                return {
+                    "success": True,
+                    "message": f"Connected to {router_name}",
+                    "agent_type": "mikrotik"
+                }
+            except Exception as e:
+                return {
+                    "success": False,
+                    "message": f"Connection failed: {str(e)}",
+                    "agent_type": "mikrotik"
+                }
+        else:
+            # Docker agent - try HTTP health check
+            import httpx
+            agent_url = agent.agent_url or f"http://{agent.address}:{agent.agent_api_port or 8080}"
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.get(f"{agent_url}/health")
+                if resp.status_code == 200:
+                    return {
+                        "success": True,
+                        "message": "Agent is healthy",
+                        "agent_type": "docker"
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "message": f"Agent returned status {resp.status_code}",
+                        "agent_type": "docker"
+                    }
+    except Exception as e:
+        logger.error(f"Test connection error: {e}")
+        return {
+            "success": False,
+            "message": str(e),
+            "agent_type": agent.agent_type
+        }
+
+
+class ScanRequest(BaseModel):
+    """Schema per richiesta scansione"""
+    network: str
+    scan_type: str = "ping"
+
+
+@router.post("/{agent_id}/test-connection")
+async def test_agent_connection(agent_id: str):
+    """
+    Testa la connessione a un agent MikroTik.
+    Utile per verificare che le credenziali siano corrette prima di eseguire scansioni.
+    """
+    from ..services.scanner_service import get_scanner_service
+
+    service = get_customer_service()
+    agent = service.get_agent(agent_id, include_password=True)
+
+    if not agent:
+        raise HTTPException(status_code=404, detail=f"Agent {agent_id} non trovato")
+
+    logger.info(f"Testing connection to agent {agent.name} ({agent.address}:{agent.port})")
+    logger.debug(f"Agent credentials: username={agent.username}, password={'***' if agent.password else 'EMPTY'}")
+
+    scanner = get_scanner_service()
+    result = scanner.test_connection(
+        router_address=agent.address,
+        router_port=agent.port or 8728,
+        router_username=agent.username or 'admin',
+        router_password=agent.password or '',
+        use_ssl=getattr(agent, 'use_ssl', False),
+    )
+
+    return {
+        "agent_id": agent_id,
+        "agent_name": agent.name,
+        "agent_address": agent.address,
+        **result
+    }
+
+
+@router.post("/{agent_id}/scan")
+async def start_agent_scan(agent_id: str, data: ScanRequest):
+    """
+    Avvia una scansione di rete tramite l'agent MikroTik.
+    """
+    from ..services.scanner_service import get_scanner_service
+    from ..models.database import ScanResult, DiscoveredDevice, init_db, get_session
+    from ..config import get_settings
+    import uuid
+    from datetime import datetime
+    import asyncio
+
+    service = get_customer_service()
+    agent = service.get_agent(agent_id, include_password=True)
+
+    if not agent:
+        raise HTTPException(status_code=404, detail=f"Agent {agent_id} non trovato")
+
+    network = data.network
+    scan_type = data.scan_type
+
+    if not network:
+        raise HTTPException(status_code=400, detail="Network CIDR is required")
+
+    settings = get_settings()
+    db_url = settings.database_url_sync_computed
+    engine = init_db(db_url)
+    session = get_session(engine)
+
+    try:
+        # Create scan record
+        scan_id = str(uuid.uuid4())[:8]
+        scan_record = ScanResult(
+            id=scan_id,
+            customer_id=agent.customer_id,
+            agent_id=agent_id,
+            network_cidr=network,
+            scan_type=scan_type,
+            status="running",
+        )
+        session.add(scan_record)
+        session.commit()
+
+        # Execute scan via MikroTik router
+        scanner = get_scanner_service()
+        try:
+            scan_results = scanner.scan_network_via_router(
+                router_address=agent.address,
+                router_port=agent.port or 8728,
+                router_username=agent.username or 'admin',
+                router_password=agent.password or '',
+                network=network,
+                scan_type=scan_type,
+                use_ssl=getattr(agent, 'use_ssl', False),
+            )
+
+            # Save discovered devices
+            devices_found = 0
+            devices_list = scan_results.get("devices") or scan_results.get("results") or []
+            if scan_results.get("success") and devices_list:
+                for dev in devices_list:
+                    # Get hostname from identity or hostname field
+                    hostname = dev.get("hostname") or dev.get("identity") or ""
+                    device = DiscoveredDevice(
+                        id=str(uuid.uuid4())[:8],
+                        scan_id=scan_id,
+                        customer_id=agent.customer_id,
+                        address=dev.get("address", ""),
+                        mac_address=dev.get("mac_address", ""),
+                        hostname=hostname,
+                        platform=dev.get("platform") or "unknown",
+                        source=dev.get("source", "mikrotik"),
+                    )
+                    session.add(device)
+                    devices_found += 1
+
+            # Update scan record
+            scan_record.status = "completed" if scan_results.get("success") else "failed"
+            scan_record.devices_found = devices_found
+            session.commit()
+
+            return {
+                "success": True,
+                "scan_id": scan_id,
+                "message": f"Scan completed on {network}",
+                "devices_found": devices_found,
+                "agent": agent.name,
+            }
+
+        except Exception as scan_error:
+            # Update scan record with error
+            scan_record.status = "failed"
+            scan_record.completed_at = datetime.utcnow()
+            session.commit()
+            logger.error(f"Scan execution error: {scan_error}")
+            return {
+                "success": False,
+                "scan_id": scan_id,
+                "message": f"Scan failed: {str(scan_error)}",
+                "agent": agent.name,
+            }
+
+    except Exception as e:
+        logger.error(f"Start scan error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        session.close()
+
+
+# ==========================================
 # AGENT SELF-SERVICE ENDPOINTS
 # ==========================================
 
@@ -152,7 +469,7 @@ async def register_agent(
                 from ..models.database import AgentAssignmentDB, init_db, get_session
                 from ..config import get_settings
                 settings = get_settings()
-                db_url = settings.database_url.replace("+aiosqlite", "")
+                db_url = settings.database_url_sync_computed
                 engine = init_db(db_url)
                 fix_session = get_session(engine)
                 
@@ -197,7 +514,7 @@ async def register_agent(
         import os
         
         settings = get_settings()
-        db_url = settings.database_url.replace("+aiosqlite", "")
+        db_url = settings.database_url_sync_computed
         engine = init_db(db_url)
         session = get_session(engine)
         
@@ -312,7 +629,7 @@ async def agent_heartbeat(
                     from ..config import get_settings
                     
                     settings = get_settings()
-                    db_url = settings.database_url.replace("+aiosqlite", "")
+                    db_url = settings.database_url_sync_computed
                     engine = init_db(db_url)
                     session = get_session(engine)
                     
@@ -416,7 +733,7 @@ async def list_pending_agents():
     from ..config import get_settings
     
     settings = get_settings()
-    db_url = settings.database_url.replace("+aiosqlite", "")
+    db_url = settings.database_url_sync_computed
     engine = init_db(db_url)
     session = get_session(engine)
     
@@ -997,7 +1314,7 @@ async def approve_agent(
         from ..config import get_settings
         
         settings = get_settings()
-        db_url = settings.database_url.replace("+aiosqlite", "")
+        db_url = settings.database_url_sync_computed
         engine = init_db(db_url)
         session = get_session(engine)
         
@@ -1077,7 +1394,7 @@ async def update_agent_config(
         from ..config import get_settings
         
         settings = get_settings()
-        db_url = settings.database_url.replace("+aiosqlite", "")
+        db_url = settings.database_url_sync_computed
         engine = init_db(db_url)
         session = get_session(engine)
         
@@ -1687,7 +2004,7 @@ async def list_outdated_agents():
         logger.warning(f"Could not fetch agent version from GitHub: {e}")
     
     settings = get_settings()
-    db_url = settings.database_url.replace("+aiosqlite", "")
+    db_url = settings.database_url_sync_computed
     engine = init_db(db_url)
     session = get_session(engine)
     
