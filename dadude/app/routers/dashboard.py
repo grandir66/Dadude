@@ -46,7 +46,7 @@ def get_dashboard_data():
     
     # Dati inventario locale
     try:
-        db_url = settings.database_url.replace("+aiosqlite", "")
+        db_url = settings.database_url
         engine = init_db(db_url)
         session = get_session(engine)
         

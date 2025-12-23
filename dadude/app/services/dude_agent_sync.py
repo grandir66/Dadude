@@ -41,7 +41,7 @@ class DudeAgentSyncService:
             
             # Connetti al database locale
             settings = get_settings()
-            db_url = settings.database_url.replace("+aiosqlite", "")
+            db_url = settings.database_url
             engine = init_db(db_url)
             session = get_session(engine)
             
@@ -110,7 +110,7 @@ class DudeAgentSyncService:
         Se customer_id specificato, filtra per cliente.
         """
         settings = get_settings()
-        db_url = settings.database_url.replace("+aiosqlite", "")
+        db_url = settings.database_url
         engine = init_db(db_url)
         session = get_session(engine)
         
@@ -147,7 +147,7 @@ class DudeAgentSyncService:
     ) -> Dict[str, Any]:
         """Associa un agent Dude a un cliente"""
         settings = get_settings()
-        db_url = settings.database_url.replace("+aiosqlite", "")
+        db_url = settings.database_url
         engine = init_db(db_url)
         session = get_session(engine)
         
@@ -173,7 +173,7 @@ class DudeAgentSyncService:
     def unassign_from_customer(self, dude_agent_id: str) -> Dict[str, Any]:
         """Rimuove associazione agent-cliente"""
         settings = get_settings()
-        db_url = settings.database_url.replace("+aiosqlite", "")
+        db_url = settings.database_url
         engine = init_db(db_url)
         session = get_session(engine)
         
@@ -199,7 +199,7 @@ class DudeAgentSyncService:
     def get_available_agents(self) -> List[Dict[str, Any]]:
         """Ottiene agent non ancora associati a clienti"""
         settings = get_settings()
-        db_url = settings.database_url.replace("+aiosqlite", "")
+        db_url = settings.database_url
         engine = init_db(db_url)
         session = get_session(engine)
         

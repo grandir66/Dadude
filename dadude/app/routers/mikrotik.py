@@ -131,7 +131,7 @@ async def get_router_system_info_by_credential(
         if not address:
             # Cerca device associato a questa credenziale
             settings = get_settings()
-            db_url = settings.database_url.replace("+aiosqlite", "")
+            db_url = settings.database_url
             engine = init_db(db_url)
             session = get_session(engine)
             try:

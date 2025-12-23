@@ -13,7 +13,8 @@ routeros-api>=0.17.0
 
 # Database
 sqlalchemy>=2.0.0
-aiosqlite>=0.19.0
+psycopg2-binary>=2.9.0  # PostgreSQL driver
+# aiosqlite>=0.19.0  # Non più necessario per server (solo per agent)
 
 # HTTP Client
 httpx>=0.25.0

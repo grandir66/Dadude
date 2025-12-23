@@ -24,8 +24,8 @@ class Settings(BaseSettings):
     
     # Database
     database_url: str = Field(
-        default="sqlite+aiosqlite:///./data/dadude.db",
-        description="Database connection URL"
+        default="postgresql+psycopg2://dadude:dadude@localhost:5432/dadude",
+        description="Database connection URL (PostgreSQL)"
     )
     
     # Polling

@@ -20,7 +20,7 @@ from ..config import get_settings
 def get_db():
     """Dependency per ottenere sessione database"""
     settings = get_settings()
-    db_url = settings.database_url.replace("+aiosqlite", "")
+    db_url = settings.database_url
     engine = init_db(db_url)
     session = get_session(engine)
     try:
