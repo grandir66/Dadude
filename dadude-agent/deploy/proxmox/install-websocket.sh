@@ -541,51 +541,8 @@ echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.
 apt-get update
 apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
 
-# Configura Docker per funzionare in container LXC
-mkdir -p /etc/docker
-cat > /etc/docker/daemon.json << '"'"'EOF'"'"'
-{
-  "storage-driver": "overlay2"
-}
-EOF
-
 systemctl enable docker
-
-# Prova ad avviare Docker
-echo "Avvio Docker..."
-if ! systemctl start docker; then
-    echo "Primo tentativo fallito, verifico errori..."
-    systemctl status docker --no-pager -l | head -20 || true
-    journalctl -u docker --no-pager -n 10 || true
-    
-    # Se il problema è AppArmor, prova a rimuovere completamente daemon.json
-    if journalctl -u docker --no-pager -n 10 | grep -q "apparmor\|AppArmor"; then
-        echo "Problema AppArmor rilevato, rimuovo daemon.json e riprovo..."
-        rm -f /etc/docker/daemon.json
-        systemctl daemon-reload
-        systemctl start docker || true
-    fi
-fi
-
-# Verifica che Docker funzioni - ATTENDI fino a quando non è pronto
-echo "Attendo che Docker si avvii..."
-for i in {1..30}; do
-    if systemctl is-active --quiet docker && docker info > /dev/null 2>&1; then
-        echo "Docker avviato correttamente"
-        break
-    fi
-    if [ $i -eq 30 ]; then
-        echo "ERRORE: Docker non si avvia dopo 60 secondi. Log dettagliati:"
-        echo "--- Status Docker ---"
-        systemctl status docker --no-pager -l || true
-        echo "--- Log Docker (ultimi 30) ---"
-        journalctl -u docker --no-pager -n 30 || true
-        echo "--- Verifica AppArmor ---"
-        aa-status 2>&1 | head -5 || echo "AppArmor non disponibile"
-        exit 1
-    fi
-    sleep 2
-done
+systemctl start docker
 '
 
 # Clona repository
