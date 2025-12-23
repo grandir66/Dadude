@@ -639,8 +639,21 @@ pct exec $CTID -- mkdir -p /opt/dadude-agent/data
 # Build e avvia
 echo -e "\n${BLUE}[6/6] Build e avvio container Docker...${NC}"
 
-# Build con DOCKER_BUILDKIT=0 per evitare problemi AppArmor in LXC
-pct exec $CTID -- bash -c "cd /opt/dadude-agent && DOCKER_BUILDKIT=0 docker compose build --no-cache && docker compose up -d"
+# Verifica che Docker sia attivo prima del build
+pct exec $CTID -- bash -c "
+    if ! systemctl is-active --quiet docker; then
+        echo 'ERRORE: Docker non è attivo!'
+        systemctl status docker --no-pager -l || true
+        exit 1
+    fi
+    
+    if ! docker info > /dev/null 2>&1; then
+        echo 'ERRORE: Docker non risponde!'
+        exit 1
+    fi
+    
+    cd /opt/dadude-agent && DOCKER_BUILDKIT=0 docker compose build --no-cache && docker compose up -d
+"
 
 sleep 5
 
