@@ -186,13 +186,24 @@ document.getElementById('newCustomerForm').addEventListener('submit', async (e) 
         });
         
         if (response.ok) {
-            location.reload();
+            if (window.toastSuccess) {
+                window.toastSuccess('Cliente creato con successo');
+            }
+            setTimeout(() => location.reload(), 500);
         } else {
             const error = await response.json();
-            alert('Errore: ' + (error.detail || 'Errore sconosciuto'));
+            if (window.toastError) {
+                window.toastError('Errore: ' + (error.detail || 'Errore sconosciuto'));
+            } else {
+                alert('Errore: ' + (error.detail || 'Errore sconosciuto'));
+            }
         }
     } catch (e) {
-        alert('Errore di connessione');
+        if (window.toastError) {
+            window.toastError('Errore di connessione');
+        } else {
+            alert('Errore di connessione');
+        }
     }
 });
 
@@ -227,14 +238,26 @@ document.getElementById('editCustomerForm').addEventListener('submit', async (e)
         
         if (response.ok) {
             bootstrap.Modal.getInstance(document.getElementById('editCustomerModal')).hide();
-            alert('✅ Cliente aggiornato con successo');
-            location.reload();
+            if (window.toastSuccess) {
+                window.toastSuccess('Cliente aggiornato con successo');
+            } else {
+                alert('✅ Cliente aggiornato con successo');
+            }
+            setTimeout(() => location.reload(), 500);
         } else {
             const error = await response.json();
-            alert('❌ Errore: ' + (error.detail || 'Aggiornamento fallito'));
+            if (window.toastError) {
+                window.toastError('Errore: ' + (error.detail || 'Aggiornamento fallito'));
+            } else {
+                alert('❌ Errore: ' + (error.detail || 'Aggiornamento fallito'));
+            }
         }
     } catch (e) {
-        alert('❌ Errore: ' + e.message);
+        if (window.toastError) {
+            window.toastError('Errore: ' + e.message);
+        } else {
+            alert('❌ Errore: ' + e.message);
+        }
     }
 });
 
@@ -254,14 +277,26 @@ async function deleteCustomer(customerId, customerName) {
         });
         
         if (response.ok) {
-            alert('Cliente eliminato con successo');
-            location.reload();
+            if (window.toastSuccess) {
+                window.toastSuccess('Cliente eliminato con successo');
+            } else {
+                alert('Cliente eliminato con successo');
+            }
+            setTimeout(() => location.reload(), 500);
         } else {
             const error = await response.json();
-            alert('Errore: ' + (error.detail || 'Eliminazione fallita'));
+            if (window.toastError) {
+                window.toastError('Errore: ' + (error.detail || 'Eliminazione fallita'));
+            } else {
+                alert('Errore: ' + (error.detail || 'Eliminazione fallita'));
+            }
         }
     } catch (e) {
-        alert('Errore di connessione: ' + e.message);
+        if (window.toastError) {
+            window.toastError('Errore di connessione: ' + e.message);
+        } else {
+            alert('Errore di connessione: ' + e.message);
+        }
     }
 }
 </script>
