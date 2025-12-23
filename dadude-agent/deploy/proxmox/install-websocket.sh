@@ -551,16 +551,26 @@ else
     apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
 fi
 
-# Configura Docker per funzionare in container LXC (disabilita AppArmor)
+# Configura Docker per funzionare in container LXC (disabilita AppArmor completamente)
 mkdir -p /etc/docker
 cat > /etc/docker/daemon.json << '"'"'EOF'"'"'
 {
-  "storage-driver": "overlay2"
+  "storage-driver": "overlay2",
+  "security-opt": ["apparmor=unconfined"],
+  "default-ulimits": {}
 }
 EOF
 
+# Disabilita AppArmor per Docker a livello di sistema
+mkdir -p /etc/apparmor.d/docker
+echo "profile docker-default flags=(attach_disconnected,mediate_deleted) {}" > /etc/apparmor.d/docker/docker-default || true
+
 systemctl enable docker
-systemctl start docker || true
+systemctl restart docker || systemctl start docker || true
+
+# Verifica che Docker funzioni
+sleep 3
+docker info > /dev/null 2>&1 || echo "Docker potrebbe avere problemi, ma continuo..."
 '
 
 # Clona repository
