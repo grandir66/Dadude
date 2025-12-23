@@ -550,7 +550,22 @@ cat > /etc/docker/daemon.json << '"'"'EOF'"'"'
 EOF
 
 systemctl enable docker
-systemctl restart docker || systemctl start docker
+
+# Prova ad avviare Docker
+echo "Avvio Docker..."
+if ! systemctl start docker; then
+    echo "Primo tentativo fallito, verifico errori..."
+    systemctl status docker --no-pager -l | head -20 || true
+    journalctl -u docker --no-pager -n 10 || true
+    
+    # Se il problema è AppArmor, prova a rimuovere completamente daemon.json
+    if journalctl -u docker --no-pager -n 10 | grep -q "apparmor\|AppArmor"; then
+        echo "Problema AppArmor rilevato, rimuovo daemon.json e riprovo..."
+        rm -f /etc/docker/daemon.json
+        systemctl daemon-reload
+        systemctl start docker || true
+    fi
+fi
 
 # Verifica che Docker funzioni - ATTENDI fino a quando non è pronto
 echo "Attendo che Docker si avvii..."
@@ -560,17 +575,14 @@ for i in {1..30}; do
         break
     fi
     if [ $i -eq 30 ]; then
-        echo "ERRORE: Docker non si avvia dopo 60 secondi. Verifica i log:"
+        echo "ERRORE: Docker non si avvia dopo 60 secondi. Log dettagliati:"
+        echo "--- Status Docker ---"
         systemctl status docker --no-pager -l || true
-        echo "--- Log Docker ---"
+        echo "--- Log Docker (ultimi 30) ---"
         journalctl -u docker --no-pager -n 30 || true
-        echo "--- Tentativo di avvio manuale ---"
-        systemctl start docker || true
-        sleep 5
-        if ! systemctl is-active --quiet docker; then
-            echo "Docker ancora non funziona. Verifica configurazione AppArmor e permessi."
-            exit 1
-        fi
+        echo "--- Verifica AppArmor ---"
+        aa-status 2>&1 | head -5 || echo "AppArmor non disponibile"
+        exit 1
     fi
     sleep 2
 done
