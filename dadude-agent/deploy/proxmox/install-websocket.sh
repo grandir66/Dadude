@@ -525,35 +525,30 @@ install -m 0755 -d /etc/apt/keyrings
 curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
 chmod a+r /etc/apt/keyrings/docker.gpg
 
-# Rileva distribuzione (Ubuntu o Debian), fallback a Debian se non rilevata
+# Usa Debian come default (funziona sempre)
+# Se esplicitamente rilevato Ubuntu, prova Ubuntu, altrimenti usa Debian
 DOCKER_REPO="debian"
 DOCKER_CODENAME="bookworm"
 
 if [ -f /etc/os-release ]; then
     . /etc/os-release
-    if [ "$ID" = "ubuntu" ]; then
+    if [ "$ID" = "ubuntu" ] && [ -n "$VERSION_CODENAME" ]; then
+        # Prova Ubuntu solo se esplicitamente rilevato
         DOCKER_REPO="ubuntu"
-        DOCKER_CODENAME="${VERSION_CODENAME:-jammy}"
-    elif [ "$ID" = "debian" ]; then
-        DOCKER_REPO="debian"
-        DOCKER_CODENAME="${VERSION_CODENAME:-bookworm}"
+        DOCKER_CODENAME="${VERSION_CODENAME}"
     fi
 fi
 
-# Debug: mostra cosa è stato rilevato
-echo "Rilevato: DOCKER_REPO=${DOCKER_REPO}, DOCKER_CODENAME=${DOCKER_CODENAME}"
-
-# Prova prima con il repository rilevato
+# Prova prima con il repository rilevato (Ubuntu o Debian)
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/${DOCKER_REPO} ${DOCKER_CODENAME} stable" > /etc/apt/sources.list.d/docker.list
 
 # Aggiorna repository
 UPDATE_OUTPUT=$(apt-get update 2>&1)
 UPDATE_STATUS=$?
 
-# Controlla se ci sono errori 404 o Not Found
-if echo "$UPDATE_OUTPUT" | grep -qE "404|Not Found|does not have a Release file"; then
-    # Repository non disponibile, usa fallback Debian
-    echo "Repository ${DOCKER_REPO} non disponibile per ${DOCKER_CODENAME}, uso fallback Debian..."
+# Se fallisce o è Ubuntu, usa sempre Debian come fallback sicuro
+if echo "$UPDATE_OUTPUT" | grep -qE "404|Not Found|does not have a Release file" || [ "$DOCKER_REPO" = "ubuntu" ]; then
+    echo "Uso repository Debian (default sicuro)..."
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian bookworm stable" > /etc/apt/sources.list.d/docker.list
     apt-get update
     apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
