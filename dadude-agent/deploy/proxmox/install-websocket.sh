@@ -425,14 +425,17 @@ done
 TEMPLATE_STORAGE=${TEMPLATE_STORAGE_FOUND:-local}
 echo "Storage template: $TEMPLATE_STORAGE"
 
-# Cerca template già scaricati
+# Usa SEMPRE Debian (funziona perfettamente)
 TEMPLATE=""
-echo -e "${YELLOW}Template disponibili:${NC}"
-AVAILABLE_TEMPLATES=$(pveam list $TEMPLATE_STORAGE 2>/dev/null | grep -E "debian|ubuntu" | head -5)
+echo -e "${YELLOW}Cerca template Debian...${NC}"
+
+# Cerca template Debian già scaricati (solo Debian, niente Ubuntu)
+AVAILABLE_TEMPLATES=$(pveam list $TEMPLATE_STORAGE 2>/dev/null | grep "debian" | head -5)
 if [ -n "$AVAILABLE_TEMPLATES" ]; then
     echo "$AVAILABLE_TEMPLATES"
     
-    for t in "debian-12-standard" "debian-11-standard" "ubuntu-24.04-standard" "ubuntu-22.04-standard"; do
+    # Prova Debian 12, poi Debian 11
+    for t in "debian-12-standard" "debian-11-standard"; do
         if echo "$AVAILABLE_TEMPLATES" | grep -q "$t"; then
             TEMPLATE=$(echo "$AVAILABLE_TEMPLATES" | grep "$t" | head -1 | awk '{print $1}')
             break
@@ -441,17 +444,21 @@ if [ -n "$AVAILABLE_TEMPLATES" ]; then
 fi
 
 if [ -z "$TEMPLATE" ]; then
-    echo -e "${YELLOW}Nessun template trovato localmente. Scarico Debian 12...${NC}"
+    echo -e "${YELLOW}Nessun template Debian trovato localmente. Scarico Debian 12...${NC}"
     pveam update 2>/dev/null || true
     TEMPLATE_NAME=$(pveam available 2>/dev/null | grep "debian-12-standard" | head -1 | awk '{print $2}')
+    if [ -z "$TEMPLATE_NAME" ]; then
+        # Fallback a Debian 11
+        TEMPLATE_NAME=$(pveam available 2>/dev/null | grep "debian-11-standard" | head -1 | awk '{print $2}')
+    fi
     if [ -n "$TEMPLATE_NAME" ]; then
         echo "Download: $TEMPLATE_NAME"
         pveam download $TEMPLATE_STORAGE $TEMPLATE_NAME
         TEMPLATE="${TEMPLATE_STORAGE}:vztmpl/${TEMPLATE_NAME}"
     else
-        echo -e "${RED}Errore: impossibile trovare template Debian 12${NC}"
+        echo -e "${RED}Errore: impossibile trovare template Debian${NC}"
         echo "Template disponibili online:"
-        pveam available 2>/dev/null | grep -E "debian|ubuntu" | head -5
+        pveam available 2>/dev/null | grep "debian" | head -5
         exit 1
     fi
 fi
