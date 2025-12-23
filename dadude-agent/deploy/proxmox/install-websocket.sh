@@ -559,10 +559,17 @@ for i in {1..30}; do
         break
     fi
     if [ $i -eq 30 ]; then
-        echo "ERRORE: Docker non si avvia. Verifica i log:"
+        echo "ERRORE: Docker non si avvia dopo 60 secondi. Verifica i log:"
         systemctl status docker --no-pager -l || true
-        journalctl -u docker --no-pager -n 20 || true
-        exit 1
+        echo "--- Log Docker ---"
+        journalctl -u docker --no-pager -n 30 || true
+        echo "--- Tentativo di avvio manuale ---"
+        systemctl start docker || true
+        sleep 5
+        if ! systemctl is-active --quiet docker; then
+            echo "Docker ancora non funziona. Verifica configurazione AppArmor e permessi."
+            exit 1
+        fi
     fi
     sleep 2
 done
