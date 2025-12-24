@@ -280,7 +280,10 @@ async def monitoring_page(
         # Filtra per cliente se specificato
         if customer_id:
             query = query.filter(InventoryDevice.customer_id == customer_id)
-            logger.debug(f"Applied customer filter: {customer_id}")
+            logger.info(f"Applied customer filter: {customer_id}")
+            # Conta device con questo customer_id prima degli altri filtri
+            count_with_customer = query.count()
+            logger.info(f"Devices with customer_id={customer_id} before other filters: {count_with_customer}")
         else:
             logger.debug("No customer_id filter applied")
         
@@ -307,6 +310,13 @@ async def monitoring_page(
         devices_raw = query.order_by(InventoryDevice.name).all()
         
         logger.info(f"Monitoring page: Found {len(devices_raw)} devices (total before filters: {total_before_filters}, customer_id: {customer_id}, show_all: {show_all}, status: {status})")
+        
+        # Debug: mostra alcuni esempi di customer_id presenti nei device trovati
+        if devices_raw:
+            sample_customer_ids = set([d.customer_id for d in devices_raw[:10] if d.customer_id])
+            logger.debug(f"Sample customer_ids in results: {sample_customer_ids}")
+        else:
+            logger.warning(f"No devices found with filters (customer_id={customer_id}, show_all={show_all}, status={status})")
         
         # Crea mappa customer_id -> customer per lookup veloce
         customers_map = {c.get('id'): c for c in customers_dicts}
