@@ -321,18 +321,37 @@ function escapeHtml(text) {
 async function loadCustomers() {
     try {
         const response = await fetch('/api/v1/customers?active_only=true');
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
         const data = await response.json();
-        const customers = data.customers || [];
+        // Gestisci sia array che oggetto con chiave customers
+        const customers = Array.isArray(data) ? data : (data.customers || []);
         
         const select = document.getElementById('historyCustomerId');
+        if (!select) {
+            console.error('Element historyCustomerId not found');
+            return;
+        }
+        
+        // Pulisci opzioni esistenti (tranne la prima)
+        while (select.options.length > 1) {
+            select.remove(1);
+        }
+        
         customers.forEach(customer => {
             const option = document.createElement('option');
             option.value = customer.id;
-            option.textContent = `${customer.name} (${customer.code})`;
+            option.textContent = `${customer.name} (${customer.code || customer.id})`;
             select.appendChild(option);
         });
+        
+        console.log(`Loaded ${customers.length} customers for backup history`);
     } catch (e) {
         console.error('Error loading customers:', e);
+        if (window.toastError) {
+            window.toastError('Errore caricamento clienti: ' + e.message);
+        }
     }
 }
 
