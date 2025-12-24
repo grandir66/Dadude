@@ -566,7 +566,16 @@ async function downloadBackupById(backupId) {
         }).join('');
         
     } catch (e) {
-        tbody.innerHTML = `<tr><td colspan="7" class="text-center text-danger">Errore: ${e.message}</td></tr>`;
+        console.error('Error loading backup history:', e);
+        tbody.innerHTML = `<tr><td colspan="7" class="text-center text-danger">
+            <i class="bi bi-exclamation-triangle"></i> Errore: ${escapeHtml(e.message || 'Errore sconosciuto')}
+            <br><small>Verifica che il cliente selezionato sia corretto e che il server sia raggiungibile.</small>
+        </td></tr>`;
+        
+        // Mostra toast se disponibile
+        if (window.toastError) {
+            window.toastError('Errore caricamento storico backup: ' + e.message);
+        }
     }
 }
 

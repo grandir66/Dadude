@@ -154,18 +154,30 @@
 {% block extra_js %}
 <script>
 // Dati devices passati dal server
-const devicesData = {{ devices | tojson }};
+const devicesData = {{ devices | tojson }} || [];
 
 // App Vue per monitoring
 let monitoringAppInstance = null;
-if (typeof Vue !== 'undefined' && Vue.createApp && typeof window.DataTable !== 'undefined') {
+
+// Assicurati che Vue e DataTable siano caricati prima di inizializzare
+function initMonitoringApp() {
+    if (typeof Vue === 'undefined' || !Vue.createApp) {
+        console.error('Vue.js non è caricato');
+        return;
+    }
+    
+    if (typeof window.DataTable === 'undefined') {
+        console.error('DataTable component non è caricato');
+        return;
+    }
+    
     monitoringAppInstance = Vue.createApp({
         components: {
             DataTable: window.DataTable
         },
         data() {
             return {
-                devices: devicesData,
+                devices: devicesData || [],
                 columns: [
                     { key: 'name', label: 'Nome', field: 'name', sortable: true },
                     { key: 'hostname', label: 'Hostname', field: 'hostname', sortable: true },
@@ -233,6 +245,15 @@ if (typeof Vue !== 'undefined' && Vue.createApp && typeof window.DataTable !== '
     
     // Rendi disponibile globalmente
     window.monitoringApp = monitoringAppInstance;
+    console.log('Monitoring app initialized with', devicesData.length, 'devices');
+}
+
+// Inizializza quando il DOM è pronto
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initMonitoringApp);
+} else {
+    // DOM già caricato
+    initMonitoringApp();
 }
 
 // Funzione per caricare device monitorati
@@ -243,6 +264,8 @@ async function loadMonitoredDevices() {
     if (!customerId) {
         if (window.monitoringApp && window.monitoringApp.$data) {
             window.monitoringApp.$data.devices = [];
+        } else {
+            console.warn('Monitoring app not initialized yet');
         }
         return;
     }
@@ -254,11 +277,17 @@ async function loadMonitoredDevices() {
         }
         
         const response = await fetch(url);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
         const data = await response.json();
         
         if (window.monitoringApp && window.monitoringApp.$data) {
             window.monitoringApp.$data.devices = data.devices || [];
+            console.log('Loaded', data.devices?.length || 0, 'monitored devices');
         } else {
+            console.warn('Monitoring app not initialized, reloading page');
             // Ricarica pagina se app non ancora montata
             window.location.href = `/monitoring?customer_id=${customerId}${monitoringType ? '&monitoring_type=' + monitoringType : ''}`;
         }
