@@ -553,29 +553,44 @@ async function downloadBackupById(backupId) {
             throw new Error(errorData.detail || `Errore HTTP ${response.status}`);
         }
         
-        // Ottieni nome file dall'header o dall'URL
+        // Ottieni il blob del file
+        const blob = await response.blob();
+        
+        // Crea un URL temporaneo per il blob
+        const blobUrl = window.URL.createObjectURL(blob);
+        
+        // Crea un link temporaneo e cliccalo per avviare il download
+        const a = document.createElement('a');
+        a.href = blobUrl;
+        
+        // Ottieni il nome file dall'header Content-Disposition o usa un default
         const contentDisposition = response.headers.get('Content-Disposition');
         let filename = 'backup';
+        
         if (contentDisposition) {
-            const filenameMatch = contentDisposition.match(/filename="?(.+?)"?$/);
-            if (filenameMatch) {
-                filename = filenameMatch[1];
+            // Prova diversi formati di Content-Disposition
+            const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+            if (filenameMatch && filenameMatch[1]) {
+                filename = filenameMatch[1].replace(/['"]/g, '');
+                // Decodifica se necessario
+                try {
+                    filename = decodeURIComponent(filename);
+                } catch (e) {
+                    // Se fallisce, usa il valore originale
+                }
             }
         }
         
-        // Scarica file
-        const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
         a.download = filename;
         document.body.appendChild(a);
         a.click();
-        window.URL.revokeObjectURL(url);
+        
+        // Pulisci
+        window.URL.revokeObjectURL(blobUrl);
         document.body.removeChild(a);
         
         if (window.toastSuccess) {
-            window.toastSuccess('Download avviato');
+            window.toastSuccess('Download avviato: ' + filename);
         }
     } catch (e) {
         console.error('Error downloading backup:', e);
