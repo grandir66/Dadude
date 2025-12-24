@@ -303,11 +303,15 @@ async def download_backup(
         if not backup:
             raise HTTPException(status_code=404, detail="Backup not found")
 
-        if not backup.file_path or not backup.file_path.exists():
+        # Converti file_path a Path se è una stringa
+        from pathlib import Path
+        file_path = Path(backup.file_path) if isinstance(backup.file_path, str) else backup.file_path
+        
+        if not file_path or not file_path.exists():
             raise HTTPException(status_code=404, detail="Backup file not found")
 
         # Leggi file
-        with open(backup.file_path, 'rb') as f:
+        with open(file_path, 'rb') as f:
             content = f.read()
 
         # Determina content type
