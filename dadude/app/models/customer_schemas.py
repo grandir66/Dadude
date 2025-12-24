@@ -562,6 +562,11 @@ class AgentAssignmentSafe(BaseModel):
     name: str
     address: str
     port: Optional[int] = 8728
+    docker_agent_id: Optional[str] = None
+    arp_gateway_agent_id: Optional[str] = None
+    arp_gateway_snmp_address: Optional[str] = None
+    arp_gateway_snmp_community: Optional[str] = None
+    arp_gateway_snmp_version: Optional[str] = None
     agent_type: Optional[str] = "mikrotik"
     dude_agent_id: Optional[str] = None
     status: Optional[str] = "unknown"
