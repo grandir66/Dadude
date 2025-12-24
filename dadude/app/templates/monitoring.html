@@ -192,15 +192,71 @@ function initMonitoringApp() {
             }
         },
         methods: {
-            configureMonitoring(device) {
+            async configureMonitoring(device) {
                 document.getElementById('modalDeviceName').textContent = device.name || device.primary_ip;
                 document.getElementById('monitorDeviceId').value = device.id;
                 document.getElementById('monitorType').value = device.monitoring_type || 'none';
                 document.getElementById('monitorPort').value = device.monitoring_port || '';
+                
+                // Carica agenti del cliente prima di aprire il modal
+                await this.loadAgentsForDevice(device);
+                
+                // Imposta l'agente selezionato dopo aver caricato gli agenti
                 document.getElementById('monitorAgentId').value = device.monitoring_agent_id || '';
                 
                 this.toggleMonitoringFields();
                 new bootstrap.Modal(document.getElementById('monitoringConfigModal')).show();
+            },
+            async loadAgentsForDevice(device) {
+                // Ottieni customer_id dal device o dal filtro cliente
+                const customerId = device.customer_id || document.getElementById('customerFilter').value;
+                
+                if (!customerId) {
+                    console.warn('Nessun customer_id disponibile per caricare agenti');
+                    const agentSelect = document.getElementById('monitorAgentId');
+                    agentSelect.innerHTML = '<option value="">-- Seleziona un cliente prima --</option>';
+                    return;
+                }
+                
+                try {
+                    const response = await fetch(`/api/v1/customers/${customerId}/agents?active_only=true`);
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+                    
+                    const data = await response.json();
+                    const agents = Array.isArray(data) ? data : (data.agents || []);
+                    
+                    const agentSelect = document.getElementById('monitorAgentId');
+                    agentSelect.innerHTML = '<option value="">-- Seleziona Agente/Sonda --</option>';
+                    
+                    agents.forEach(agent => {
+                        const option = document.createElement('option');
+                        option.value = agent.id;
+                        option.textContent = `${agent.name} (${agent.agent_type || 'unknown'})`;
+                        if (agent.address) {
+                            option.textContent += ` - ${agent.address}`;
+                        }
+                        agentSelect.appendChild(option);
+                    });
+                    
+                    if (agents.length === 0) {
+                        const option = document.createElement('option');
+                        option.value = '';
+                        option.textContent = '-- Nessun agente disponibile per questo cliente --';
+                        option.disabled = true;
+                        agentSelect.appendChild(option);
+                    }
+                    
+                    console.log(`Loaded ${agents.length} agents for customer ${customerId}`);
+                } catch (e) {
+                    console.error('Error loading agents:', e);
+                    const agentSelect = document.getElementById('monitorAgentId');
+                    agentSelect.innerHTML = '<option value="">-- Errore caricamento agenti --</option>';
+                    if (window.toastError) {
+                        window.toastError('Errore caricamento agenti: ' + e.message);
+                    }
+                }
             },
             toggleMonitoringFields() {
                 const type = document.getElementById('monitorType').value;
