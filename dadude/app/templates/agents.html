@@ -238,6 +238,22 @@
                             <input type="number" class="form-control" id="editAgentPort" name="port">
                         </div>
                     </div>
+                    <!-- Credenziali MikroTik (solo se tipo è mikrotik) -->
+                    <div id="editMikrotikCredentials" style="display: none;">
+                        <hr>
+                        <h6 class="text-muted mb-3">Credenziali MikroTik</h6>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Username</label>
+                                <input type="text" class="form-control" id="editAgentUsername" name="username" placeholder="admin">
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Password</label>
+                                <input type="password" class="form-control" id="editAgentPassword" name="password" placeholder="Lascia vuoto per mantenere password esistente">
+                                <small class="text-muted">⚠️ <strong>Importante:</strong> Lascia vuoto per mantenere la password esistente. Inserisci nuova password solo per cambiarla.</small>
+                            </div>
+                        </div>
+                    </div>
                     <div class="row">
                         <div class="col-md-6 mb-3">
                             <label class="form-label">Sede/Ubicazione</label>
@@ -752,8 +768,8 @@ async function rejectAgent(agentId) {
 // Mostra modal modifica agent
 async function showEditAgentModal(agentId) {
     try {
-        // Carica i dati dell'agent
-        const response = await fetch(`/api/v1/customers/agents/${agentId}`);
+        // Carica i dati dell'agent CON password per permettere modifica
+        const response = await fetch(`/api/v1/customers/agents/${agentId}?include_password=true`);
         if (!response.ok) throw new Error('Agent non trovato');
         const agent = await response.json();
         
@@ -768,6 +784,23 @@ async function showEditAgentModal(agentId) {
         document.getElementById('editAgentDns').value = agent.dns_server || '';
         document.getElementById('editAgentActive').value = agent.active ? 'true' : 'false';
         document.getElementById('editAgentNotes').value = agent.notes || '';
+        
+        // Popola credenziali MikroTik se presente
+        const credentialsDiv = document.getElementById('editMikrotikCredentials');
+        if (agent.agent_type === 'mikrotik' || !agent.agent_type) {
+            credentialsDiv.style.display = 'block';
+            document.getElementById('editAgentUsername').value = agent.username || '';
+            // Mostra password esistente (già decriptata dal backend) per permettere modifica
+            if (agent.password && agent.password.trim()) {
+                document.getElementById('editAgentPassword').value = agent.password;
+                document.getElementById('editAgentPassword').placeholder = 'Password attuale (modifica per cambiarla)';
+            } else {
+                document.getElementById('editAgentPassword').value = '';
+                document.getElementById('editAgentPassword').placeholder = 'Inserisci password (obbligatoria per MikroTik)';
+            }
+        } else {
+            credentialsDiv.style.display = 'none';
+        }
         
         // Mostra il modal
         new bootstrap.Modal(document.getElementById('editAgentModal')).show();
