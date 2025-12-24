@@ -256,17 +256,18 @@ async def monitoring_page(request: Request, customer_id: Optional[str] = None, s
             InventoryDevice.active == True
         )
         
-        # Filtra per cliente se specificato
-        if customer_id:
-            query = query.filter(InventoryDevice.customer_id == customer_id)
-        
         # Conta totale device prima dei filtri (per debug)
         total_before_filters = query.count()
         logger.debug(f"Total devices before filters: {total_before_filters}")
         
-        # Se show_all=False, mostra solo device monitorati o con monitoraggio configurato
-        # Gestisce anche valori NULL per monitoring_type
-        if not show_all:
+        # Filtra per cliente se specificato
+        if customer_id:
+            query = query.filter(InventoryDevice.customer_id == customer_id)
+            logger.debug(f"Applied customer filter: {customer_id}")
+        
+        # Se show_all=False E c'è un cliente selezionato, mostra solo device monitorati o con monitoraggio configurato
+        # Se non c'è cliente selezionato, mostra tutti i device (per permettere selezione)
+        if not show_all and customer_id:
             from sqlalchemy import or_, and_
             query = query.filter(
                 or_(
@@ -277,7 +278,20 @@ async def monitoring_page(request: Request, customer_id: Optional[str] = None, s
                     )
                 )
             )
-            logger.debug(f"Applied monitoring filter (show_all=False)")
+            logger.debug(f"Applied monitoring filter (show_all=False, customer_id={customer_id})")
+        elif not show_all and not customer_id:
+            # Senza cliente selezionato, mostra comunque tutti i device monitorati di tutti i clienti
+            from sqlalchemy import or_, and_
+            query = query.filter(
+                or_(
+                    InventoryDevice.monitored == True,
+                    and_(
+                        InventoryDevice.monitoring_type.isnot(None),
+                        InventoryDevice.monitoring_type != "none"
+                    )
+                )
+            )
+            logger.debug(f"Applied monitoring filter (show_all=False, no customer_id - showing all monitored devices)")
         
         # Filtra per status se specificato
         if status:
