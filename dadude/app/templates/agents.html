@@ -1006,8 +1006,10 @@ async function showEditAgentModal(agentId) {
         
         // Popola credenziali MikroTik se presente
         const credentialsDiv = document.getElementById('editMikrotikCredentials');
+        const arpConfigDiv = document.getElementById('editDockerArpConfig');
         if (agent.agent_type === 'mikrotik' || !agent.agent_type) {
             credentialsDiv.style.display = 'block';
+            if (arpConfigDiv) arpConfigDiv.style.display = 'none';
             document.getElementById('editAgentUsername').value = agent.username || '';
             // Mostra password esistente (già decriptata dal backend) per permettere modifica
             if (agent.password && agent.password.trim()) {
@@ -1017,8 +1019,18 @@ async function showEditAgentModal(agentId) {
                 document.getElementById('editAgentPassword').value = '';
                 document.getElementById('editAgentPassword').placeholder = 'Inserisci password (obbligatoria per MikroTik)';
             }
+            // Carica agent Docker disponibili per questo MikroTik
+            loadDockerAgentsForMikrotik(agent.customer_id, agent.docker_agent_id);
         } else {
             credentialsDiv.style.display = 'none';
+            if (arpConfigDiv) arpConfigDiv.style.display = 'block';
+            // Carica agent MikroTik e configurazione ARP per Docker agent
+            loadArpGatewayOptions(agent.customer_id, agent.arp_gateway_agent_id);
+            if (document.getElementById('editArpGatewaySnmpAddress')) {
+                document.getElementById('editArpGatewaySnmpAddress').value = agent.arp_gateway_snmp_address || '';
+                document.getElementById('editArpGatewaySnmpCommunity').value = agent.arp_gateway_snmp_community || '';
+                document.getElementById('editArpGatewaySnmpVersion').value = agent.arp_gateway_snmp_version || '2c';
+            }
         }
         
         // Mostra il modal
@@ -1050,6 +1062,14 @@ document.getElementById('editAgentForm').addEventListener('submit', async (e) =>
         const username = document.getElementById('editAgentUsername').value;
         const password = document.getElementById('editAgentPassword').value;
         
+        // Docker agent ID per MikroTik (opzionale)
+        const dockerAgentIdEl = document.getElementById('editDockerAgentId');
+        if (dockerAgentIdEl && dockerAgentIdEl.value) {
+            data.docker_agent_id = dockerAgentIdEl.value;
+        } else {
+            data.docker_agent_id = null;
+        }
+        
         // Validazione: username e password obbligatori per MikroTik
         if (!username || !username.trim()) {
             alert('⚠️ Username è obbligatorio per agent MikroTik');
@@ -1064,6 +1084,31 @@ document.getElementById('editAgentForm').addEventListener('submit', async (e) =>
         // Se password è vuota, non includerla (verrà preservata quella esistente)
         if (password && password.trim()) {
             data.password = password.trim();
+        }
+    } else if (agentType === 'docker') {
+        // Configurazione ARP gateway per Docker agent
+        const arpGatewayAgentIdEl = document.getElementById('editArpGatewayAgentId');
+        if (arpGatewayAgentIdEl && arpGatewayAgentIdEl.value) {
+            data.arp_gateway_agent_id = arpGatewayAgentIdEl.value;
+            // Se MikroTik è selezionato, cancella SNMP
+            data.arp_gateway_snmp_address = null;
+            data.arp_gateway_snmp_community = null;
+            data.arp_gateway_snmp_version = null;
+        } else {
+            data.arp_gateway_agent_id = null;
+            // Usa SNMP se configurato
+            const snmpAddressEl = document.getElementById('editArpGatewaySnmpAddress');
+            if (snmpAddressEl && snmpAddressEl.value) {
+                data.arp_gateway_snmp_address = snmpAddressEl.value;
+                const snmpCommunityEl = document.getElementById('editArpGatewaySnmpCommunity');
+                const snmpVersionEl = document.getElementById('editArpGatewaySnmpVersion');
+                data.arp_gateway_snmp_community = snmpCommunityEl ? snmpCommunityEl.value || 'public' : 'public';
+                data.arp_gateway_snmp_version = snmpVersionEl ? snmpVersionEl.value || '2c' : '2c';
+            } else {
+                data.arp_gateway_snmp_address = null;
+                data.arp_gateway_snmp_community = null;
+                data.arp_gateway_snmp_version = null;
+            }
         }
     }
     
@@ -1895,7 +1940,82 @@ document.addEventListener('DOMContentLoaded', () => {
             toggleNewAgentTypeFields();
         });
     }
+    
+    // Gestisci cambio selezione ARP gateway MikroTik
+    const arpGatewaySelect = document.getElementById('editArpGatewayAgentId');
+    if (arpGatewaySelect) {
+        arpGatewaySelect.addEventListener('change', function() {
+            // Se MikroTik è selezionato, disabilita SNMP
+            const snmpFields = ['editArpGatewaySnmpAddress', 'editArpGatewaySnmpCommunity', 'editArpGatewaySnmpVersion'];
+            if (this.value) {
+                snmpFields.forEach(id => {
+                    const field = document.getElementById(id);
+                    if (field) {
+                        field.disabled = true;
+                        field.value = '';
+                    }
+                });
+            } else {
+                snmpFields.forEach(id => {
+                    const field = document.getElementById(id);
+                    if (field) field.disabled = false;
+                });
+            }
+        });
+    }
 });
+
+// Carica agent Docker disponibili per MikroTik
+async function loadDockerAgentsForMikrotik(customerId, selectedId) {
+    if (!customerId) return;
+    try {
+        const response = await fetch(`/api/v1/customers/${customerId}/agents?active_only=true`);
+        const data = await response.json();
+        const agents = Array.isArray(data) ? data : (data.agents || []);
+        const dockerAgents = agents.filter(a => a.agent_type === 'docker');
+        
+        const select = document.getElementById('editDockerAgentId');
+        if (!select) return;
+        select.innerHTML = '<option value="">-- Nessuno (comandi locali) --</option>';
+        dockerAgents.forEach(agent => {
+            const option = document.createElement('option');
+            option.value = agent.id;
+            option.textContent = `${agent.name} (${agent.address})`;
+            if (selectedId && agent.id === selectedId) {
+                option.selected = true;
+            }
+            select.appendChild(option);
+        });
+    } catch (e) {
+        console.error('Error loading Docker agents:', e);
+    }
+}
+
+// Carica opzioni ARP gateway per Docker agent
+async function loadArpGatewayOptions(customerId, selectedMikrotikId) {
+    if (!customerId) return;
+    try {
+        const response = await fetch(`/api/v1/customers/${customerId}/agents?active_only=true`);
+        const data = await response.json();
+        const agents = Array.isArray(data) ? data : (data.agents || []);
+        const mikrotikAgents = agents.filter(a => a.agent_type === 'mikrotik' || !a.agent_type);
+        
+        const select = document.getElementById('editArpGatewayAgentId');
+        if (!select) return;
+        select.innerHTML = '<option value="">-- Nessuno --</option>';
+        mikrotikAgents.forEach(agent => {
+            const option = document.createElement('option');
+            option.value = agent.id;
+            option.textContent = `${agent.name} (${agent.address})`;
+            if (selectedMikrotikId && agent.id === selectedMikrotikId) {
+                option.selected = true;
+            }
+            select.appendChild(option);
+        });
+    } catch (e) {
+        console.error('Error loading ARP gateway options:', e);
+    }
+}
 </script>
 {% endblock %}
 
