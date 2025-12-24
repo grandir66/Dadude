@@ -1659,10 +1659,193 @@ async function viewRecentCommits() {
     }
 }
 
+// Funzioni per nuovo agent
+function toggleNewAgentTypeFields() {
+    const agentType = document.getElementById('newAgentType').value;
+    const mikrotikFields = document.getElementById('newMikrotikFields');
+    const dockerFields = document.getElementById('newDockerFields');
+    
+    if (agentType === 'mikrotik') {
+        mikrotikFields.style.display = 'block';
+        dockerFields.style.display = 'none';
+        const usernameField = document.getElementById('newAgentUsername');
+        const passwordField = document.getElementById('newAgentPassword');
+        const tokenField = document.getElementById('newAgentToken');
+        if (usernameField) usernameField.required = true;
+        if (passwordField) passwordField.required = true;
+        if (tokenField) tokenField.required = false;
+    } else {
+        mikrotikFields.style.display = 'none';
+        dockerFields.style.display = 'block';
+        const usernameField = document.getElementById('newAgentUsername');
+        const passwordField = document.getElementById('newAgentPassword');
+        const tokenField = document.getElementById('newAgentToken');
+        if (usernameField) usernameField.required = false;
+        if (passwordField) passwordField.required = false;
+        if (tokenField) tokenField.required = true;
+    }
+    toggleNewConnectionFields();
+}
+
+function toggleNewConnectionFields() {
+    const connTypeEl = document.getElementById('newAgentConnType');
+    if (!connTypeEl) return;
+    const connType = connTypeEl.value;
+    const apiFields = document.getElementById('newApiFields');
+    const sshFields = document.getElementById('newSshFields');
+    
+    if (connType === 'api') {
+        if (apiFields) apiFields.style.display = 'block';
+        if (sshFields) sshFields.style.display = 'none';
+    } else if (connType === 'ssh') {
+        if (apiFields) apiFields.style.display = 'none';
+        if (sshFields) sshFields.style.display = 'block';
+    } else {
+        if (apiFields) apiFields.style.display = 'block';
+        if (sshFields) sshFields.style.display = 'block';
+    }
+}
+
+function generateNewAgentToken() {
+    const tokenField = document.getElementById('newAgentToken');
+    if (!tokenField) return;
+    const token = Array.from(crypto.getRandomValues(new Uint8Array(32)))
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('');
+    tokenField.value = token;
+}
+
+function resetNewAgentForm() {
+    const form = document.getElementById('newAgentForm');
+    if (form) form.reset();
+    toggleNewAgentTypeFields();
+}
+
+// Carica clienti nel dropdown
+async function loadCustomersForNewAgent() {
+    try {
+        const response = await fetch('/api/v1/customers?active_only=true&limit=500');
+        const data = await response.json();
+        const customers = Array.isArray(data) ? data : (data.customers || []);
+        
+        const select = document.getElementById('newAgentCustomerId');
+        if (!select) return;
+        select.innerHTML = '<option value="">-- Seleziona Cliente --</option>';
+        customers.forEach(customer => {
+            const option = document.createElement('option');
+            option.value = customer.id;
+            option.textContent = `${customer.name} (${customer.code})`;
+            select.appendChild(option);
+        });
+    } catch (e) {
+        console.error('Error loading customers:', e);
+    }
+}
+
+// Gestione submit nuovo agent
+const newAgentForm = document.getElementById('newAgentForm');
+if (newAgentForm) {
+    newAgentForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const formData = new FormData(e.target);
+        const data = Object.fromEntries(formData.entries());
+        
+        // Validazione
+        if (!data.customer_id) {
+            if (window.toastError) {
+                window.toastError('⚠️ Seleziona un cliente');
+            } else {
+                alert('⚠️ Seleziona un cliente');
+            }
+            return;
+        }
+        
+        if (data.agent_type === 'mikrotik') {
+            if (!data.username || !data.password) {
+                if (window.toastError) {
+                    window.toastError('⚠️ Username e password sono obbligatori per agent MikroTik');
+                } else {
+                    alert('⚠️ Username e password sono obbligatori per agent MikroTik');
+                }
+                return;
+            }
+        } else if (data.agent_type === 'docker') {
+            if (!data.agent_token) {
+                if (window.toastError) {
+                    window.toastError('⚠️ Token è obbligatorio per agent Docker');
+                } else {
+                    alert('⚠️ Token è obbligatorio per agent Docker');
+                }
+                return;
+            }
+        }
+        
+        // Converti valori numerici
+        if (data.port) data.port = parseInt(data.port);
+        if (data.ssh_port) data.ssh_port = parseInt(data.ssh_port);
+        if (data.agent_api_port) data.agent_api_port = parseInt(data.agent_api_port);
+        if (data.use_ssl) data.use_ssl = true;
+        
+        // Rimuovi campi vuoti
+        Object.keys(data).forEach(key => {
+            if (data[key] === '' || data[key] === null) {
+                delete data[key];
+            }
+        });
+        
+        try {
+            const response = await fetch(`/api/v1/customers/${data.customer_id}/agents`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            
+            if (response.ok) {
+                const result = await response.json();
+                if (window.toastSuccess) {
+                    window.toastSuccess(`Agent "${data.name}" creato con successo!`);
+                } else {
+                    alert(`✅ Agent "${data.name}" creato con successo!`);
+                }
+                const modal = bootstrap.Modal.getInstance(document.getElementById('newAgentModal'));
+                if (modal) modal.hide();
+                resetNewAgentForm();
+                loadAgents();
+            } else {
+                const error = await response.json();
+                const errorMsg = error.detail || error.error || 'Errore creazione agent';
+                if (window.toastError) {
+                    window.toastError('Errore: ' + errorMsg);
+                } else {
+                    alert('❌ Errore: ' + errorMsg);
+                }
+            }
+        } catch (e) {
+            const errorMsg = e.message || 'Errore di rete';
+            if (window.toastError) {
+                window.toastError('Errore: ' + errorMsg);
+            } else {
+                alert('❌ Errore: ' + errorMsg);
+            }
+        }
+    });
+}
+
 // Carica al load
 document.addEventListener('DOMContentLoaded', () => {
     loadAgents();
     loadServerVersion();
+    loadCustomersForNewAgent();
+    
+    // Carica clienti quando si apre il modal
+    const newAgentModal = document.getElementById('newAgentModal');
+    if (newAgentModal) {
+        newAgentModal.addEventListener('show.bs.modal', () => {
+            loadCustomersForNewAgent();
+            toggleNewAgentTypeFields();
+        });
+    }
 });
 </script>
 {% endblock %}
