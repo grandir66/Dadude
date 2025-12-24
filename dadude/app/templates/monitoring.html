@@ -322,22 +322,32 @@ function initMonitoringApp() {
                             'netwatch': 'MikroTik Netwatch',
                             'agent': 'Agent Remoto'
                         };
-                        const typeLabel = monitoringTypeLabels[config.monitoring_type] || config.monitoring_type;
-                        let message = `Monitoraggio configurato: ${typeLabel}`;
-                        if (config.monitoring_port) {
-                            message += ` - Porta ${config.monitoring_port}`;
+                        const typeLabel = monitoringTypeLabels[result.monitoring_type || config.monitoring_type] || (result.monitoring_type || config.monitoring_type);
+                        let message = `✅ Monitoraggio configurato: ${typeLabel}`;
+                        
+                        if (result.monitoring_port || config.monitoring_port) {
+                            message += ` - Porta ${result.monitoring_port || config.monitoring_port}`;
                         }
-                        if (config.monitoring_agent_id) {
+                        
+                        if (result.monitoring_agent_id || config.monitoring_agent_id) {
                             const agentSelect = document.getElementById('monitorAgentId');
                             const selectedOption = agentSelect.options[agentSelect.selectedIndex];
-                            if (selectedOption) {
+                            if (selectedOption && selectedOption.value) {
                                 message += ` - Agente: ${selectedOption.text}`;
                             }
                         }
                         
+                        // Aggiungi informazioni su configurazione Netwatch o Agent
+                        if (result.netwatch_configured) {
+                            message += ' - Netwatch configurato su MikroTik';
+                        }
+                        if (result.agent_configured) {
+                            message += ' - Verifica agent avviata';
+                        }
+                        
                         window.toastSuccess(message);
                         
-                        // Ricarica lista dispositivi dopo un breve delay
+                        // Ricarica lista dispositivi dopo un breve delay per mostrare le modifiche
                         setTimeout(() => {
                             loadMonitoredDevices();
                         }, 500);
