@@ -59,7 +59,9 @@
 <!-- Tabella Device Monitorati -->
 <div id="monitoring-app">
     <div v-if="devices.length === 0" class="alert alert-info">
-        <i class="bi bi-info-circle"></i> Seleziona un cliente per visualizzare i dispositivi monitorati.
+        <i class="bi bi-info-circle"></i> 
+        <span v-if="!showAll">Nessun dispositivo monitorato trovato. {% if not selected_customer_id %}Seleziona un cliente o attiva "Mostra tutti" per vedere tutti i dispositivi.{% else %}Attiva "Mostra tutti" per vedere anche i dispositivi non monitorati.{% endif %}</span>
+        <span v-else>Nessun dispositivo trovato con i filtri selezionati.</span>
     </div>
     
     <data-table
