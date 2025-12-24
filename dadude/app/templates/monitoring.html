@@ -60,8 +60,14 @@
 <div id="monitoring-app">
     <div v-if="devices.length === 0" class="alert alert-info">
         <i class="bi bi-info-circle"></i> 
-        <span v-if="!showAll">Nessun dispositivo monitorato trovato. {% if not selected_customer_id %}Seleziona un cliente o attiva "Mostra tutti" per vedere tutti i dispositivi.{% else %}Attiva "Mostra tutti" per vedere anche i dispositivi non monitorati.{% endif %}</span>
-        <span v-else>Nessun dispositivo trovato con i filtri selezionati.</span>
+        <div>
+            <strong>Nessun dispositivo trovato</strong>
+            <ul class="mt-2 mb-0">
+                <li v-if="!showAll">Attiva "Mostra tutti" per vedere anche i dispositivi non monitorati</li>
+                <li v-if="!selectedCustomerId">Seleziona un cliente per filtrare i dispositivi</li>
+                <li>Verifica i filtri applicati (Tipo Monitoraggio, Stato)</li>
+            </ul>
+        </div>
     </div>
     
     <data-table
@@ -218,6 +224,8 @@ function initMonitoringApp() {
         data() {
             return {
                 devices: devicesData || [],
+                showAll: {{ 'true' if show_all else 'false' }},
+                selectedCustomerId: {{ ('"' + selected_customer_id + '"') if selected_customer_id else 'null' }},
                 columns: [
                     { key: 'name', label: 'Nome', field: 'name', sortable: true },
                     { key: 'hostname', label: 'Hostname', field: 'hostname', sortable: true },

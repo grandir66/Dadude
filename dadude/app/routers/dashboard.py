@@ -260,6 +260,10 @@ async def monitoring_page(request: Request, customer_id: Optional[str] = None, s
         if customer_id:
             query = query.filter(InventoryDevice.customer_id == customer_id)
         
+        # Conta totale device prima dei filtri (per debug)
+        total_before_filters = query.count()
+        logger.debug(f"Total devices before filters: {total_before_filters}")
+        
         # Se show_all=False, mostra solo device monitorati o con monitoraggio configurato
         # Gestisce anche valori NULL per monitoring_type
         if not show_all:
@@ -273,12 +277,16 @@ async def monitoring_page(request: Request, customer_id: Optional[str] = None, s
                     )
                 )
             )
+            logger.debug(f"Applied monitoring filter (show_all=False)")
         
         # Filtra per status se specificato
         if status:
             query = query.filter(InventoryDevice.status == status)
+            logger.debug(f"Applied status filter: {status}")
         
         devices_raw = query.order_by(InventoryDevice.name).all()
+        
+        logger.info(f"Monitoring page: Found {len(devices_raw)} devices (total before filters: {total_before_filters}, customer_id: {customer_id}, show_all: {show_all}, status: {status})")
         
         for dev in devices_raw:
             devices.append({
