@@ -361,6 +361,9 @@
                         <td>
                             {% set agent_type = agent.agent_type if agent.agent_type else 'mikrotik' %}
                             <div class="btn-group btn-group-sm" role="group">
+                                <button class="btn btn-outline-secondary" onclick="editAgent('{{ agent.id }}')" title="Modifica sonda">
+                                    <i class="bi bi-pencil"></i>
+                                </button>
                                 <button class="btn btn-outline-primary" onclick="testAgent('{{ agent.id }}')" title="Test connessione">
                                     <i class="bi bi-wifi"></i>
                                 </button>
