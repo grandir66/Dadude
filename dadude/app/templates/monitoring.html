@@ -424,6 +424,13 @@ function initMonitoringApp() {
         },
         mounted() {
             document.getElementById('monitoringConfigForm').addEventListener('submit', this.saveMonitoringConfig);
+            // Assicurati che i campi siano mostrati/nascosti correttamente all'apertura del modal
+            const monitorTypeSelect = document.getElementById('monitorType');
+            if (monitorTypeSelect) {
+                monitorTypeSelect.addEventListener('change', () => {
+                    this.toggleMonitoringFields();
+                });
+            }
         }
     }).mount('#monitoring-app');
     
