@@ -1713,6 +1713,11 @@ async def configure_device_monitoring(device_id: str, config: dict):
         interval = config.get("interval", 30)
         customer_id = config.get("customer_id", device.customer_id)
         
+        # Se customer_id è fornito nel config e il device non ne ha uno, o se è diverso, aggiornalo
+        if customer_id and (not device.customer_id or device.customer_id != customer_id):
+            device.customer_id = customer_id
+            logger.info(f"Aggiornato customer_id per device {device_id}: {customer_id}")
+        
         # Validazione
         if monitoring_type == "tcp" and not monitoring_port:
             raise HTTPException(status_code=400, detail="monitoring_port è richiesto per monitoraggio TCP")
