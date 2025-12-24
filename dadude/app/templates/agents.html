@@ -258,6 +258,55 @@
                                 <small class="text-muted">⚠️ <strong>Importante:</strong> Lascia vuoto per mantenere la password esistente. Inserisci nuova password solo per cambiarla.</small>
                             </div>
                         </div>
+                        <div class="row">
+                            <div class="col-md-12 mb-3">
+                                <label class="form-label">Agent Docker Remoto (opzionale)</label>
+                                <select class="form-select" id="editDockerAgentId" name="docker_agent_id">
+                                    <option value="">-- Nessuno (comandi locali) --</option>
+                                </select>
+                                <small class="text-muted">Seleziona un agent Docker per eseguire comandi remoti su questo MikroTik</small>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Configurazione ARP Gateway per Docker Agent -->
+                    <div id="editDockerArpConfig" style="display: none;">
+                        <hr>
+                        <h6 class="text-muted mb-3">Configurazione ARP Gateway</h6>
+                        <div class="alert alert-info">
+                            <i class="bi bi-info-circle"></i> 
+                            Configura un gateway MikroTik o SNMP per la risoluzione ARP durante le scansioni di rete.
+                        </div>
+                        <div class="row">
+                            <div class="col-md-12 mb-3">
+                                <label class="form-label">Gateway MikroTik per ARP</label>
+                                <select class="form-select" id="editArpGatewayAgentId" name="arp_gateway_agent_id">
+                                    <option value="">-- Nessuno --</option>
+                                </select>
+                                <small class="text-muted">Seleziona un agent MikroTik da usare per query ARP</small>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-12 mb-3">
+                                <label class="form-label">Oppure: Gateway SNMP per ARP</label>
+                            </div>
+                            <div class="col-md-4 mb-3">
+                                <label class="form-label">Indirizzo IP</label>
+                                <input type="text" class="form-control" id="editArpGatewaySnmpAddress" name="arp_gateway_snmp_address" placeholder="192.168.1.1">
+                            </div>
+                            <div class="col-md-4 mb-3">
+                                <label class="form-label">Community</label>
+                                <input type="text" class="form-control" id="editArpGatewaySnmpCommunity" name="arp_gateway_snmp_community" placeholder="public">
+                            </div>
+                            <div class="col-md-4 mb-3">
+                                <label class="form-label">Versione SNMP</label>
+                                <select class="form-select" id="editArpGatewaySnmpVersion" name="arp_gateway_snmp_version">
+                                    <option value="2c">2c</option>
+                                    <option value="1">1</option>
+                                    <option value="3">3</option>
+                                </select>
+                            </div>
+                        </div>
                     </div>
                     <div class="row">
                         <div class="col-md-6 mb-3">

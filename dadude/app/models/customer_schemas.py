@@ -491,6 +491,15 @@ class AgentAssignmentBase(BaseModel):
     default_scan_type: str = "ping"
     auto_add_devices: bool = False
     
+    # Per agent MikroTik: Docker agent remoto per eseguire comandi
+    docker_agent_id: Optional[str] = Field(None, description="ID agent Docker per eseguire comandi remoti")
+    
+    # Per agent Docker: Gateway per risoluzione ARP
+    arp_gateway_agent_id: Optional[str] = Field(None, description="ID agent MikroTik per ARP resolution")
+    arp_gateway_snmp_address: Optional[str] = Field(None, description="IP device SNMP per ARP resolution")
+    arp_gateway_snmp_community: Optional[str] = Field(None, description="SNMP community per ARP")
+    arp_gateway_snmp_version: Optional[str] = Field(None, description="SNMP version (1, 2c, 3)")
+    
     description: Optional[str] = None
     notes: Optional[str] = None
     active: bool = True

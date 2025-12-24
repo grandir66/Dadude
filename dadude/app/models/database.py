@@ -378,6 +378,15 @@ class AgentAssignment(Base):
     # Reti assegnate per scansione (JSON array di network_id)
     assigned_networks = Column(JSON, nullable=True)
     
+    # Per agent MikroTik: Docker agent remoto per eseguire comandi
+    docker_agent_id = Column(String(8), ForeignKey("agent_assignments.id"), nullable=True)
+    
+    # Per agent Docker: Gateway MikroTik o SNMP per risoluzione ARP
+    arp_gateway_agent_id = Column(String(8), ForeignKey("agent_assignments.id"), nullable=True)  # MikroTik agent per ARP
+    arp_gateway_snmp_address = Column(String(50), nullable=True)  # IP device SNMP per ARP (alternativa a arp_gateway_agent_id)
+    arp_gateway_snmp_community = Column(String(100), nullable=True)  # SNMP community
+    arp_gateway_snmp_version = Column(String(10), nullable=True)  # SNMP version (1, 2c, 3)
+    
     description = Column(Text, nullable=True)
     notes = Column(Text, nullable=True)
     active = Column(Boolean, default=True)
