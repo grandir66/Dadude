@@ -1503,10 +1503,14 @@ class CustomerService:
                     ).count()
                     
                     # Conta quanti device la usano direttamente
-                    from ..models.inventory import InventoryDevice
-                    device_count = session.query(InventoryDevice).filter(
-                        InventoryDevice.credential_id == cred.id
-                    ).count()
+                    try:
+                        from ..models.inventory import InventoryDevice
+                        device_count = session.query(InventoryDevice).filter(
+                            InventoryDevice.credential_id == cred.id
+                        ).count()
+                    except (ImportError, AttributeError) as e:
+                        logger.warning(f"Could not import InventoryDevice for usage count: {e}")
+                        device_count = 0
                     
                     cred_data["customer_count"] = customer_count
                     cred_data["device_count"] = device_count
