@@ -181,6 +181,24 @@
 // Dati devices passati dal server
 const devicesData = {{ devices | tojson }} || [];
 
+// Funzione per caricare device monitorati (deve essere globale per essere chiamata da onchange)
+async function loadMonitoredDevices() {
+    const customerId = document.getElementById('customerFilter')?.value || '';
+    const monitoringType = document.getElementById('monitoringTypeFilter')?.value || '';
+    const status = document.getElementById('statusFilter')?.value || '';
+    const showAll = document.getElementById('showAllDevices')?.checked || false;
+    
+    // Costruisci URL con parametri per ricaricare la pagina
+    const params = new URLSearchParams();
+    if (customerId) params.append('customer_id', customerId);
+    if (monitoringType) params.append('monitoring_type', monitoringType);
+    if (status) params.append('status', status);
+    if (showAll) params.append('show_all', 'true');
+    
+    // Ricarica pagina con nuovi filtri (più semplice e affidabile)
+    window.location.href = `/monitoring?${params.toString()}`;
+}
+
 // Funzione globale per toggleMonitoringFields (fallback se Vue non è disponibile)
 function toggleMonitoringFieldsGlobal() {
     const type = document.getElementById('monitorType')?.value;
