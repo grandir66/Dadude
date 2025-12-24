@@ -165,6 +165,11 @@ let currentFilters = {
 
 async function loadFiles(path = '') {
     const tbody = document.getElementById('filesTable');
+    if (!tbody) {
+        console.error('filesTable element not found');
+        return;
+    }
+    
     tbody.innerHTML = '<tr><td colspan="6" class="text-center"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">Caricamento...</span></div></td></tr>';
 
     const params = new URLSearchParams();
@@ -174,19 +179,35 @@ async function loadFiles(path = '') {
 
     try {
         const response = await fetch(`/api/v1/device-backup/files/list?${params.toString()}`);
+        
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ detail: `HTTP ${response.status}: ${response.statusText}` }));
+            throw new Error(errorData.detail || errorData.error || `HTTP ${response.status}`);
+        }
+        
         const data = await response.json();
 
         if (!data.success) {
             throw new Error(data.error || 'Errore caricamento file');
         }
 
-        currentPath = data.path;
-        document.getElementById('currentPath').value = currentPath;
+        currentPath = data.path || '';
+        const pathInput = document.getElementById('currentPath');
+        if (pathInput) {
+            pathInput.value = currentPath;
+        }
 
         updateBreadcrumb(currentPath);
-        renderFiles(data.items);
+        renderFiles(data.items || []);
     } catch (e) {
-        tbody.innerHTML = `<tr><td colspan="6" class="text-center text-danger">Errore: ${e.message}</td></tr>`;
+        console.error('Error loading files:', e);
+        tbody.innerHTML = `<tr><td colspan="6" class="text-center text-danger">
+            <i class="bi bi-exclamation-triangle"></i> Errore: ${escapeHtml(e.message || 'Errore sconosciuto')}
+            <br><small>Verifica che il server sia raggiungibile e che la directory backup esista.</small>
+        </td></tr>`;
+        if (window.toastError) {
+            window.toastError('Errore caricamento file backup: ' + e.message);
+        }
     }
 }
 
