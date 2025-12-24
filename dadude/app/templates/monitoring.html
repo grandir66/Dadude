@@ -157,6 +157,27 @@
 // Dati devices passati dal server
 const devicesData = {{ devices | tojson }} || [];
 
+// Funzione globale per toggleMonitoringFields (fallback se Vue non è disponibile)
+function toggleMonitoringFieldsGlobal() {
+    const type = document.getElementById('monitorType')?.value;
+    const tcpPortField = document.getElementById('tcpPortField');
+    const agentSelectField = document.getElementById('agentSelectField');
+    const monitorPort = document.getElementById('monitorPort');
+    
+    if (tcpPortField) {
+        tcpPortField.style.display = (type === 'tcp') ? 'block' : 'none';
+        if (monitorPort) {
+            monitorPort.required = (type === 'tcp');
+            if (type !== 'tcp' && monitorPort.value) {
+                monitorPort.value = '';
+            }
+        }
+    }
+    if (agentSelectField) {
+        agentSelectField.style.display = (type === 'netwatch' || type === 'agent') ? 'block' : 'none';
+    }
+}
+
 // App Vue per monitoring
 let monitoringAppInstance = null;
 
@@ -260,9 +281,23 @@ function initMonitoringApp() {
                 }
             },
             toggleMonitoringFields() {
-                const type = document.getElementById('monitorType').value;
-                document.getElementById('tcpPortField').style.display = (type === 'tcp') ? 'block' : 'none';
-                document.getElementById('agentSelectField').style.display = (type === 'netwatch' || type === 'agent') ? 'block' : 'none';
+                const type = document.getElementById('monitorType')?.value;
+                const tcpPortField = document.getElementById('tcpPortField');
+                const agentSelectField = document.getElementById('agentSelectField');
+                const monitorPort = document.getElementById('monitorPort');
+                
+                if (tcpPortField) {
+                    tcpPortField.style.display = (type === 'tcp') ? 'block' : 'none';
+                    if (monitorPort) {
+                        monitorPort.required = (type === 'tcp');
+                        if (type !== 'tcp' && monitorPort.value) {
+                            monitorPort.value = '';
+                        }
+                    }
+                }
+                if (agentSelectField) {
+                    agentSelectField.style.display = (type === 'netwatch' || type === 'agent') ? 'block' : 'none';
+                }
             },
             async saveMonitoringConfig(event) {
                 event.preventDefault();
@@ -285,9 +320,31 @@ function initMonitoringApp() {
                     config.customer_id = customerId;
                 }
                 
-                if (config.monitoring_port) {
+                // Validazione porta TCP
+                if (config.monitoring_type === 'tcp') {
+                    if (!config.monitoring_port || !config.monitoring_port.toString().trim()) {
+                        if (window.toastError) {
+                            window.toastError('⚠️ La porta TCP è obbligatoria per il monitoraggio TCP');
+                        } else {
+                            alert('⚠️ La porta TCP è obbligatoria per il monitoraggio TCP');
+                        }
+                        submitButton.disabled = false;
+                        submitButton.innerHTML = originalButtonText;
+                        return;
+                    }
                     config.monitoring_port = parseInt(config.monitoring_port);
+                    if (isNaN(config.monitoring_port) || config.monitoring_port < 1 || config.monitoring_port > 65535) {
+                        if (window.toastError) {
+                            window.toastError('⚠️ La porta TCP deve essere un numero tra 1 e 65535');
+                        } else {
+                            alert('⚠️ La porta TCP deve essere un numero tra 1 e 65535');
+                        }
+                        submitButton.disabled = false;
+                        submitButton.innerHTML = originalButtonText;
+                        return;
+                    }
                 } else {
+                    // Rimuovi porta se non è TCP
                     delete config.monitoring_port;
                 }
                 
