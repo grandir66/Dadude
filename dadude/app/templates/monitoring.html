@@ -268,10 +268,24 @@ function initMonitoringApp() {
                 const formData = new FormData(event.target);
                 const config = Object.fromEntries(formData.entries());
                 
+                // Ottieni customer_id dal device o dal filtro
+                const deviceId = config.device_id;
+                const device = this.devices.find(d => d.id === deviceId);
+                const customerId = device?.customer_id || document.getElementById('customerFilter').value;
+                
+                if (customerId) {
+                    config.customer_id = customerId;
+                }
+                
                 if (config.monitoring_port) {
                     config.monitoring_port = parseInt(config.monitoring_port);
                 } else {
                     delete config.monitoring_port;
+                }
+                
+                // Se monitoring_agent_id è vuoto, rimuovilo
+                if (!config.monitoring_agent_id || config.monitoring_agent_id === '') {
+                    delete config.monitoring_agent_id;
                 }
                 
                 try {
@@ -280,6 +294,11 @@ function initMonitoringApp() {
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(config)
                     });
+                    
+                    if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({ detail: `HTTP ${response.status}: ${response.statusText}` }));
+                        throw new Error(errorData.detail || errorData.error || `Errore HTTP ${response.status}`);
+                    }
                     
                     const result = await response.json();
                     if (result.success) {
@@ -290,6 +309,7 @@ function initMonitoringApp() {
                         window.toastError('Errore salvataggio monitoraggio: ' + (result.error || 'Errore sconosciuto'));
                     }
                 } catch (e) {
+                    console.error('Error saving monitoring config:', e);
                     window.toastError('Errore di rete: ' + e.message);
                 }
             }
@@ -340,8 +360,13 @@ async function loadMonitoredDevices() {
         const data = await response.json();
         
         if (window.monitoringApp && window.monitoringApp.$data) {
-            window.monitoringApp.$data.devices = data.devices || [];
-            console.log('Loaded', data.devices?.length || 0, 'monitored devices');
+            // Assicurati che ogni device abbia customer_id per il caricamento agenti
+            const devices = (data.devices || []).map(device => ({
+                ...device,
+                customer_id: device.customer_id || customerId
+            }));
+            window.monitoringApp.$data.devices = devices;
+            console.log('Loaded', devices.length, 'monitored devices');
         } else {
             console.warn('Monitoring app not initialized, reloading page');
             // Ricarica pagina se app non ancora montata
