@@ -205,6 +205,7 @@ app.include_router(import_export.router, prefix="/api/v1")
 app.include_router(discovery.router, prefix="/api/v1")
 app.include_router(agents.router, prefix="/api/v1")
 app.include_router(device_backup.router, prefix="/api/v1")  # Device Backup Module
+app.include_router(cleanup.router, prefix="/api/v1")  # Cleanup Module
 
 # Dashboard (senza prefisso API)
 app.include_router(dashboard.router)
