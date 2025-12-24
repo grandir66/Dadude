@@ -27,7 +27,7 @@ try:
 except ImportError:
     BACKUP_SCHEDULER_AVAILABLE = False
     BackupScheduler = None
-from .routers import devices, probes, alerts, webhook, system, customers, import_export, dashboard, discovery, mikrotik, inventory, agents, device_backup
+from .routers import devices, probes, alerts, webhook, system, customers, import_export, dashboard, discovery, mikrotik, inventory, agents, device_backup, cleanup
 
 
 # Configura logging

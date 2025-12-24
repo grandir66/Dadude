@@ -234,8 +234,8 @@ async def dashboard(request: Request):
 
 
 @router.get("/monitoring", response_class=HTMLResponse)
-async def monitoring_page(request: Request, customer_id: Optional[str] = None):
-    """Pagina device monitorati"""
+async def monitoring_page(request: Request, customer_id: Optional[str] = None, status: Optional[str] = None, show_all: bool = False):
+    """Pagina unificata per monitoraggio dispositivi - mostra sia device da Dude che da inventory"""
     from ..models.database import init_db, get_session
     from ..models.inventory import InventoryDevice
     from ..config import get_settings
@@ -244,43 +244,56 @@ async def monitoring_page(request: Request, customer_id: Optional[str] = None):
     customers = customer_service.list_customers(active_only=True, limit=500)
     customers_dicts = [c.model_dump(mode='json') if hasattr(c, 'model_dump') else c for c in customers]
     
-    # Carica device monitorati
+    # Carica device dall'inventory database
     devices = []
-    if customer_id:
-        settings = get_settings()
-        db_url = settings.database_url
-        engine = init_db(db_url)
-        session = get_session(engine)
-        try:
-            query = session.query(InventoryDevice).filter(
-                InventoryDevice.active == True,
-                InventoryDevice.customer_id == customer_id
-            ).filter(
+    settings = get_settings()
+    db_url = settings.database_url
+    engine = init_db(db_url)
+    session = get_session(engine)
+    
+    try:
+        query = session.query(InventoryDevice).filter(
+            InventoryDevice.active == True
+        )
+        
+        # Filtra per cliente se specificato
+        if customer_id:
+            query = query.filter(InventoryDevice.customer_id == customer_id)
+        
+        # Se show_all=False, mostra solo device monitorati o con monitoraggio configurato
+        if not show_all:
+            query = query.filter(
                 (InventoryDevice.monitored == True) | 
                 (InventoryDevice.monitoring_type != "none")
             )
-            devices_raw = query.order_by(InventoryDevice.name).all()
-            
-            for dev in devices_raw:
-                devices.append({
-                    "id": dev.id,
-                    "name": dev.name,
-                    "hostname": dev.hostname,
-                    "primary_ip": dev.primary_ip,
-                    "primary_mac": dev.primary_mac,
-                    "device_type": dev.device_type,
-                    "category": dev.category,
-                    "status": dev.status,
-                    "monitored": dev.monitored,
-                    "monitoring_type": dev.monitoring_type or "none",
-                    "monitoring_port": dev.monitoring_port,
-                    "monitoring_agent_id": dev.monitoring_agent_id,
-                    "netwatch_id": dev.netwatch_id,
-                    "last_check": dev.last_check.isoformat() if dev.last_check else None,
-                    "last_seen": dev.last_seen.isoformat() if dev.last_seen else None,
-                })
-        finally:
-            session.close()
+        
+        # Filtra per status se specificato
+        if status:
+            query = query.filter(InventoryDevice.status == status)
+        
+        devices_raw = query.order_by(InventoryDevice.name).all()
+        
+        for dev in devices_raw:
+            devices.append({
+                "id": dev.id,
+                "name": dev.name,
+                "hostname": dev.hostname,
+                "primary_ip": dev.primary_ip,
+                "primary_mac": dev.primary_mac or dev.mac_address,
+                "device_type": dev.device_type,
+                "category": dev.category,
+                "customer_id": dev.customer_id,
+                "status": dev.status or "unknown",
+                "monitored": dev.monitored,
+                "monitoring_type": dev.monitoring_type or "none",
+                "monitoring_port": dev.monitoring_port,
+                "monitoring_agent_id": dev.monitoring_agent_id,
+                "netwatch_id": dev.netwatch_id,
+                "last_check": dev.last_check.isoformat() if dev.last_check else None,
+                "last_seen": dev.last_seen.isoformat() if dev.last_seen else None,
+            })
+    finally:
+        session.close()
     
     return templates.TemplateResponse("monitoring.html", {
         "request": request,
@@ -288,6 +301,8 @@ async def monitoring_page(request: Request, customer_id: Optional[str] = None):
         "title": "Monitoraggio Dispositivi",
         "customers": customers_dicts,
         "selected_customer_id": customer_id,
+        "status_filter": status,
+        "show_all": show_all,
         "devices": devices,
     })
 

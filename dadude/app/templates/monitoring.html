@@ -14,7 +14,7 @@
 <div class="card mb-4">
     <div class="card-body">
         <form id="filterForm" class="row g-3">
-            <div class="col-md-6">
+            <div class="col-md-4">
                 <label class="form-label">Cliente</label>
                 <select class="form-select" id="customerFilter" name="customer_id" onchange="loadMonitoredDevices()">
                     <option value="">-- Tutti i clienti --</option>
@@ -25,7 +25,7 @@
                     {% endfor %}
                 </select>
             </div>
-            <div class="col-md-6">
+            <div class="col-md-3">
                 <label class="form-label">Tipo Monitoraggio</label>
                 <select class="form-select" id="monitoringTypeFilter" name="monitoring_type" onchange="loadMonitoredDevices()">
                     <option value="">Tutti</option>
@@ -35,6 +35,22 @@
                     <option value="netwatch">MikroTik Netwatch</option>
                     <option value="agent">Agent Remoto</option>
                 </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Stato</label>
+                <select class="form-select" id="statusFilter" name="status" onchange="loadMonitoredDevices()">
+                    <option value="">Tutti</option>
+                    <option value="up" {% if status_filter == 'up' %}selected{% endif %}>UP</option>
+                    <option value="down" {% if status_filter == 'down' %}selected{% endif %}>DOWN</option>
+                    <option value="unknown" {% if status_filter == 'unknown' %}selected{% endif %}>UNKNOWN</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">&nbsp;</label>
+                <div class="form-check form-switch mt-2">
+                    <input class="form-check-input" type="checkbox" id="showAllDevices" {% if show_all %}checked{% endif %} onchange="loadMonitoredDevices()">
+                    <label class="form-check-label" for="showAllDevices">Mostra tutti</label>
+                </div>
             </div>
         </form>
     </div>
