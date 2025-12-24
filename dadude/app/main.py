@@ -86,6 +86,12 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"Backup Scheduler not started: {e}")
     
+    # Avvia Device Monitoring Service
+    from ..services.device_monitoring_service import get_monitoring_service
+    monitoring_service = get_monitoring_service()
+    monitoring_service.start()
+    logger.info("Device Monitoring Service started")
+    
     # Connetti a Dude Server (opzionale)
     dude = get_dude_service()
     if dude.connect():
@@ -105,6 +111,13 @@ async def lifespan(app: FastAPI):
     yield
     
     # Shutdown
+    # Ferma monitoring service
+    try:
+        monitoring_service.stop()
+        logger.info("Device Monitoring Service stopped")
+    except Exception as e:
+        logger.warning(f"Error stopping monitoring service: {e}")
+    
     logger.info("Shutting down DaDude...")
 
     # Ferma Backup Scheduler (se attivo)

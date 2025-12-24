@@ -1756,6 +1756,36 @@ async def configure_device_monitoring(device_id: str, config: dict):
             device.monitoring_type = "none"
             device.monitoring_agent_id = None
             device.netwatch_id = None
+            device.monitoring_port = None
+            
+        elif monitoring_type == "icmp":
+            # Monitoraggio ICMP (Ping)
+            device.monitored = True
+            device.monitoring_type = "icmp"
+            device.monitoring_port = None  # ICMP non usa porta
+            # Se c'è un agent specificato, usalo, altrimenti None (monitoraggio locale)
+            if monitoring_agent_id:
+                device.monitoring_agent_id = monitoring_agent_id
+            else:
+                device.monitoring_agent_id = None
+            device.netwatch_id = None
+            logger.info(f"ICMP monitoring configurato per {device.primary_ip}")
+            
+        elif monitoring_type == "tcp":
+            # Monitoraggio TCP (Porta)
+            if not monitoring_port:
+                raise HTTPException(status_code=400, detail="monitoring_port è richiesto per monitoraggio TCP")
+            
+            device.monitored = True
+            device.monitoring_type = "tcp"
+            device.monitoring_port = monitoring_port
+            # Se c'è un agent specificato, usalo, altrimenti None (monitoraggio locale)
+            if monitoring_agent_id:
+                device.monitoring_agent_id = monitoring_agent_id
+            else:
+                device.monitoring_agent_id = None
+            device.netwatch_id = None
+            logger.info(f"TCP monitoring configurato per {device.primary_ip}:{monitoring_port}")
             
         elif monitoring_type == "netwatch":
             # Configura Netwatch su MikroTik
@@ -1831,11 +1861,26 @@ async def configure_device_monitoring(device_id: str, config: dict):
             device.monitored = True
             device.monitoring_type = "agent"
             device.monitoring_agent_id = docker_agent.id
+            # Per agent monitoring, monitoring_port può essere specificato per TCP check
+            if monitoring_port:
+                device.monitoring_port = monitoring_port
+            else:
+                device.monitoring_port = None  # Default ICMP per agent
+            device.netwatch_id = None
             result["agent_configured"] = True
             result["agent_name"] = docker_agent.name
             logger.info(f"Agent monitoring configurato per {device.primary_ip} via {docker_agent.name}")
+        else:
+            # Tipo non riconosciuto
+            raise HTTPException(status_code=400, detail=f"Tipo monitoraggio non valido: {monitoring_type}")
+        
+        # Aggiorna timestamp
+        from datetime import datetime
+        device.last_check = None  # Reset last_check, sarà aggiornato dal monitoring service
+        device.last_seen = datetime.utcnow() if device.last_seen else None
         
         session.commit()
+        logger.info(f"Monitoring config salvato: device={device_id}, type={monitoring_type}, monitored={device.monitored}, port={device.monitoring_port}, agent_id={device.monitoring_agent_id}")
         return result
         
     except Exception as e:
