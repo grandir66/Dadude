@@ -234,11 +234,28 @@ async def dashboard(request: Request):
 
 
 @router.get("/monitoring", response_class=HTMLResponse)
-async def monitoring_page(request: Request, customer_id: Optional[str] = None, status: Optional[str] = None, show_all: bool = False):
+async def monitoring_page(
+    request: Request, 
+    customer_id: Optional[str] = None, 
+    status: Optional[str] = None, 
+    show_all: bool = False
+):
     """Pagina unificata per monitoraggio dispositivi - mostra sia device da Dude che da inventory"""
     from ..models.database import init_db, get_session
     from ..models.inventory import InventoryDevice
     from ..config import get_settings
+    from fastapi import Query
+    
+    # Estrai parametri dalla query string se non passati come parametri funzione
+    query_params = request.query_params
+    if not customer_id and "customer_id" in query_params:
+        customer_id = query_params.get("customer_id")
+    if not status and "status" in query_params:
+        status = query_params.get("status")
+    if "show_all" in query_params:
+        show_all = query_params.get("show_all", "false").lower() == "true"
+    
+    logger.info(f"Monitoring page request: customer_id={customer_id}, status={status}, show_all={show_all}")
     
     customer_service = get_customer_service()
     customers = customer_service.list_customers(active_only=True, limit=500)
@@ -264,6 +281,8 @@ async def monitoring_page(request: Request, customer_id: Optional[str] = None, s
         if customer_id:
             query = query.filter(InventoryDevice.customer_id == customer_id)
             logger.debug(f"Applied customer filter: {customer_id}")
+        else:
+            logger.debug("No customer_id filter applied")
         
         # Se show_all=False, mostra solo device monitorati o con monitoraggio configurato
         # Questo vale sia con che senza cliente selezionato
