@@ -245,6 +245,7 @@ function initMonitoringApp() {
                 showAll: {{ 'true' if show_all else 'false' }},
                 selectedCustomerId: {{ ('"' + selected_customer_id + '"') if selected_customer_id else 'null' }},
                 columns: [
+                    { key: 'customer_name', label: 'Cliente', field: 'customer_name', sortable: true },
                     { key: 'name', label: 'Nome', field: 'name', sortable: true },
                     { key: 'hostname', label: 'Hostname', field: 'hostname', sortable: true },
                     { key: 'primary_ip', label: 'IP', field: 'primary_ip', sortable: true },
