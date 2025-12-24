@@ -310,6 +310,9 @@ async def monitoring_page(request: Request, customer_id: Optional[str] = None, s
     finally:
         session.close()
     
+    # Debug: log anche il numero di device trovati
+    logger.info(f"Monitoring page rendered: {len(devices)} devices, customer_id={customer_id}, show_all={show_all}, status={status}")
+    
     return templates.TemplateResponse("monitoring.html", {
         "request": request,
         "page": "monitoring",
@@ -319,6 +322,7 @@ async def monitoring_page(request: Request, customer_id: Optional[str] = None, s
         "status_filter": status,
         "show_all": show_all,
         "devices": devices,
+        "devices_count": len(devices),  # Aggiunto per debug nel template
     })
 
 
