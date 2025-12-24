@@ -553,11 +553,17 @@ async function downloadBackupById(backupId) {
     window.open(`/api/v1/device-backup/download/${backupId}`, '_blank');
 }
 
-// Carica file all'avvio
-loadFiles();
-
-// Carica clienti all'avvio
-loadCustomers();
+// Carica file all'avvio quando il DOM è pronto
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function() {
+        loadFiles();
+        loadCustomers();
+    });
+} else {
+    // DOM già caricato
+    loadFiles();
+    loadCustomers();
+}
 </script>
 
 {% endblock %}
