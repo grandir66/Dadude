@@ -943,6 +943,7 @@ async def list_monitored_devices(
     Lista device con monitoraggio configurato o da configurare.
     """
     from ..models.database import init_db, get_session
+    from ..models.inventory import InventoryDevice
     from ..config import get_settings
     
     settings = get_settings()
