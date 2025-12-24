@@ -279,19 +279,6 @@ async def monitoring_page(request: Request, customer_id: Optional[str] = None, s
                 )
             )
             logger.debug(f"Applied monitoring filter (show_all=False, customer_id={customer_id})")
-        elif not show_all and not customer_id:
-            # Senza cliente selezionato, mostra comunque tutti i device monitorati di tutti i clienti
-            from sqlalchemy import or_, and_
-            query = query.filter(
-                or_(
-                    InventoryDevice.monitored == True,
-                    and_(
-                        InventoryDevice.monitoring_type.isnot(None),
-                        InventoryDevice.monitoring_type != "none"
-                    )
-                )
-            )
-            logger.debug(f"Applied monitoring filter (show_all=False, no customer_id - showing all monitored devices)")
         
         # Filtra per status se specificato
         if status:
