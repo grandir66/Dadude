@@ -306,8 +306,43 @@ function refreshFiles() {
     loadFiles(currentPath);
 }
 
-function downloadFile(path) {
-    window.open(`/api/v1/device-backup/files/download?path=${encodeURIComponent(path)}`, '_blank');
+async function downloadFile(path) {
+    if (!path) {
+        if (window.toastError) {
+            window.toastError('Path file non valido');
+        } else {
+            alert('Path file non valido');
+        }
+        return;
+    }
+    
+    try {
+        const url = `/api/v1/device-backup/files/download?path=${encodeURIComponent(path)}`;
+        
+        // Usa fetch per verificare che il file esista prima di aprire
+        const response = await fetch(url, { method: 'HEAD' });
+        
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ detail: `HTTP ${response.status}: ${response.statusText}` }));
+            throw new Error(errorData.detail || errorData.error || `Errore HTTP ${response.status}`);
+        }
+        
+        // Se il file esiste, apri il download
+        window.open(url, '_blank');
+        
+        if (window.toastSuccess) {
+            window.toastSuccess('Download avviato');
+        }
+    } catch (e) {
+        console.error('Error downloading file:', e);
+        const errorMessage = e.message || 'Errore sconosciuto';
+        
+        if (window.toastError) {
+            window.toastError('Errore download file: ' + errorMessage);
+        } else {
+            alert('Errore download file: ' + errorMessage);
+        }
+    }
 }
 
 async function deleteFile(path, name) {
