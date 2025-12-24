@@ -1926,7 +1926,7 @@ document.getElementById('editCredentialForm').addEventListener('submit', async (
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annulla</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" onclick="resetAgentForm()">Annulla</button>
                     <button type="submit" class="btn btn-primary">Crea Sonda</button>
                 </div>
             </form>
@@ -2182,11 +2182,16 @@ document.getElementById('assignDeviceForm').addEventListener('submit', async (e)
     else alert('Errore: ' + (await response.json()).detail);
 });
 
-// Form Nuova Sonda
+// Form Nuova Sonda / Modifica Sonda
 document.getElementById('newAgentForm').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const formData = new FormData(e.target);
+    const form = e.target;
+    const formData = new FormData(form);
     const data = Object.fromEntries(formData.entries());
+    
+    // Verifica se è modifica o creazione
+    const editAgentId = form.dataset.editAgentId;
+    const isEdit = !!editAgentId;
     
     // Converti checkbox
     if (e.target.use_ssl) data.use_ssl = e.target.use_ssl.checked;
@@ -2197,19 +2202,65 @@ document.getElementById('newAgentForm').addEventListener('submit', async (e) => 
     if (data.ssh_port) data.ssh_port = parseInt(data.ssh_port);
     if (data.agent_api_port) data.agent_api_port = parseInt(data.agent_api_port);
     
-    // Rimuovi campi vuoti
-    Object.keys(data).forEach(k => { if (data[k] === '' || data[k] === null) delete data[k]; });
+    // Per MikroTik: verifica che username e password siano presenti
+    if (data.agent_type === 'mikrotik' || !data.agent_type) {
+        if (!data.username || !data.username.trim()) {
+            alert('⚠️ Username è obbligatorio per agent MikroTik');
+            return;
+        }
+        if (!data.password || !data.password.trim()) {
+            alert('⚠️ Password è obbligatoria per agent MikroTik');
+            return;
+        }
+    }
     
-    console.log('Agent data:', data);
-    
-    const response = await fetch(`/api/v1/customers/${customerId}/agents`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
+    // Rimuovi campi vuoti (ma preserva password anche se vuota per modifica)
+    Object.keys(data).forEach(k => { 
+        if (data[k] === '' || data[k] === null) {
+            // Se è modifica e il campo è password vuoto, preservalo per indicare di mantenere quella esistente
+            if (isEdit && k === 'password' && !data[k]) {
+                delete data[k]; // Rimuovi per preservare password esistente
+            } else if (k !== 'password') {
+                delete data[k];
+            }
+        }
     });
     
-    if (response.ok) location.reload();
-    else alert('Errore: ' + (await response.json()).detail);
+    console.log('Agent data:', data, 'isEdit:', isEdit);
+    
+    let response;
+    if (isEdit) {
+        // Modifica agent esistente
+        response = await fetch(`/api/v1/customers/agents/${editAgentId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+    } else {
+        // Crea nuovo agent
+        response = await fetch(`/api/v1/customers/${customerId}/agents`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+    }
+    
+    if (response.ok) {
+        // Reset form e chiudi modal
+        form.reset();
+        delete form.dataset.editAgentId;
+        const modal = bootstrap.Modal.getInstance(document.getElementById('newAgentModal'));
+        if (modal) modal.hide();
+        // Reset titolo e bottone
+        const modalTitle = document.querySelector('#newAgentModal .modal-title');
+        const submitBtn = document.querySelector('#newAgentForm button[type="submit"]');
+        if (modalTitle) modalTitle.textContent = 'Nuova Sonda';
+        if (submitBtn) submitBtn.textContent = 'Crea Sonda';
+        location.reload();
+    } else {
+        const error = await response.json();
+        alert('Errore: ' + (error.detail || 'Errore sconosciuto'));
+    }
 });
 
 // Toggle campi in base al tipo Agent (MikroTik vs Docker)
@@ -2363,10 +2414,24 @@ async function autoDetectWithAgent(agentId) {
     }
 }
 
+// Reset form agent quando si chiude il modal
+function resetAgentForm() {
+    const form = document.getElementById('newAgentForm');
+    form.reset();
+    delete form.dataset.editAgentId;
+    const modalTitle = document.querySelector('#newAgentModal .modal-title');
+    const submitBtn = document.querySelector('#newAgentForm button[type="submit"]');
+    if (modalTitle) modalTitle.textContent = 'Nuova Sonda';
+    if (submitBtn) submitBtn.textContent = 'Crea Sonda';
+    // Reset placeholder password
+    const passwordField = document.getElementById('agentPassword');
+    if (passwordField) passwordField.placeholder = '';
+}
+
 // Modifica agent esistente
 async function editAgent(agentId) {
-    // Carica dati agent
-    const response = await fetch(`/api/v1/customers/agents/${agentId}?include_password=false`);
+    // Carica dati agent CON password per permettere modifica
+    const response = await fetch(`/api/v1/customers/agents/${agentId}?include_password=true`);
     if (!response.ok) {
         alert('Errore caricamento agent');
         return;
@@ -2387,6 +2452,10 @@ async function editAgent(agentId) {
     if (agent.agent_type === 'docker') {
         form.agent_api_port.value = agent.agent_api_port || 8080;
         form.dns_server.value = agent.dns_server || '';
+        // Per Docker agent, mostra token se presente
+        if (agent.agent_token) {
+            form.agent_token.value = agent.agent_token;
+        }
     } else {
         form.connection_type.value = agent.connection_type || 'api';
         form.port.value = agent.port || 8728;
@@ -2395,13 +2464,26 @@ async function editAgent(agentId) {
         toggleConnectionFields();
     }
     
+    // Popola username e password per permettere modifica
     form.username.value = agent.username || '';
-    // Password: lascia vuoto per preservare quella esistente, oppure inserisci nuova password
-    form.password.value = '';
-    form.password.placeholder = 'Lascia vuoto per mantenere la password esistente';
+    // Mostra password esistente (già decriptata dal backend) per permettere modifica
+    // Se vuota, lascia campo vuoto con placeholder
+    if (agent.password && agent.password.trim()) {
+        form.password.value = agent.password;
+        form.password.placeholder = 'Password attuale (modifica per cambiarla)';
+    } else {
+        form.password.value = '';
+        form.password.placeholder = 'Inserisci password (obbligatoria per MikroTik)';
+    }
     
     // Modifica il submit per fare PUT invece di POST
     form.dataset.editAgentId = agentId;
+    
+    // Cambia titolo modal e testo bottone
+    const modalTitle = document.querySelector('#newAgentModal .modal-title');
+    const submitBtn = document.querySelector('#newAgentForm button[type="submit"]');
+    if (modalTitle) modalTitle.textContent = 'Modifica Sonda';
+    if (submitBtn) submitBtn.textContent = 'Salva Modifiche';
     
     // Apri modal
     const modal = new bootstrap.Modal(document.getElementById('newAgentModal'));

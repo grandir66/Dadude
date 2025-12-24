@@ -1021,9 +1021,15 @@ class CustomerService:
             # Decrypt password se richiesto
             if include_password and agent.password:
                 try:
-                    result.password = enc_service.decrypt(agent.password)
-                except:
-                    result.password = agent.password  # Fallback a valore in chiaro
+                    # Tenta sempre la decriptazione - la password nel DB è sempre criptata
+                    decrypted = enc_service.decrypt(agent.password)
+                    result.password = decrypted
+                    logger.debug(f"Password decrypted successfully for agent {agent_id}")
+                except Exception as e:
+                    # Se la decriptazione fallisce, potrebbe essere già in chiaro (legacy) o errore di encryption
+                    logger.warning(f"Failed to decrypt password for agent {agent_id}: {e}. Password might be in plain text (legacy).")
+                    # Prova a usare direttamente - potrebbe essere già in chiaro
+                    result.password = agent.password
             else:
                 result.password = None
             
