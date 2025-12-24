@@ -319,19 +319,45 @@ async function downloadFile(path) {
     try {
         const url = `/api/v1/device-backup/files/download?path=${encodeURIComponent(path)}`;
         
-        // Usa fetch per verificare che il file esista prima di aprire
-        const response = await fetch(url, { method: 'HEAD' });
+        // Usa fetch per scaricare il file e gestire gli errori
+        const response = await fetch(url);
         
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({ detail: `HTTP ${response.status}: ${response.statusText}` }));
             throw new Error(errorData.detail || errorData.error || `Errore HTTP ${response.status}`);
         }
         
-        // Se il file esiste, apri il download
-        window.open(url, '_blank');
+        // Ottieni il blob del file
+        const blob = await response.blob();
+        
+        // Crea un URL temporaneo per il blob
+        const blobUrl = window.URL.createObjectURL(blob);
+        
+        // Crea un link temporaneo e cliccalo per avviare il download
+        const a = document.createElement('a');
+        a.href = blobUrl;
+        
+        // Ottieni il nome file dall'header Content-Disposition o dal path
+        const contentDisposition = response.headers.get('Content-Disposition');
+        let filename = path.split('/').pop(); // Nome file dal path
+        
+        if (contentDisposition) {
+            const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+            if (filenameMatch && filenameMatch[1]) {
+                filename = filenameMatch[1].replace(/['"]/g, '');
+            }
+        }
+        
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        
+        // Pulisci
+        window.URL.revokeObjectURL(blobUrl);
+        document.body.removeChild(a);
         
         if (window.toastSuccess) {
-            window.toastSuccess('Download avviato');
+            window.toastSuccess('Download avviato: ' + filename);
         }
     } catch (e) {
         console.error('Error downloading file:', e);
