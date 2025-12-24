@@ -265,6 +265,13 @@ function initMonitoringApp() {
             },
             async saveMonitoringConfig(event) {
                 event.preventDefault();
+                
+                // Disabilita il pulsante di submit per evitare doppi invii
+                const submitButton = event.target.querySelector('button[type="submit"]');
+                const originalButtonText = submitButton.innerHTML;
+                submitButton.disabled = true;
+                submitButton.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Salvataggio...';
+                
                 const formData = new FormData(event.target);
                 const config = Object.fromEntries(formData.entries());
                 
@@ -302,15 +309,48 @@ function initMonitoringApp() {
                     
                     const result = await response.json();
                     if (result.success) {
-                        window.toastSuccess('Configurazione monitoraggio salvata!');
-                        new bootstrap.Modal(document.getElementById('monitoringConfigModal')).hide();
-                        loadMonitoredDevices(); // Ricarica lista
+                        // Chiudi il modal usando l'istanza Bootstrap corretta
+                        const modalElement = document.getElementById('monitoringConfigModal');
+                        const modalInstance = bootstrap.Modal.getInstance(modalElement) || new bootstrap.Modal(modalElement);
+                        modalInstance.hide();
+                        
+                        // Mostra messaggio di successo con dettagli
+                        const monitoringTypeLabels = {
+                            'none': 'Nessuno',
+                            'icmp': 'ICMP (Ping)',
+                            'tcp': 'TCP (Porta)',
+                            'netwatch': 'MikroTik Netwatch',
+                            'agent': 'Agent Remoto'
+                        };
+                        const typeLabel = monitoringTypeLabels[config.monitoring_type] || config.monitoring_type;
+                        let message = `Monitoraggio configurato: ${typeLabel}`;
+                        if (config.monitoring_port) {
+                            message += ` - Porta ${config.monitoring_port}`;
+                        }
+                        if (config.monitoring_agent_id) {
+                            const agentSelect = document.getElementById('monitorAgentId');
+                            const selectedOption = agentSelect.options[agentSelect.selectedIndex];
+                            if (selectedOption) {
+                                message += ` - Agente: ${selectedOption.text}`;
+                            }
+                        }
+                        
+                        window.toastSuccess(message);
+                        
+                        // Ricarica lista dispositivi dopo un breve delay
+                        setTimeout(() => {
+                            loadMonitoredDevices();
+                        }, 500);
                     } else {
                         window.toastError('Errore salvataggio monitoraggio: ' + (result.error || 'Errore sconosciuto'));
+                        submitButton.disabled = false;
+                        submitButton.innerHTML = originalButtonText;
                     }
                 } catch (e) {
                     console.error('Error saving monitoring config:', e);
                     window.toastError('Errore di rete: ' + e.message);
+                    submitButton.disabled = false;
+                    submitButton.innerHTML = originalButtonText;
                 }
             }
         },
