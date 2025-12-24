@@ -251,15 +251,31 @@ class DeviceMonitoringService:
         """Avvia scheduler monitoring"""
         logger.info(f"Starting device monitoring scheduler (interval: {self.check_interval}s)")
         
+        # Esegui un check immediato all'avvio
+        try:
+            import asyncio
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # Se il loop è già in esecuzione, crea un task
+                asyncio.create_task(self.check_all_monitored_devices())
+            else:
+                # Altrimenti esegui direttamente
+                asyncio.run(self.check_all_monitored_devices())
+            logger.info("Initial monitoring check completed")
+        except Exception as e:
+            logger.warning(f"Initial monitoring check failed: {e}")
+        
         self.scheduler.add_job(
             self.check_all_monitored_devices,
             trigger=IntervalTrigger(seconds=self.check_interval),
             id="monitor_devices",
             name="Monitor Devices",
+            max_instances=1,  # Evita sovrapposizioni
+            coalesce=True,  # Raggruppa esecuzioni multiple
         )
         
         self.scheduler.start()
-        logger.success("Device monitoring scheduler started")
+        logger.success(f"Device monitoring scheduler started (check every {self.check_interval}s)")
     
     def stop(self):
         """Ferma scheduler"""

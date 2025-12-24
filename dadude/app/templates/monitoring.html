@@ -118,7 +118,7 @@
                 <div class="modal-body">
                     <div class="mb-3">
                         <label class="form-label">Tipo di Monitoraggio</label>
-                        <select class="form-select" id="monitorType" name="monitoring_type" @change="toggleMonitoringFields()">
+                        <select class="form-select" id="monitorType" name="monitoring_type" onchange="window.monitoringApp && window.monitoringApp.toggleMonitoringFields ? window.monitoringApp.toggleMonitoringFields() : toggleMonitoringFieldsGlobal()">
                             <option value="none">Nessuno</option>
                             <option value="icmp">ICMP (Ping)</option>
                             <option value="tcp">TCP (Porta)</option>
@@ -128,8 +128,9 @@
                     </div>
 
                     <div id="tcpPortField" class="mb-3" style="display: none;">
-                        <label class="form-label">Porta TCP da monitorare</label>
-                        <input type="number" class="form-control" id="monitorPort" name="monitoring_port" min="1" max="65535" placeholder="Es: 80, 443, 22">
+                        <label class="form-label">Porta TCP da monitorare *</label>
+                        <input type="number" class="form-control" id="monitorPort" name="monitoring_port" min="1" max="65535" placeholder="Es: 80, 443, 22" required>
+                        <small class="text-muted">La porta è obbligatoria per il monitoraggio TCP</small>
                     </div>
 
                     <div id="agentSelectField" class="mb-3" style="display: none;">
