@@ -6,9 +6,14 @@
 <div class="container-fluid py-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h2><i class="bi bi-robot"></i> Gestione Agent</h2>
-        <button class="btn btn-outline-primary" onclick="loadAgents()">
-            <i class="bi bi-arrow-clockwise"></i> Aggiorna
-        </button>
+        <div class="btn-group">
+            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newAgentModal">
+                <i class="bi bi-plus-lg"></i> Nuovo Agent
+            </button>
+            <button class="btn btn-outline-primary" onclick="loadAgents()">
+                <i class="bi bi-arrow-clockwise"></i> Aggiorna
+            </button>
+        </div>
     </div>
 
     <!-- Server Update Status -->
@@ -286,6 +291,171 @@
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annulla</button>
                     <button type="submit" class="btn btn-primary">
                         <i class="bi bi-check-lg"></i> Salva Modifiche
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Nuovo Agent -->
+<div class="modal fade" id="newAgentModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-broadcast"></i> Nuovo Agent</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="newAgentForm">
+                <div class="modal-body">
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle"></i> 
+                        <strong>Agent MikroTik</strong> - Per cache ARP, Netwatch su reti remote e monitoraggio RouterOS.<br>
+                        <strong>Agent Docker</strong> - Per probing avanzato (WMI, SSH, SNMP, Port Scan) su reti remote.
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Nome Agent *</label>
+                            <input type="text" class="form-control" name="name" required placeholder="Router Milano">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Cliente *</label>
+                            <select class="form-select" name="customer_id" id="newAgentCustomerId" required>
+                                <option value="">-- Seleziona Cliente --</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Indirizzo IP/Hostname *</label>
+                            <input type="text" class="form-control" name="address" required placeholder="192.168.1.1">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Tipo Agent *</label>
+                            <select class="form-select" name="agent_type" id="newAgentType" onchange="toggleNewAgentTypeFields()">
+                                <option value="mikrotik">MikroTik (RouterOS nativo)</option>
+                                <option value="docker">Docker Agent (WMI/SSH/SNMP)</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <!-- Campi MikroTik -->
+                    <div id="newMikrotikFields">
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Tipo Connessione</label>
+                                <select class="form-select" name="connection_type" id="newAgentConnType" onchange="toggleNewConnectionFields()">
+                                    <option value="api">Solo API RouterOS</option>
+                                    <option value="ssh">Solo SSH</option>
+                                    <option value="both">API + SSH</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Porta API</label>
+                                <input type="number" class="form-control" name="port" value="8728">
+                            </div>
+                        </div>
+                        
+                        <!-- Campi API RouterOS -->
+                        <div id="newApiFields">
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Opzioni API</label>
+                                    <div class="form-check mt-2">
+                                        <input class="form-check-input" type="checkbox" name="use_ssl" id="newAgentUseSsl">
+                                        <label class="form-check-label" for="newAgentUseSsl">Usa SSL/TLS (8729)</label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Campi SSH -->
+                        <div id="newSshFields" style="display:none;">
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Porta SSH</label>
+                                    <input type="number" class="form-control" name="ssh_port" value="22">
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Chiave Privata SSH (opzionale)</label>
+                                    <textarea class="form-control" name="ssh_key" rows="2" placeholder="-----BEGIN RSA PRIVATE KEY-----"></textarea>
+                                    <small class="text-muted">Lascia vuoto per usare password</small>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <hr>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Username *</label>
+                                <input type="text" class="form-control" name="username" id="newAgentUsername" placeholder="admin" required>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Password *</label>
+                                <input type="password" class="form-control" name="password" id="newAgentPassword" placeholder="password" required>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Campi Docker Agent -->
+                    <div id="newDockerFields" style="display:none;">
+                        <div class="alert alert-info">
+                            <i class="bi bi-info-circle"></i> 
+                            <strong>Docker Agent</strong> - Container con capacità avanzate di probing (WMI, SSH, SNMP, Port Scan).
+                            Può essere deployato su MikroTik RouterOS 7 con container o su qualsiasi host Docker.
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Porta API Agent</label>
+                                <input type="number" class="form-control" name="agent_api_port" value="8080">
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Token Autenticazione *</label>
+                                <div class="input-group">
+                                    <input type="text" class="form-control" name="agent_token" id="newAgentToken" placeholder="token-segreto" required>
+                                    <button class="btn btn-outline-secondary" type="button" onclick="generateNewAgentToken()">
+                                        <i class="bi bi-shuffle"></i> Genera
+                                    </button>
+                                </div>
+                                <small class="text-muted">Deve corrispondere al token configurato nell'agent</small>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">URL Agent (opzionale)</label>
+                                <input type="text" class="form-control" name="agent_url" placeholder="http://192.168.1.1:8080">
+                                <small class="text-muted">Lascia vuoto per usare http://{indirizzo}:{porta}</small>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">DNS Server</label>
+                                <input type="text" class="form-control" name="dns_server" placeholder="192.168.1.1">
+                                <small class="text-muted">IP del DNS locale per reverse lookup</small>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Sede/Ubicazione</label>
+                            <input type="text" class="form-control" name="location" placeholder="es: Ufficio Milano">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Nome Sito</label>
+                            <input type="text" class="form-control" name="site_name" placeholder="es: Datacenter 1">
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Note</label>
+                        <textarea class="form-control" name="notes" rows="2"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" onclick="resetNewAgentForm()">Annulla</button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-check-lg"></i> Crea Agent
                     </button>
                 </div>
             </form>
