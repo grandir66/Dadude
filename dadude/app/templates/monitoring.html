@@ -157,8 +157,9 @@
 const devicesData = {{ devices | tojson }};
 
 // App Vue per monitoring
+let monitoringAppInstance = null;
 if (typeof Vue !== 'undefined' && Vue.createApp && typeof window.DataTable !== 'undefined') {
-    Vue.createApp({
+    monitoringAppInstance = Vue.createApp({
         components: {
             DataTable: window.DataTable
         },
@@ -229,6 +230,9 @@ if (typeof Vue !== 'undefined' && Vue.createApp && typeof window.DataTable !== '
             document.getElementById('monitoringConfigForm').addEventListener('submit', this.saveMonitoringConfig);
         }
     }).mount('#monitoring-app');
+    
+    // Rendi disponibile globalmente
+    window.monitoringApp = monitoringAppInstance;
 }
 
 // Funzione per caricare device monitorati
@@ -237,8 +241,8 @@ async function loadMonitoredDevices() {
     const monitoringType = document.getElementById('monitoringTypeFilter').value;
     
     if (!customerId) {
-        if (window.monitoringApp) {
-            window.monitoringApp.devices = [];
+        if (window.monitoringApp && window.monitoringApp.$data) {
+            window.monitoringApp.$data.devices = [];
         }
         return;
     }
@@ -252,15 +256,19 @@ async function loadMonitoredDevices() {
         const response = await fetch(url);
         const data = await response.json();
         
-        if (window.monitoringApp) {
-            window.monitoringApp.devices = data.devices || [];
+        if (window.monitoringApp && window.monitoringApp.$data) {
+            window.monitoringApp.$data.devices = data.devices || [];
         } else {
             // Ricarica pagina se app non ancora montata
             window.location.href = `/monitoring?customer_id=${customerId}${monitoringType ? '&monitoring_type=' + monitoringType : ''}`;
         }
     } catch (e) {
         console.error('Errore caricamento device monitorati:', e);
-        window.toastError('Errore nel caricamento dei dispositivi monitorati');
+        if (window.toastError) {
+            window.toastError('Errore nel caricamento dei dispositivi monitorati');
+        } else {
+            alert('Errore nel caricamento dei dispositivi monitorati: ' + e.message);
+        }
     }
 }
 </script>
