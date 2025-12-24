@@ -233,6 +233,65 @@ async def dashboard(request: Request):
     })
 
 
+@router.get("/monitoring", response_class=HTMLResponse)
+async def monitoring_page(request: Request, customer_id: Optional[str] = None):
+    """Pagina device monitorati"""
+    from ..models.database import init_db, get_session
+    from ..models.inventory import InventoryDevice
+    from ..config import get_settings
+    
+    customer_service = get_customer_service()
+    customers = customer_service.list_customers(active_only=True, limit=500)
+    customers_dicts = [c.model_dump(mode='json') if hasattr(c, 'model_dump') else c for c in customers]
+    
+    # Carica device monitorati
+    devices = []
+    if customer_id:
+        settings = get_settings()
+        db_url = settings.database_url
+        engine = init_db(db_url)
+        session = get_session(engine)
+        try:
+            query = session.query(InventoryDevice).filter(
+                InventoryDevice.active == True,
+                InventoryDevice.customer_id == customer_id
+            ).filter(
+                (InventoryDevice.monitored == True) | 
+                (InventoryDevice.monitoring_type != "none")
+            )
+            devices_raw = query.order_by(InventoryDevice.name).all()
+            
+            for dev in devices_raw:
+                devices.append({
+                    "id": dev.id,
+                    "name": dev.name,
+                    "hostname": dev.hostname,
+                    "primary_ip": dev.primary_ip,
+                    "primary_mac": dev.primary_mac,
+                    "device_type": dev.device_type,
+                    "category": dev.category,
+                    "status": dev.status,
+                    "monitored": dev.monitored,
+                    "monitoring_type": dev.monitoring_type or "none",
+                    "monitoring_port": dev.monitoring_port,
+                    "monitoring_agent_id": dev.monitoring_agent_id,
+                    "netwatch_id": dev.netwatch_id,
+                    "last_check": dev.last_check.isoformat() if dev.last_check else None,
+                    "last_seen": dev.last_seen.isoformat() if dev.last_seen else None,
+                })
+        finally:
+            session.close()
+    
+    return templates.TemplateResponse("monitoring.html", {
+        "request": request,
+        "page": "monitoring",
+        "title": "Monitoraggio Dispositivi",
+        "customers": customers_dicts,
+        "selected_customer_id": customer_id,
+        "devices": devices,
+    })
+
+
 @router.get("/devices", response_class=HTMLResponse)
 async def devices_page(request: Request, status: Optional[str] = None):
     """Pagina dispositivi"""
@@ -243,16 +302,62 @@ async def devices_page(request: Request, status: Optional[str] = None):
         devices_raw = [d for d in devices_raw if d.status.value == status]
     
     # Converti devices in dizionari per JSON serialization
+    # Aggiungi anche dispositivi dall'inventario se disponibili
+    from ..models.database import init_db, get_session
+    from ..models.inventory import InventoryDevice
+    from ..config import get_settings
+    
     devices = []
+    inventory_devices_map = {}
+    
+    # Carica dispositivi dall'inventario per avere dati di monitoraggio
+    try:
+        settings = get_settings()
+        db_url = settings.database_url
+        engine = init_db(db_url)
+        session = get_session(engine)
+        try:
+            inventory_devices = session.query(InventoryDevice).filter(
+                InventoryDevice.active == True
+            ).all()
+            # Crea mappa IP -> device inventario per matching
+            for inv_dev in inventory_devices:
+                ip = inv_dev.primary_ip or inv_dev.mac_address
+                if ip:
+                    inventory_devices_map[ip] = {
+                        'id': inv_dev.id,
+                        'monitoring_type': inv_dev.monitoring_type or 'none',
+                        'monitoring_port': inv_dev.monitoring_port,
+                        'monitoring_agent_id': inv_dev.monitoring_agent_id,
+                        'monitored': inv_dev.monitored
+                    }
+        finally:
+            session.close()
+    except Exception as e:
+        logger.warning(f"Errore caricamento dispositivi inventario: {e}")
+    
     for d in devices_raw:
+        # Cerca corrispondente nell'inventario per IP o MAC
+        inv_data = None
+        if d.address and d.address in inventory_devices_map:
+            inv_data = inventory_devices_map[d.address]
+        elif getattr(d, 'mac_address', None) and d.mac_address in inventory_devices_map:
+            inv_data = inventory_devices_map[d.mac_address]
+        
         device_dict = {
+            'id': inv_data['id'] if inv_data else None,  # ID inventario se disponibile
             'name': d.name,
             'address': d.address,
             'mac_address': getattr(d, 'mac_address', None),
             'device_type': getattr(d, 'device_type', None),
             'group': getattr(d, 'group', None),
             'status': {'value': d.status.value},
-            'last_seen': d.last_seen.isoformat() if hasattr(d, 'last_seen') and d.last_seen else None
+            'last_seen': d.last_seen.isoformat() if hasattr(d, 'last_seen') and d.last_seen else None,
+            # Campi monitoraggio (da inventario se disponibile, altrimenti default)
+            'monitoring_type': inv_data['monitoring_type'] if inv_data else 'none',
+            'monitoring_port': inv_data['monitoring_port'] if inv_data else None,
+            'monitoring_agent_id': inv_data['monitoring_agent_id'] if inv_data else None,
+            'monitored': inv_data['monitored'] if inv_data else False
         }
         devices.append(device_dict)
     

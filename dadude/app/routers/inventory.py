@@ -931,6 +931,77 @@ async def reverse_dns_lookup(address: str):
 # INVENTORY CRUD
 # ==========================================
 
+@router.get("/devices/monitored")
+async def list_monitored_devices(
+    customer_id: Optional[str] = Query(None, description="Filtra per cliente"),
+    monitoring_type: Optional[str] = Query(None, description="Filtra per tipo monitoraggio (none, icmp, tcp, netwatch, agent)"),
+    monitored_only: bool = Query(True, description="Solo device con monitoraggio attivo"),
+    limit: int = Query(500, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+):
+    """
+    Lista device con monitoraggio configurato o da configurare.
+    """
+    from ..models.database import init_db, get_session
+    from ..config import get_settings
+    
+    settings = get_settings()
+    db_url = settings.database_url
+    engine = init_db(db_url)
+    session = get_session(engine)
+    
+    try:
+        query = session.query(InventoryDevice).filter(InventoryDevice.active == True)
+        
+        if customer_id:
+            query = query.filter(InventoryDevice.customer_id == customer_id)
+        
+        if monitored_only:
+            # Solo device con monitoraggio attivo (monitored=True) o configurato (monitoring_type != "none")
+            query = query.filter(
+                (InventoryDevice.monitored == True) | 
+                (InventoryDevice.monitoring_type != "none")
+            )
+        
+        if monitoring_type:
+            query = query.filter(InventoryDevice.monitoring_type == monitoring_type)
+        
+        total = query.count()
+        devices = query.order_by(InventoryDevice.name).offset(offset).limit(limit).all()
+        
+        # Converti in dict per JSON
+        devices_list = []
+        for dev in devices:
+            devices_list.append({
+                "id": dev.id,
+                "customer_id": dev.customer_id,
+                "name": dev.name,
+                "hostname": dev.hostname,
+                "primary_ip": dev.primary_ip,
+                "primary_mac": dev.primary_mac,
+                "device_type": dev.device_type,
+                "category": dev.category,
+                "manufacturer": dev.manufacturer,
+                "status": dev.status,
+                "monitored": dev.monitored,
+                "monitoring_type": dev.monitoring_type or "none",
+                "monitoring_port": dev.monitoring_port,
+                "monitoring_agent_id": dev.monitoring_agent_id,
+                "netwatch_id": dev.netwatch_id,
+                "last_check": dev.last_check.isoformat() if dev.last_check else None,
+                "last_seen": dev.last_seen.isoformat() if dev.last_seen else None,
+            })
+        
+        return {
+            "total": total,
+            "devices": devices_list,
+            "offset": offset,
+            "limit": limit,
+        }
+    finally:
+        session.close()
+
+
 @router.get("/devices")
 async def list_inventory_devices(
     customer_id: Optional[str] = Query(None),

@@ -1273,6 +1273,93 @@ class DeviceProbeService:
         return protocols
 
     async def reverse_dns_lookup(
+        self,
+        address: str,
+        dns_server: Optional[str] = None,
+        fallback_dns: Optional[List[str]] = None,
+        timeout: int = 5,
+    ) -> Dict[str, Any]:
+        """
+        Esegue reverse DNS lookup con fallback DNS server.
+        
+        Args:
+            address: Indirizzo IP da risolvere
+            dns_server: DNS server primario (opzionale)
+            fallback_dns: Lista DNS server di fallback (default: [8.8.8.8, 1.1.1.1])
+            timeout: Timeout per ogni tentativo in secondi
+        
+        Returns:
+            Dict con hostname e DNS server usato
+        """
+        import socket
+        import dns.resolver
+        import dns.reversename
+        
+        # DNS server di fallback di default
+        if fallback_dns is None:
+            fallback_dns = ["8.8.8.8", "1.1.1.1"]
+        
+        # Lista DNS server da provare (prima quello specificato, poi fallback)
+        dns_servers = []
+        if dns_server:
+            dns_servers.append(dns_server)
+        dns_servers.extend(fallback_dns)
+        
+        # Rimuovi duplicati mantenendo l'ordine
+        seen = set()
+        dns_servers = [s for s in dns_servers if not (s in seen or seen.add(s))]
+        
+        logger.debug(f"Reverse DNS lookup for {address} using DNS servers: {dns_servers}")
+        
+        # Prova ogni DNS server fino a trovare una risposta
+        for dns_srv in dns_servers:
+            try:
+                # Crea resolver con DNS server specifico
+                resolver = dns.resolver.Resolver()
+                resolver.nameservers = [dns_srv]
+                resolver.timeout = timeout
+                resolver.lifetime = timeout
+                
+                # Esegui reverse lookup
+                reverse_name = dns.reversename.from_address(address)
+                answers = resolver.resolve(reverse_name, "PTR")
+                
+                if answers:
+                    hostname = str(answers[0]).rstrip('.')
+                    logger.info(f"Reverse DNS lookup for {address}: {hostname} (via {dns_srv})")
+                    return {
+                        "success": True,
+                        "address": address,
+                        "hostname": hostname,
+                        "dns_server": dns_srv,
+                    }
+                    
+            except dns.resolver.NXDOMAIN:
+                # Dominio non esiste - non provare altri DNS server
+                logger.debug(f"Reverse DNS NXDOMAIN for {address} (via {dns_srv})")
+                return {
+                    "success": False,
+                    "address": address,
+                    "error": "NXDOMAIN - No reverse DNS record",
+                    "dns_server": dns_srv,
+                }
+            except dns.resolver.Timeout:
+                logger.warning(f"Reverse DNS timeout for {address} via {dns_srv}, trying next DNS server...")
+                continue
+            except Exception as e:
+                logger.warning(f"Reverse DNS error for {address} via {dns_srv}: {e}, trying next DNS server...")
+                continue
+        
+        # Se tutti i DNS server hanno fallito
+        logger.warning(f"Reverse DNS lookup failed for {address} with all DNS servers")
+        return {
+            "success": False,
+            "address": address,
+            "error": f"All DNS servers failed (tried: {', '.join(dns_servers)})",
+            "dns_servers_tried": dns_servers,
+        }
+    
+    async def reverse_dns_lookup_legacy(
         self, 
         address: str, 
         dns_servers: List[str] = None,
@@ -1324,7 +1411,7 @@ class DeviceProbeService:
                 # Continua con fallback
 
         def lookup_with_dnspython():
-            """Usa dnspython per query PTR con DNS server specifico"""
+            """Usa dnspython per query PTR con DNS server specifico e fallback"""
             try:
                 import dns.resolver
                 import dns.reversename
@@ -1332,17 +1419,36 @@ class DeviceProbeService:
                 # Crea nome PTR
                 rev_name = dns.reversename.from_address(address)
                 
-                # Crea resolver con DNS server specifico
-                resolver = dns.resolver.Resolver()
-                if dns_servers:
-                    resolver.nameservers = dns_servers
-                resolver.timeout = 2
-                resolver.lifetime = 3
+                # Lista DNS server da provare (quello specificato + fallback)
+                dns_list = dns_servers or []
+                fallback_dns = ["8.8.8.8", "1.1.1.1"]
                 
-                answers = resolver.resolve(rev_name, 'PTR')
-                for rdata in answers:
-                    hostname = str(rdata).rstrip('.')
-                    return hostname
+                # Aggiungi fallback se non già presenti
+                for fb in fallback_dns:
+                    if fb not in dns_list:
+                        dns_list.append(fb)
+                
+                # Prova ogni DNS server fino a trovare una risposta
+                for dns_srv in dns_list:
+                    try:
+                        resolver = dns.resolver.Resolver()
+                        resolver.nameservers = [dns_srv]
+                        resolver.timeout = 2
+                        resolver.lifetime = 3
+                        
+                        answers = resolver.resolve(rev_name, 'PTR')
+                        for rdata in answers:
+                            hostname = str(rdata).rstrip('.')
+                            logger.debug(f"Reverse DNS for {address} via {dns_srv}: {hostname}")
+                            return hostname
+                    except dns.resolver.NXDOMAIN:
+                        # Dominio non esiste - non provare altri DNS server
+                        logger.debug(f"Reverse DNS NXDOMAIN for {address} via {dns_srv}")
+                        return ""
+                    except Exception as e:
+                        logger.debug(f"Reverse DNS failed for {address} via {dns_srv}: {type(e).__name__}")
+                        continue  # Prova prossimo DNS server
+                
                 return ""
             except Exception as e:
                 logger.debug(f"dnspython PTR lookup failed for {address}: {type(e).__name__}")

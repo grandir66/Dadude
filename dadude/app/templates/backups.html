@@ -353,16 +353,138 @@ async function loadBackupHistory() {
     
     try {
         const response = await fetch(`/api/v1/device-backup/history/customer/${customerId}?days=${days}`);
+        
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ detail: `HTTP ${response.status}: ${response.statusText}` }));
+            throw new Error(errorData.detail || `Errore HTTP ${response.status}`);
+        }
+        
         const data = await response.json();
         
-        if (!data.backups || data.backups.length === 0) {
+        // Gestisci diversi formati di risposta
+        const backups = data.backups || (Array.isArray(data) ? data : []);
+        
+        if (!backups || backups.length === 0) {
             tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">Nessun backup trovato</td></tr>';
             return;
         }
         
         // Filtra per tipo device se specificato
-        let backups = data.backups;
+        let filteredBackups = backups;
         if (deviceType) {
+            filteredBackups = backups.filter(b => b.device_type === deviceType);
+        }
+        
+        if (filteredBackups.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">Nessun backup trovato per il tipo selezionato</td></tr>';
+            return;
+        }
+        
+        tbody.innerHTML = filteredBackups.map(backup => {
+            const date = backup.created_at 
+                ? new Date(backup.created_at).toLocaleString('it-IT')
+                : '-';
+            
+            const size = backup.file_size 
+                ? formatFileSize(backup.file_size)
+                : '-';
+            
+            const statusBadge = backup.success
+                ? '<span class="badge bg-success">Successo</span>'
+                : '<span class="badge bg-danger">Errore</span>';
+            
+            const deviceTypeBadge = {
+                'mikrotik': '<span class="badge bg-primary">MikroTik</span>',
+                'hp_aruba': '<span class="badge bg-info">HP/Aruba</span>',
+                'proxmox': '<span class="badge bg-warning">Proxmox</span>'
+            }[backup.device_type] || '<span class="badge bg-secondary">' + (backup.device_type || 'Unknown') + '</span>';
+            
+            const actions = backup.success && backup.file_name
+                ? `<button class="btn btn-sm btn-outline-success" onclick="downloadBackupById('${backup.id}')" title="Scarica">
+                     <i class="bi bi-download"></i>
+                   </button>`
+                : '<span class="text-muted">-</span>';
+            
+            return `
+                <tr>
+                    <td>${date}</td>
+                    <td>${escapeHtml(backup.device_hostname || backup.device_ip || 'N/A')}</td>
+                    <td>${deviceTypeBadge}</td>
+                    <td><code>${escapeHtml(backup.file_name || '-')}</code></td>
+                    <td>${size}</td>
+                    <td>${statusBadge}</td>
+                    <td>${actions}</td>
+                </tr>
+            `;
+        }).join('');
+        
+    } catch (e) {
+        console.error('Error loading backup history:', e);
+        const errorMessage = e.message || 'Errore sconosciuto';
+        tbody.innerHTML = `<tr><td colspan="7" class="text-center text-danger">
+            <i class="bi bi-exclamation-triangle"></i> Errore: ${escapeHtml(errorMessage)}
+            <br><small>Verifica che il cliente selezionato sia corretto e che il server sia raggiungibile.</small>
+        </td></tr>`;
+        
+        // Mostra toast se disponibile
+        if (window.toastError) {
+            window.toastError('Errore caricamento storico backup: ' + errorMessage);
+        }
+    }
+}
+
+async function downloadBackupById(backupId) {
+    if (!backupId) {
+        if (window.toastError) {
+            window.toastError('ID backup non valido');
+        } else {
+            alert('ID backup non valido');
+        }
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/v1/device-backup/download/${backupId}`);
+        
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ detail: `HTTP ${response.status}: ${response.statusText}` }));
+            throw new Error(errorData.detail || `Errore HTTP ${response.status}`);
+        }
+        
+        // Ottieni nome file dall'header o dall'URL
+        const contentDisposition = response.headers.get('Content-Disposition');
+        let filename = 'backup';
+        if (contentDisposition) {
+            const filenameMatch = contentDisposition.match(/filename="?(.+?)"?$/);
+            if (filenameMatch) {
+                filename = filenameMatch[1];
+            }
+        }
+        
+        // Scarica file
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        
+        if (window.toastSuccess) {
+            window.toastSuccess('Download avviato');
+        }
+    } catch (e) {
+        console.error('Error downloading backup:', e);
+        const errorMessage = e.message || 'Errore sconosciuto';
+        
+        if (window.toastError) {
+            window.toastError('Errore download backup: ' + errorMessage);
+        } else {
+            alert('Errore download backup: ' + errorMessage);
+        }
+    }
             backups = backups.filter(b => b.device_type === deviceType);
         }
         

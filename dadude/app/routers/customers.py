@@ -1584,14 +1584,17 @@ async def scan_customer_networks(
                 # Fallback a lookup diretto/tramite agente se non trovato
                 if not reverse_dns and device_ip:
                     try:
-                        reverse_dns = await probe_service.reverse_dns_lookup(
+                        # reverse_dns_lookup restituisce un dict, estrai hostname
+                        dns_result = await probe_service.reverse_dns_lookup(
                             device_ip, 
-                            dns_servers=dns_servers if dns_servers else None,
-                            agent=mikrotik_agent,
-                            use_agent=True
+                            dns_server=dns_servers[0] if dns_servers else None,
+                            fallback_dns=dns_servers[1:] if len(dns_servers) > 1 else None
                         )
-                        if reverse_dns:
-                            logger.info(f"Reverse DNS for {device_ip}: {reverse_dns}")
+                        if dns_result and dns_result.get("success") and dns_result.get("hostname"):
+                            reverse_dns = dns_result["hostname"]
+                            logger.info(f"Reverse DNS for {device_ip}: {reverse_dns} (via {dns_result.get('dns_server', 'unknown')})")
+                        elif dns_result and not dns_result.get("success"):
+                            logger.debug(f"Reverse DNS failed for {device_ip}: {dns_result.get('error', 'unknown error')}")
                     except Exception as e:
                         logger.debug(f"Reverse DNS lookup failed for {device_ip}: {e}")
                 

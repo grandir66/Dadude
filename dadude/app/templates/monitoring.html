@@ -1,0 +1,268 @@
+{% extends "base.html" %}
+
+{% block title %}Monitoraggio Dispositivi - DaDude{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1 class="h3 mb-1"><i class="bi bi-activity"></i> Monitoraggio Dispositivi</h1>
+        <p class="text-muted mb-0">Gestione e configurazione monitoraggio dispositivi per cliente</p>
+    </div>
+</div>
+
+<!-- Filtri -->
+<div class="card mb-4">
+    <div class="card-body">
+        <form id="filterForm" class="row g-3">
+            <div class="col-md-6">
+                <label class="form-label">Cliente</label>
+                <select class="form-select" id="customerFilter" name="customer_id" onchange="loadMonitoredDevices()">
+                    <option value="">-- Tutti i clienti --</option>
+                    {% for customer in customers %}
+                    <option value="{{ customer.id }}" {% if selected_customer_id == customer.id %}selected{% endif %}>
+                        {{ customer.name }} ({{ customer.code }})
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Tipo Monitoraggio</label>
+                <select class="form-select" id="monitoringTypeFilter" name="monitoring_type" onchange="loadMonitoredDevices()">
+                    <option value="">Tutti</option>
+                    <option value="none">Nessuno (da configurare)</option>
+                    <option value="icmp">ICMP</option>
+                    <option value="tcp">TCP</option>
+                    <option value="netwatch">MikroTik Netwatch</option>
+                    <option value="agent">Agent Remoto</option>
+                </select>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Tabella Device Monitorati -->
+<div id="monitoring-app">
+    <div v-if="devices.length === 0" class="alert alert-info">
+        <i class="bi bi-info-circle"></i> Seleziona un cliente per visualizzare i dispositivi monitorati.
+    </div>
+    
+    <data-table
+        v-else
+        :data="devices"
+        :columns="columns"
+        :searchable="true"
+        :sortable="true"
+        :paginated="true"
+        :items-per-page="20"
+        empty-message="Nessun dispositivo monitorato trovato"
+    >
+        <template #cell-monitoring_type="{ value }">
+            <span v-if="value === 'none'" class="badge bg-secondary">
+                <i class="bi bi-x-circle"></i> Nessuno
+            </span>
+            <span v-else-if="value === 'icmp'" class="badge bg-success">
+                <i class="bi bi-broadcast"></i> ICMP
+            </span>
+            <span v-else-if="value === 'tcp'" class="badge bg-primary">
+                <i class="bi bi-globe"></i> TCP
+            </span>
+            <span v-else-if="value === 'netwatch'" class="badge bg-info">
+                <i class="bi bi-router"></i> Netwatch
+            </span>
+            <span v-else-if="value === 'agent'" class="badge bg-warning">
+                <i class="bi bi-cpu"></i> Agent
+            </span>
+            <span v-else class="badge bg-secondary" v-text="value"></span>
+        </template>
+        
+        <template #cell-monitored="{ value }">
+            <span v-if="value" class="badge bg-success">Attivo</span>
+            <span v-else class="badge bg-warning">Configurato</span>
+        </template>
+        
+        <template #cell-status="{ value }">
+            <span v-if="value === 'up'" class="badge bg-success">
+                <i class="bi bi-check-circle"></i> UP
+            </span>
+            <span v-else-if="value === 'down'" class="badge bg-danger">
+                <i class="bi bi-x-circle"></i> DOWN
+            </span>
+            <span v-else class="badge bg-secondary">
+                <i class="bi bi-question-circle"></i> UNKNOWN
+            </span>
+        </template>
+        
+        <template #cell-actions="{ row }">
+            <div class="btn-group btn-group-sm">
+                <button class="btn btn-outline-primary" @click="configureMonitoring(row)" title="Configura Monitoraggio">
+                    <i class="bi bi-gear"></i>
+                </button>
+                <a :href="'/customers/' + row.customer_id" class="btn btn-outline-secondary" title="Vai al Cliente">
+                    <i class="bi bi-arrow-right"></i>
+                </a>
+            </div>
+        </template>
+    </data-table>
+</div>
+
+<!-- Modal Configurazione Monitoraggio -->
+<div class="modal fade" id="monitoringConfigModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Configura Monitoraggio per <span id="modalDeviceName"></span></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="monitoringConfigForm">
+                <input type="hidden" id="monitorDeviceId" name="device_id">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Tipo di Monitoraggio</label>
+                        <select class="form-select" id="monitorType" name="monitoring_type" @change="toggleMonitoringFields()">
+                            <option value="none">Nessuno</option>
+                            <option value="icmp">ICMP (Ping)</option>
+                            <option value="tcp">TCP (Porta)</option>
+                            <option value="netwatch">MikroTik Netwatch</option>
+                            <option value="agent">Agent (Probe avanzato)</option>
+                        </select>
+                    </div>
+
+                    <div id="tcpPortField" class="mb-3" style="display: none;">
+                        <label class="form-label">Porta TCP da monitorare</label>
+                        <input type="number" class="form-control" id="monitorPort" name="monitoring_port" min="1" max="65535" placeholder="Es: 80, 443, 22">
+                    </div>
+
+                    <div id="agentSelectField" class="mb-3" style="display: none;">
+                        <label class="form-label">Seleziona Agente/Sonda</label>
+                        <select class="form-select" id="monitorAgentId" name="monitoring_agent_id">
+                            <option value="">-- Seleziona --</option>
+                            <!-- Options will be loaded dynamically -->
+                        </select>
+                        <small class="text-muted">Seleziona l'agente che eseguirà il monitoraggio (MikroTik per Netwatch, Docker per probe)</small>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annulla</button>
+                    <button type="submit" class="btn btn-primary">Salva Configurazione</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Dati devices passati dal server
+const devicesData = {{ devices | tojson }};
+
+// App Vue per monitoring
+if (typeof Vue !== 'undefined' && Vue.createApp && typeof window.DataTable !== 'undefined') {
+    Vue.createApp({
+        components: {
+            DataTable: window.DataTable
+        },
+        data() {
+            return {
+                devices: devicesData,
+                columns: [
+                    { key: 'name', label: 'Nome', field: 'name', sortable: true },
+                    { key: 'hostname', label: 'Hostname', field: 'hostname', sortable: true },
+                    { key: 'primary_ip', label: 'IP', field: 'primary_ip', sortable: true },
+                    { key: 'device_type', label: 'Tipo', field: 'device_type', sortable: true },
+                    { key: 'monitoring_type', label: 'Monitoraggio', field: 'monitoring_type', sortable: true },
+                    { key: 'monitored', label: 'Stato', field: 'monitored', sortable: true },
+                    { key: 'status', label: 'Status', field: 'status', sortable: true },
+                    { key: 'last_check', label: 'Ultimo Check', field: 'last_check', sortable: true },
+                    { key: 'actions', label: 'Azioni', field: null, sortable: false }
+                ]
+            }
+        },
+        methods: {
+            configureMonitoring(device) {
+                document.getElementById('modalDeviceName').textContent = device.name || device.primary_ip;
+                document.getElementById('monitorDeviceId').value = device.id;
+                document.getElementById('monitorType').value = device.monitoring_type || 'none';
+                document.getElementById('monitorPort').value = device.monitoring_port || '';
+                document.getElementById('monitorAgentId').value = device.monitoring_agent_id || '';
+                
+                this.toggleMonitoringFields();
+                new bootstrap.Modal(document.getElementById('monitoringConfigModal')).show();
+            },
+            toggleMonitoringFields() {
+                const type = document.getElementById('monitorType').value;
+                document.getElementById('tcpPortField').style.display = (type === 'tcp') ? 'block' : 'none';
+                document.getElementById('agentSelectField').style.display = (type === 'netwatch' || type === 'agent') ? 'block' : 'none';
+            },
+            async saveMonitoringConfig(event) {
+                event.preventDefault();
+                const formData = new FormData(event.target);
+                const config = Object.fromEntries(formData.entries());
+                
+                if (config.monitoring_port) {
+                    config.monitoring_port = parseInt(config.monitoring_port);
+                } else {
+                    delete config.monitoring_port;
+                }
+                
+                try {
+                    const response = await fetch(`/api/v1/inventory/devices/${config.device_id}/monitoring`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(config)
+                    });
+                    
+                    const result = await response.json();
+                    if (result.success) {
+                        window.toastSuccess('Configurazione monitoraggio salvata!');
+                        new bootstrap.Modal(document.getElementById('monitoringConfigModal')).hide();
+                        loadMonitoredDevices(); // Ricarica lista
+                    } else {
+                        window.toastError('Errore salvataggio monitoraggio: ' + (result.error || 'Errore sconosciuto'));
+                    }
+                } catch (e) {
+                    window.toastError('Errore di rete: ' + e.message);
+                }
+            }
+        },
+        mounted() {
+            document.getElementById('monitoringConfigForm').addEventListener('submit', this.saveMonitoringConfig);
+        }
+    }).mount('#monitoring-app');
+}
+
+// Funzione per caricare device monitorati
+async function loadMonitoredDevices() {
+    const customerId = document.getElementById('customerFilter').value;
+    const monitoringType = document.getElementById('monitoringTypeFilter').value;
+    
+    if (!customerId) {
+        if (window.monitoringApp) {
+            window.monitoringApp.devices = [];
+        }
+        return;
+    }
+    
+    try {
+        let url = `/api/v1/inventory/devices/monitored?customer_id=${customerId}&monitored_only=true`;
+        if (monitoringType) {
+            url += `&monitoring_type=${monitoringType}`;
+        }
+        
+        const response = await fetch(url);
+        const data = await response.json();
+        
+        if (window.monitoringApp) {
+            window.monitoringApp.devices = data.devices || [];
+        } else {
+            // Ricarica pagina se app non ancora montata
+            window.location.href = `/monitoring?customer_id=${customerId}${monitoringType ? '&monitoring_type=' + monitoringType : ''}`;
+        }
+    } catch (e) {
+        console.error('Errore caricamento device monitorati:', e);
+        window.toastError('Errore nel caricamento dei dispositivi monitorati');
+    }
+}
+</script>
+{% endblock %}
+
