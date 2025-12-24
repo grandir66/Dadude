@@ -302,18 +302,24 @@ async def monitoring_page(request: Request, customer_id: Optional[str] = None, s
         
         logger.info(f"Monitoring page: Found {len(devices_raw)} devices (total before filters: {total_before_filters}, customer_id: {customer_id}, show_all: {show_all}, status: {status})")
         
+        # Crea mappa customer_id -> customer per lookup veloce
+        customers_map = {c.get('id'): c for c in customers_dicts}
+        
         for dev in devices_raw:
+            customer_info = customers_map.get(dev.customer_id, {})
             devices.append({
                 "id": dev.id,
-                "name": dev.name,
+                "name": dev.name or dev.primary_ip or "Unknown",
                 "hostname": dev.hostname,
                 "primary_ip": dev.primary_ip,
                 "primary_mac": dev.primary_mac or dev.mac_address,
                 "device_type": dev.device_type,
                 "category": dev.category,
                 "customer_id": dev.customer_id,
+                "customer_name": customer_info.get('name', 'Unknown'),
+                "customer_code": customer_info.get('code', ''),
                 "status": dev.status or "unknown",
-                "monitored": dev.monitored,
+                "monitored": dev.monitored or False,
                 "monitoring_type": dev.monitoring_type or "none",
                 "monitoring_port": dev.monitoring_port,
                 "monitoring_agent_id": dev.monitoring_agent_id,
