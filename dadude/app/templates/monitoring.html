@@ -465,30 +465,20 @@ if (document.readyState === 'loading') {
 
 // Funzione per caricare device monitorati
 async function loadMonitoredDevices() {
-    const customerId = document.getElementById('customerFilter').value;
-    const monitoringType = document.getElementById('monitoringTypeFilter').value;
+    const customerId = document.getElementById('customerFilter')?.value || '';
+    const monitoringType = document.getElementById('monitoringTypeFilter')?.value || '';
+    const status = document.getElementById('statusFilter')?.value || '';
+    const showAll = document.getElementById('showAllDevices')?.checked || false;
     
-    if (!customerId) {
-        if (window.monitoringApp && window.monitoringApp.$data) {
-            window.monitoringApp.$data.devices = [];
-        } else {
-            console.warn('Monitoring app not initialized yet');
-        }
-        return;
-    }
+    // Costruisci URL con parametri per ricaricare la pagina
+    const params = new URLSearchParams();
+    if (customerId) params.append('customer_id', customerId);
+    if (monitoringType) params.append('monitoring_type', monitoringType);
+    if (status) params.append('status', status);
+    if (showAll) params.append('show_all', 'true');
     
-    try {
-        let url = `/api/v1/inventory/devices/monitored?customer_id=${customerId}&monitored_only=true`;
-        if (monitoringType) {
-            url += `&monitoring_type=${monitoringType}`;
-        }
-        
-        const response = await fetch(url);
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-        
-        const data = await response.json();
+    // Ricarica pagina con nuovi filtri (più semplice e affidabile)
+    window.location.href = `/monitoring?${params.toString()}`;
         
         if (window.monitoringApp && window.monitoringApp.$data) {
             // Assicurati che ogni device abbia customer_id per il caricamento agenti
