@@ -548,6 +548,11 @@ class AgentAssignment(AgentAssignmentBase):
     last_seen: Optional[datetime] = None
     version: Optional[str] = None
     assigned_networks: Optional[List[str]] = None
+    docker_agent_id: Optional[str] = None
+    arp_gateway_agent_id: Optional[str] = None
+    arp_gateway_snmp_address: Optional[str] = None
+    arp_gateway_snmp_community: Optional[str] = None
+    arp_gateway_snmp_version: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     
