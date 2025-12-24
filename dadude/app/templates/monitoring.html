@@ -116,12 +116,20 @@
             </span>
         </template>
         
+        <template #cell-customer_name="{ row }">
+            <a v-if="row.customer_id" :href="'/customers/' + row.customer_id" class="text-decoration-none">
+                <strong v-text="row.customer_name || 'Unknown'"></strong>
+                <span v-if="row.customer_code" class="text-muted small ms-1" v-text="'(' + row.customer_code + ')'"></span>
+            </a>
+            <span v-else class="text-muted">-</span>
+        </template>
+        
         <template #cell-actions="{ row }">
             <div class="btn-group btn-group-sm">
                 <button class="btn btn-outline-primary" @click="configureMonitoring(row)" title="Configura Monitoraggio">
                     <i class="bi bi-gear"></i>
                 </button>
-                <a :href="'/customers/' + row.customer_id" class="btn btn-outline-secondary" title="Vai al Cliente">
+                <a v-if="row.customer_id" :href="'/customers/' + row.customer_id" class="btn btn-outline-secondary" title="Vai al Cliente">
                     <i class="bi bi-arrow-right"></i>
                 </a>
             </div>
