@@ -384,6 +384,66 @@ async def auto_detect_device(
         logger.info(f"Auto-detect complete for {data.address}: identified={result['identified']}, method={scan_result.get('identified_by')}")
         logger.info(f"Auto-detect data collected: {collected_data}")
         
+        # 3.5. Se identificato come Proxmox o network device, raccogli dati avanzati automaticamente
+        if result["identified"] and data.device_id and data.save_results:
+            device_type = scan_result.get("device_type", "").lower()
+            vendor = (scan_result.get("vendor") or scan_result.get("manufacturer") or "").lower()
+            os_family = (scan_result.get("os_family") or "").lower()
+            
+            is_proxmox = device_type == "hypervisor" or "proxmox" in vendor or "proxmox" in os_family
+            is_network = device_type in ["network", "router", "switch"] or "mikrotik" in vendor or "cisco" in vendor or "hp" in vendor or "aruba" in vendor or "ubiquiti" in vendor
+            
+            if is_proxmox or is_network:
+                logger.info(f"Device identified as {'Proxmox' if is_proxmox else 'Network'} device, collecting advanced info automatically...")
+                try:
+                    # Usa le stesse credenziali che hanno funzionato per l'identificazione
+                    # Se non ci sono dati avanzati già nel risultato, chiama i collector
+                    if is_proxmox and not scan_result.get("proxmox_host_info"):
+                        from ..services.proxmox_collector import get_proxmox_collector
+                        proxmox_collector = get_proxmox_collector()
+                        
+                        # Usa le credenziali che hanno funzionato
+                        working_creds = [c for c in credentials_list if c.get("id") in [ct.get("id") for ct in result.get("credentials_tested", [])]]
+                        if not working_creds:
+                            working_creds = credentials_list  # Fallback a tutte le credenziali
+                        
+                        host_info = await proxmox_collector.collect_proxmox_host_info(data.address, working_creds)
+                        if host_info:
+                            scan_result["proxmox_host_info"] = host_info
+                            node_name = host_info.get("node_name")
+                            if node_name:
+                                vms = await proxmox_collector.collect_proxmox_vms(data.address, node_name, working_creds)
+                                if vms:
+                                    scan_result["proxmox_vms"] = vms
+                                storage = await proxmox_collector.collect_proxmox_storage(data.address, node_name, working_creds)
+                                if storage:
+                                    scan_result["proxmox_storage"] = storage
+                            logger.info(f"Collected advanced Proxmox info during auto-detect")
+                    
+                    if is_network and not scan_result.get("lldp_neighbors"):
+                        from ..services.lldp_cdp_collector import get_lldp_cdp_collector
+                        lldp_collector = get_lldp_cdp_collector()
+                        
+                        working_creds = [c for c in credentials_list if c.get("id") in [ct.get("id") for ct in result.get("credentials_tested", [])]]
+                        if not working_creds:
+                            working_creds = credentials_list
+                        
+                        lldp_neighbors = await lldp_collector.collect_lldp_neighbors(data.address, device_type, vendor, working_creds)
+                        if lldp_neighbors:
+                            scan_result["lldp_neighbors"] = lldp_neighbors
+                        
+                        if "cisco" in vendor:
+                            cdp_neighbors = await lldp_collector.collect_cdp_neighbors(data.address, vendor, working_creds)
+                            if cdp_neighbors:
+                                scan_result["cdp_neighbors"] = cdp_neighbors
+                        
+                        interfaces = await lldp_collector.collect_interface_details(data.address, device_type, vendor, working_creds)
+                        if interfaces:
+                            scan_result["interface_details"] = interfaces
+                        logger.info(f"Collected advanced network info during auto-detect")
+                except Exception as e:
+                    logger.warning(f"Error collecting advanced info during auto-detect: {e}", exc_info=True)
+        
         # 4. Salva i risultati nel device se richiesto
         # Salva anche se non completamente identificato, ma ci sono dati utili
         has_useful_data = (
