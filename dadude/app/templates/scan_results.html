@@ -116,6 +116,9 @@ td:first-child > * {
             <button class="btn btn-sm btn-outline-primary" onclick="deselectAll()">
                 <i class="bi bi-square"></i> Deseleziona Tutti
             </button>
+            <button class="btn btn-sm btn-info" onclick="checkDuplicates()">
+                <i class="bi bi-search"></i> Verifica Duplicati
+            </button>
             <button class="btn btn-sm btn-success" onclick="importSelected()">
                 <i class="bi bi-download"></i> Importa Selezionati
             </button>
@@ -384,6 +387,48 @@ async function resolveSelected() {
     }
 }
 
+async function checkDuplicates() {
+    const checkboxes = document.querySelectorAll('.device-checkbox:checked');
+    if (checkboxes.length === 0) {
+        alert('Seleziona almeno un dispositivo da verificare');
+        return;
+    }
+    
+    const deviceIds = Array.from(checkboxes).map(cb => cb.value);
+    
+    try {
+        const response = await fetch(`/api/v1/customers/{{ customer.id }}/scans/{{ scan.id }}/check-duplicates`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({device_ids: deviceIds})
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok && result.success) {
+            if (result.duplicates_found > 0) {
+                let message = `Trovati ${result.duplicates_found} duplicato/i su ${result.total_checked} device verificati:\n\n`;
+                result.duplicates.forEach((dup, idx) => {
+                    message += `${idx + 1}. ${dup.discovered_device.address} -> ${dup.existing_device.name} (${dup.existing_device.id})\n`;
+                    message += `   Raccomandazione: ${dup.merge_proposal.recommendation}\n`;
+                    message += `   Score esistente: ${(dup.merge_proposal.existing_score * 100).toFixed(0)}%\n`;
+                    message += `   Score nuovo: ${(dup.merge_proposal.discovered_score * 100).toFixed(0)}%\n\n`;
+                });
+                message += '\nVuoi procedere con l\'import comunque?';
+                if (confirm(message)) {
+                    importSelected();
+                }
+            } else {
+                alert(`Nessun duplicato trovato su ${result.total_checked} device verificati.`);
+            }
+        } else {
+            alert('Errore durante verifica duplicati: ' + (result.detail || result.error || 'Errore sconosciuto'));
+        }
+    } catch (error) {
+        alert('Errore: ' + error.message);
+    }
+}
+
 async function importSelected() {
     const checkboxes = document.querySelectorAll('.device-checkbox:checked');
     if (checkboxes.length === 0) {
@@ -407,7 +452,14 @@ async function importSelected() {
         const result = await response.json();
         
         if (response.ok && result.success) {
-            alert(`Importati ${result.imported_count} dispositivo/i con successo!`);
+            let message = `Importati ${result.imported_count} dispositivo/i con successo!`;
+            if (result.merged_count > 0) {
+                message += `\n- ${result.merged_count} merge con device esistenti`;
+            }
+            if (result.new_count > 0) {
+                message += `\n- ${result.new_count} nuovi device creati`;
+            }
+            alert(message);
             location.reload();
         } else {
             alert('Errore durante l\'importazione: ' + (result.detail || result.error || 'Errore sconosciuto'));

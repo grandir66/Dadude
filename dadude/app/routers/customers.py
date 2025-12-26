@@ -2010,6 +2010,31 @@ async def scan_customer_networks(
                     os_family=pre_os_family,
                 )
                 session.add(dev_record)
+                
+                # Aggiorna tracking fields su InventoryDevice se esiste già
+                from ..models.inventory import InventoryDevice
+                from ..services.device_merge_service import get_device_merge_service
+                from datetime import datetime
+                
+                merge_service = get_device_merge_service()
+                duplicates = merge_service.find_duplicates(dev_record, agent.customer_id, session)
+                
+                if duplicates:
+                    # Device esistente trovato - aggiorna tracking
+                    existing = duplicates[0]
+                    now = datetime.utcnow()
+                    
+                    existing.last_verified_at = now
+                    existing.verification_count = (existing.verification_count or 0) + 1
+                    if scan_record.network_id:
+                        existing.last_scan_network_id = scan_record.network_id
+                    
+                    # Se device era marcato per pulizia, resettalo (device è ancora attivo)
+                    if existing.cleanup_marked_at:
+                        existing.cleanup_marked_at = None
+                        logger.info(f"Reset cleanup_marked_at for device {existing.id} (found in scan)")
+                    
+                    logger.debug(f"Updated tracking for existing device {existing.id} (verified_count: {existing.verification_count})")
         
         session.commit()
         scan_id = scan_record.id
@@ -2841,10 +2866,13 @@ async def import_discovered_devices(
     """
     Importa dispositivi scoperti nell'inventory.
     Crea record InventoryDevice per ogni device selezionato.
+    Integra deduplicazione intelligente e tracking fields.
     """
     from ..models.database import ScanResult, DiscoveredDevice, init_db, get_session
     from ..models.inventory import InventoryDevice
     from ..config import get_settings
+    from ..services.device_merge_service import get_device_merge_service
+    from datetime import datetime
     
     device_ids = request.get("device_ids", [])
     if not device_ids:
@@ -2855,6 +2883,7 @@ async def import_discovered_devices(
     db_url = settings.database_url
     engine = init_db(db_url)
     session = get_session(engine)
+    merge_service = get_device_merge_service()
     
     try:
         scan = session.query(ScanResult).filter(
@@ -2875,48 +2904,48 @@ async def import_discovered_devices(
             raise HTTPException(status_code=400, detail="Nessun dispositivo trovato")
         
         imported_count = 0
+        merged_count = 0
+        now = datetime.utcnow()
         
         for discovered_device in devices:
-            # Verifica se esiste già un device con lo stesso IP e customer_id
-            existing = session.query(InventoryDevice).filter(
-                InventoryDevice.primary_ip == discovered_device.address,
-                InventoryDevice.customer_id == customer_id,
-                InventoryDevice.active == True
-            ).first()
+            # Usa servizio merge per trovare duplicati (MAC/IP/hostname)
+            duplicates = merge_service.find_duplicates(discovered_device, customer_id, session)
             
-            if existing:
-                # Aggiorna device esistente con informazioni dalla scansione
-                if discovered_device.mac_address and not existing.mac_address:
-                    existing.mac_address = discovered_device.mac_address
-                if discovered_device.hostname and not existing.hostname:
-                    existing.hostname = discovered_device.hostname
-                if discovered_device.vendor and not existing.manufacturer:
-                    existing.manufacturer = discovered_device.vendor
-                if discovered_device.model and not existing.model:
-                    existing.model = discovered_device.model
-                if discovered_device.device_type and not existing.device_type:
-                    existing.device_type = discovered_device.device_type
-                if discovered_device.category and not existing.category:
-                    existing.category = discovered_device.category
-                if discovered_device.os_family and not existing.os_family:
-                    existing.os_family = discovered_device.os_family
-                if discovered_device.os_version and not existing.os_version:
-                    existing.os_version = discovered_device.os_version
-                if discovered_device.identified_by and not existing.identified_by:
-                    existing.identified_by = discovered_device.identified_by
-                # Trasferisci porte aperte se disponibili
-                if discovered_device.open_ports and not existing.open_ports:
-                    existing.open_ports = discovered_device.open_ports
-                elif discovered_device.open_ports and existing.open_ports:
-                    # Unisci porte aperte, evitando duplicati
-                    existing_ports = {(p.get('port'), p.get('protocol')) for p in (existing.open_ports or [])}
-                    new_ports = [p for p in discovered_device.open_ports if (p.get('port'), p.get('protocol')) not in existing_ports]
-                    if new_ports:
-                        existing.open_ports = (existing.open_ports or []) + new_ports
-                logger.info(f"Updated existing device {existing.id} with scan data")
+            if duplicates:
+                # Duplicato trovato - usa il primo (più probabile match)
+                existing = duplicates[0]
+                
+                # Calcola confronto e proposta merge
+                merge_proposal = merge_service.propose_merge(existing, discovered_device)
+                
+                # Determina strategia merge
+                merge_strategy = 'skip'  # Default
+                
+                # Se auto-merge abilitato e nuovo è migliore, esegui merge automatico
+                if settings.device_merge_auto_enabled:
+                    if merge_proposal['recommendation'] in ['merge', 'overwrite']:
+                        merge_strategy = merge_proposal['recommendation']
+                else:
+                    # Se non auto-merge, usa sempre merge conservativo
+                    merge_strategy = 'merge'
+                
+                # Esegui merge
+                merge_service.merge_devices(existing, discovered_device, merge_strategy, session)
+                
+                # Aggiorna tracking fields
+                existing.last_verified_at = now
+                existing.verification_count = (existing.verification_count or 0) + 1
+                if scan.network_id:
+                    existing.last_scan_network_id = scan.network_id
+                
+                # Se device era marcato per pulizia, resettalo (device è ancora attivo)
+                if existing.cleanup_marked_at:
+                    existing.cleanup_marked_at = None
+                
+                merged_count += 1
+                logger.info(f"Merged discovered device into existing {existing.id} (strategy: {merge_strategy})")
             else:
-                # Crea nuovo device
-                # Usa identity o hostname o reverse_dns per il nome
+                # Nessun duplicato - crea nuovo device
                 device_name = discovered_device.identity or discovered_device.hostname or discovered_device.reverse_dns or discovered_device.address
                 
                 new_device = InventoryDevice(
@@ -2924,23 +2953,31 @@ async def import_discovered_devices(
                     name=device_name,
                     primary_ip=discovered_device.address,
                     mac_address=discovered_device.mac_address,
+                    primary_mac=discovered_device.mac_address,
                     hostname=discovered_device.hostname or discovered_device.identity or discovered_device.reverse_dns,
-                    manufacturer=discovered_device.vendor,  # Usa manufacturer invece di vendor
+                    manufacturer=discovered_device.vendor,
                     model=discovered_device.model,
                     os_family=discovered_device.os_family,
                     os_version=discovered_device.os_version,
                     category=discovered_device.category,
                     serial_number=discovered_device.serial_number,
-                    open_ports=discovered_device.open_ports,  # Trasferisci porte aperte
+                    open_ports=discovered_device.open_ports,
+                    identified_by=discovered_device.identified_by,
                     active=True,
-                    monitored=False,  # Non monitorato di default, può essere configurato dopo
+                    monitored=False,
                     status="unknown",
+                    # Tracking fields per nuovo device
+                    first_seen_at=now,
+                    last_verified_at=now,
+                    verification_count=1,
+                    last_scan_network_id=scan.network_id,
                 )
                 session.add(new_device)
                 logger.info(f"Created new device {new_device.id} from scan")
             
-            # Marca device come importato
+            # Marca device come importato e aggiorna imported_at
             discovered_device.imported = True
+            discovered_device.imported_at = now
             imported_count += 1
         
         session.commit()
@@ -2948,8 +2985,10 @@ async def import_discovered_devices(
         return {
             "success": True,
             "imported_count": imported_count,
+            "merged_count": merged_count,
+            "new_count": imported_count - merged_count,
             "total_requested": len(device_ids),
-            "message": f"Importati {imported_count} dispositivo/i con successo"
+            "message": f"Importati {imported_count} dispositivo/i con successo ({merged_count} merge, {imported_count - merged_count} nuovi)"
         }
         
     except HTTPException:
@@ -2986,5 +3025,512 @@ async def delete_scan(customer_id: str, scan_id: str):
         session.commit()
         
         return {"status": "deleted", "scan_id": scan_id}
+    finally:
+        session.close()
+
+
+# ==========================================
+# DEVICE DUPLICATES MANAGEMENT ENDPOINTS
+# ==========================================
+
+@router.post("/{customer_id}/scans/{scan_id}/check-duplicates")
+async def check_duplicates(
+    customer_id: str,
+    scan_id: str,
+    request: dict = Body(...),
+):
+    """
+    Verifica duplicati prima dell'import.
+    Restituisce lista device con proposte merge.
+    """
+    from ..models.database import ScanResult, DiscoveredDevice, init_db, get_session
+    from ..models.inventory import InventoryDevice
+    from ..services.device_merge_service import get_device_merge_service
+    from ..config import get_settings
+    
+    device_ids = request.get("device_ids", [])
+    if not device_ids:
+        raise HTTPException(status_code=400, detail="Nessun device_id fornito")
+    
+    settings = get_settings()
+    db_url = settings.database_url
+    engine = init_db(db_url)
+    session = get_session(engine)
+    merge_service = get_device_merge_service()
+    
+    try:
+        scan = session.query(ScanResult).filter(
+            ScanResult.id == scan_id,
+            ScanResult.customer_id == customer_id
+        ).first()
+        
+        if not scan:
+            raise HTTPException(status_code=404, detail="Scansione non trovata")
+        
+        devices = session.query(DiscoveredDevice).filter(
+            DiscoveredDevice.scan_id == scan_id,
+            DiscoveredDevice.id.in_(device_ids)
+        ).all()
+        
+        duplicates_found = []
+        
+        for discovered_device in devices:
+            duplicates = merge_service.find_duplicates(discovered_device, customer_id, session)
+            
+            if duplicates:
+                existing = duplicates[0]
+                merge_proposal = merge_service.propose_merge(existing, discovered_device)
+                
+                duplicates_found.append({
+                    "discovered_device_id": discovered_device.id,
+                    "discovered_device": {
+                        "address": discovered_device.address,
+                        "mac_address": discovered_device.mac_address,
+                        "hostname": discovered_device.hostname,
+                        "device_type": discovered_device.device_type,
+                    },
+                    "existing_device_id": existing.id,
+                    "existing_device": {
+                        "id": existing.id,
+                        "name": existing.name,
+                        "primary_ip": existing.primary_ip,
+                        "mac_address": existing.mac_address,
+                        "hostname": existing.hostname,
+                        "device_type": existing.device_type,
+                    },
+                    "merge_proposal": merge_proposal,
+                })
+        
+        return {
+            "success": True,
+            "total_checked": len(devices),
+            "duplicates_found": len(duplicates_found),
+            "duplicates": duplicates_found,
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error checking duplicates: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Errore durante verifica duplicati: {e}")
+    finally:
+        session.close()
+
+
+@router.post("/{customer_id}/scans/{scan_id}/import-with-merge")
+async def import_with_merge(
+    customer_id: str,
+    scan_id: str,
+    request: dict = Body(...),
+):
+    """
+    Importa con gestione merge esplicita.
+    Body: {"devices": [{"device_id": "...", "merge_strategy": "merge|skip|overwrite"}]}
+    """
+    from ..models.database import ScanResult, DiscoveredDevice, init_db, get_session
+    from ..models.inventory import InventoryDevice
+    from ..services.device_merge_service import get_device_merge_service
+    from ..config import get_settings
+    from datetime import datetime
+    
+    devices_config = request.get("devices", [])
+    if not devices_config:
+        raise HTTPException(status_code=400, detail="Nessun device configurato")
+    
+    settings = get_settings()
+    db_url = settings.database_url
+    engine = init_db(db_url)
+    session = get_session(engine)
+    merge_service = get_device_merge_service()
+    
+    try:
+        scan = session.query(ScanResult).filter(
+            ScanResult.id == scan_id,
+            ScanResult.customer_id == customer_id
+        ).first()
+        
+        if not scan:
+            raise HTTPException(status_code=404, detail="Scansione non trovata")
+        
+        imported_count = 0
+        merged_count = 0
+        now = datetime.utcnow()
+        
+        for device_config in devices_config:
+            device_id = device_config.get("device_id")
+            merge_strategy = device_config.get("merge_strategy", "merge")
+            
+            if merge_strategy not in ["merge", "skip", "overwrite"]:
+                raise HTTPException(status_code=400, detail=f"Strategia merge non valida: {merge_strategy}")
+            
+            discovered_device = session.query(DiscoveredDevice).filter(
+                DiscoveredDevice.scan_id == scan_id,
+                DiscoveredDevice.id == device_id
+            ).first()
+            
+            if not discovered_device:
+                continue
+            
+            duplicates = merge_service.find_duplicates(discovered_device, customer_id, session)
+            
+            if duplicates:
+                existing = duplicates[0]
+                merge_service.merge_devices(existing, discovered_device, merge_strategy, session)
+                
+                # Aggiorna tracking
+                existing.last_verified_at = now
+                existing.verification_count = (existing.verification_count or 0) + 1
+                if scan.network_id:
+                    existing.last_scan_network_id = scan.network_id
+                if existing.cleanup_marked_at:
+                    existing.cleanup_marked_at = None
+                
+                merged_count += 1
+            else:
+                # Crea nuovo device
+                device_name = discovered_device.identity or discovered_device.hostname or discovered_device.reverse_dns or discovered_device.address
+                
+                new_device = InventoryDevice(
+                    customer_id=customer_id,
+                    name=device_name,
+                    primary_ip=discovered_device.address,
+                    mac_address=discovered_device.mac_address,
+                    primary_mac=discovered_device.mac_address,
+                    hostname=discovered_device.hostname or discovered_device.identity or discovered_device.reverse_dns,
+                    manufacturer=discovered_device.vendor,
+                    model=discovered_device.model,
+                    os_family=discovered_device.os_family,
+                    os_version=discovered_device.os_version,
+                    category=discovered_device.category,
+                    serial_number=discovered_device.serial_number,
+                    open_ports=discovered_device.open_ports,
+                    identified_by=discovered_device.identified_by,
+                    active=True,
+                    monitored=False,
+                    status="unknown",
+                    first_seen_at=now,
+                    last_verified_at=now,
+                    verification_count=1,
+                    last_scan_network_id=scan.network_id,
+                )
+                session.add(new_device)
+            
+            discovered_device.imported = True
+            discovered_device.imported_at = now
+            imported_count += 1
+        
+        session.commit()
+        
+        return {
+            "success": True,
+            "imported_count": imported_count,
+            "merged_count": merged_count,
+            "new_count": imported_count - merged_count,
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Error importing with merge: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Errore durante importazione: {e}")
+    finally:
+        session.close()
+
+
+@router.get("/{customer_id}/devices/duplicates")
+async def list_duplicates(
+    customer_id: str,
+    threshold: float = Query(0.0, ge=0.0, le=1.0, description="Score similarity minimo"),
+):
+    """
+    Lista device potenzialmente duplicati (stesso MAC/IP/hostname ma ID diverso).
+    """
+    from ..models.inventory import InventoryDevice
+    from ..models.database import init_db, get_session
+    from ..config import get_settings
+    from sqlalchemy import or_, and_
+    
+    settings = get_settings()
+    db_url = settings.database_url
+    engine = init_db(db_url)
+    session = get_session(engine)
+    
+    try:
+        # Trova device con stesso MAC, IP o hostname
+        devices = session.query(InventoryDevice).filter(
+            InventoryDevice.customer_id == customer_id,
+            InventoryDevice.active == True
+        ).all()
+        
+        duplicates_groups = []
+        processed_ids = set()
+        
+        for device in devices:
+            if device.id in processed_ids:
+                continue
+            
+            # Cerca altri device con stesso MAC, IP o hostname
+            matching_devices = []
+            
+            if device.mac_address:
+                matches = session.query(InventoryDevice).filter(
+                    InventoryDevice.customer_id == customer_id,
+                    InventoryDevice.active == True,
+                    InventoryDevice.mac_address == device.mac_address,
+                    InventoryDevice.id != device.id
+                ).all()
+                matching_devices.extend(matches)
+            
+            if device.primary_ip:
+                matches = session.query(InventoryDevice).filter(
+                    InventoryDevice.customer_id == customer_id,
+                    InventoryDevice.active == True,
+                    InventoryDevice.primary_ip == device.primary_ip,
+                    InventoryDevice.id != device.id,
+                    ~InventoryDevice.id.in_([d.id for d in matching_devices])
+                ).all()
+                matching_devices.extend(matches)
+            
+            if device.hostname:
+                matches = session.query(InventoryDevice).filter(
+                    InventoryDevice.customer_id == customer_id,
+                    InventoryDevice.active == True,
+                    InventoryDevice.hostname == device.hostname,
+                    InventoryDevice.id != device.id,
+                    ~InventoryDevice.id.in_([d.id for d in matching_devices])
+                ).all()
+                matching_devices.extend(matches)
+            
+            if matching_devices:
+                group = [device] + matching_devices
+                duplicates_groups.append({
+                    "devices": [
+                        {
+                            "id": d.id,
+                            "name": d.name,
+                            "primary_ip": d.primary_ip,
+                            "mac_address": d.mac_address,
+                            "hostname": d.hostname,
+                            "device_type": d.device_type,
+                            "last_verified_at": d.last_verified_at.isoformat() if d.last_verified_at else None,
+                            "verification_count": d.verification_count,
+                        }
+                        for d in group
+                    ],
+                    "count": len(group),
+                })
+                
+                for d in group:
+                    processed_ids.add(d.id)
+        
+        return {
+            "success": True,
+            "duplicate_groups": duplicates_groups,
+            "total_groups": len(duplicates_groups),
+        }
+        
+    except Exception as e:
+        logger.error(f"Error listing duplicates: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Errore durante ricerca duplicati: {e}")
+    finally:
+        session.close()
+
+
+@router.post("/{customer_id}/devices/{device_id}/merge")
+async def merge_devices_manual(
+    customer_id: str,
+    device_id: str,
+    request: dict = Body(...),
+):
+    """
+    Merge manuale di due device.
+    Body: {"target_device_id": "...", "merge_strategy": "merge|overwrite"}
+    """
+    from ..models.inventory import InventoryDevice
+    from ..models.database import init_db, get_session
+    from ..services.device_merge_service import get_device_merge_service
+    from ..config import get_settings
+    
+    target_device_id = request.get("target_device_id")
+    merge_strategy = request.get("merge_strategy", "merge")
+    
+    if not target_device_id:
+        raise HTTPException(status_code=400, detail="target_device_id richiesto")
+    
+    if merge_strategy not in ["merge", "overwrite"]:
+        raise HTTPException(status_code=400, detail="merge_strategy deve essere 'merge' o 'overwrite'")
+    
+    settings = get_settings()
+    db_url = settings.database_url
+    engine = init_db(db_url)
+    session = get_session(engine)
+    merge_service = get_device_merge_service()
+    
+    try:
+        source_device = session.query(InventoryDevice).filter(
+            InventoryDevice.id == device_id,
+            InventoryDevice.customer_id == customer_id,
+            InventoryDevice.active == True
+        ).first()
+        
+        target_device = session.query(InventoryDevice).filter(
+            InventoryDevice.id == target_device_id,
+            InventoryDevice.customer_id == customer_id,
+            InventoryDevice.active == True
+        ).first()
+        
+        if not source_device or not target_device:
+            raise HTTPException(status_code=404, detail="Device non trovato")
+        
+        if source_device.id == target_device.id:
+            raise HTTPException(status_code=400, detail="Non puoi fare merge di un device con se stesso")
+        
+        # Crea un DiscoveredDevice temporaneo dal source per usare il servizio merge
+        from ..models.database import DiscoveredDevice
+        
+        # Usa merge service per combinare i dati
+        # Per merge manuale, copiamo i dati dal source al target
+        if merge_strategy == "overwrite":
+            # Sostituisci campi target con source dove source ha valori
+            for field in ['hostname', 'manufacturer', 'model', 'os_family', 'os_version', 
+                         'serial_number', 'cpu_cores', 'ram_total_gb', 'open_ports']:
+                source_value = getattr(source_device, field, None)
+                if source_value:
+                    setattr(target_device, field, source_value)
+        else:  # merge
+            # Combina: preferisci valori non-null, ma non sovrascrivere se target ha già valore
+            for field in ['hostname', 'manufacturer', 'model', 'os_family', 'os_version', 
+                         'serial_number', 'cpu_cores', 'ram_total_gb']:
+                source_value = getattr(source_device, field, None)
+                target_value = getattr(target_device, field, None)
+                if source_value and not target_value:
+                    setattr(target_device, field, source_value)
+            
+            # Gestione speciale per open_ports
+            if source_device.open_ports and target_device.open_ports:
+                existing_ports = {(p.get('port'), p.get('protocol')) for p in target_device.open_ports}
+                new_ports = [p for p in source_device.open_ports if (p.get('port'), p.get('protocol')) not in existing_ports]
+                if new_ports:
+                    target_device.open_ports = target_device.open_ports + new_ports
+            elif source_device.open_ports and not target_device.open_ports:
+                target_device.open_ports = source_device.open_ports
+        
+        # Marca source come non attivo
+        source_device.active = False
+        
+        # Aggiorna tracking su target
+        from datetime import datetime
+        target_device.last_verified_at = datetime.utcnow()
+        target_device.verification_count = (target_device.verification_count or 0) + 1
+        
+        session.commit()
+        
+        return {
+            "success": True,
+            "merged_device_id": target_device.id,
+            "source_device_id": source_device.id,
+            "message": f"Device {source_device.id} mergiato in {target_device.id}",
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Error merging devices: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Errore durante merge: {e}")
+    finally:
+        session.close()
+
+
+# ==========================================
+# DEVICE CLEANUP ENDPOINTS
+# ==========================================
+
+@router.post("/{customer_id}/devices/cleanup")
+async def cleanup_devices(
+    customer_id: str,
+    days_threshold: int = Query(90, ge=1, description="Giorni senza verifica prima di pulizia"),
+    network_id: Optional[str] = Query(None, description="ID rete specifica (opzionale)"),
+    dry_run: bool = Query(True, description="Se True, solo preview senza modifiche"),
+):
+    """
+    Esegue pulizia device non più presenti.
+    """
+    from ..models.database import init_db, get_session
+    from ..services.device_cleanup_service import get_device_cleanup_service
+    from ..config import get_settings
+    
+    settings = get_settings()
+    db_url = settings.database_url
+    engine = init_db(db_url)
+    session = get_session(engine)
+    cleanup_service = get_device_cleanup_service()
+    
+    try:
+        # Step 1: Marca device per pulizia
+        marked_count = cleanup_service.mark_devices_for_cleanup(
+            customer_id=customer_id,
+            network_id=network_id,
+            days_threshold=days_threshold,
+            session=session
+        )
+        
+        # Step 2: Pulisci device marcati (se non dry_run)
+        cleanup_result = cleanup_service.cleanup_marked_devices(
+            customer_id=customer_id,
+            dry_run=dry_run,
+            session=session
+        )
+        
+        return {
+            "success": True,
+            "dry_run": dry_run,
+            "marked_count": marked_count,
+            "cleanup_result": cleanup_result,
+        }
+        
+    except Exception as e:
+        logger.error(f"Error cleaning up devices: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Errore durante pulizia: {e}")
+    finally:
+        session.close()
+
+
+@router.get("/{customer_id}/devices/cleanup-preview")
+async def cleanup_preview(
+    customer_id: str,
+    days_threshold: int = Query(90, ge=1, description="Giorni senza verifica"),
+    network_id: Optional[str] = Query(None, description="ID rete specifica (opzionale)"),
+):
+    """
+    Preview di device da pulire.
+    """
+    from ..models.database import init_db, get_session
+    from ..services.device_cleanup_service import get_device_cleanup_service
+    from ..config import get_settings
+    
+    settings = get_settings()
+    db_url = settings.database_url
+    engine = init_db(db_url)
+    session = get_session(engine)
+    cleanup_service = get_device_cleanup_service()
+    
+    try:
+        preview = cleanup_service.get_cleanup_preview(
+            customer_id=customer_id,
+            days_threshold=days_threshold,
+            network_id=network_id,
+            session=session
+        )
+        
+        return {
+            "success": True,
+            **preview,
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting cleanup preview: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Errore durante preview: {e}")
     finally:
         session.close()

@@ -86,6 +86,19 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"Backup Scheduler not started: {e}")
     
+    # Avvia Device Cleanup Scheduler
+    cleanup_scheduler = None
+    try:
+        from .services.device_cleanup_service import get_device_cleanup_scheduler
+        cleanup_scheduler = get_device_cleanup_scheduler()
+        if settings.device_cleanup_schedule_enabled:
+            cleanup_scheduler.start()
+            logger.info("Device Cleanup Scheduler started")
+        else:
+            logger.info("Device Cleanup Scheduler disabled in config")
+    except Exception as e:
+        logger.warning(f"Device Cleanup Scheduler not started: {e}")
+    
     # Avvia Device Monitoring Service
     from .services.device_monitoring_service import get_monitoring_service
     monitoring_service = get_monitoring_service()
@@ -127,6 +140,14 @@ async def lifespan(app: FastAPI):
             logger.info("Backup Scheduler stopped")
         except Exception as e:
             logger.warning(f"Error stopping Backup Scheduler: {e}")
+    
+    # Ferma Device Cleanup Scheduler (se attivo)
+    if cleanup_scheduler:
+        try:
+            cleanup_scheduler.stop()
+            logger.info("Device Cleanup Scheduler stopped")
+        except Exception as e:
+            logger.warning(f"Error stopping Device Cleanup Scheduler: {e}")
 
     # Ferma WebSocket Hub
     ws_hub = get_websocket_hub()

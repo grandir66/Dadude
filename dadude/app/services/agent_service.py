@@ -641,12 +641,11 @@ class AgentService:
                     probe_order.append(("wmi", cred))
                     break
         
-        # SNMP
-        if 161 in open_port_nums:
-            for cred in credentials:
-                if cred.get("type") == "snmp":
-                    probe_order.append(("snmp", cred))
-                    break
+        # SNMP - prova sempre se ci sono credenziali SNMP (UDP potrebbe non essere rilevato)
+        for cred in credentials:
+            if cred.get("type") == "snmp":
+                probe_order.append(("snmp", cred))
+                break
         
         # SSH
         if 22 in open_port_nums:

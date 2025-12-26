@@ -47,6 +47,13 @@ class Settings(BaseSettings):
     # GitHub (per creazione release automatiche)
     github_token: Optional[str] = Field(default=None, description="GitHub token for creating releases")
     
+    # Device Management - Intelligent Data Management
+    device_cleanup_threshold_days: int = Field(default=90, description="Giorni senza verifica prima di pulizia")
+    device_cleanup_grace_period_days: int = Field(default=30, description="Periodo di grazia dopo marcatura")
+    device_merge_auto_enabled: bool = Field(default=False, description="Auto-merge se dati più completi")
+    device_cleanup_schedule_enabled: bool = Field(default=True, description="Abilita pulizia automatica schedulata")
+    device_cleanup_schedule_cron: str = Field(default="0 2 * * 0", description="Cron expression per pulizia (ogni domenica alle 2)")
+    
     class Config:
         # Usa .env nella directory data (persistente)
         env_file = "./data/.env"

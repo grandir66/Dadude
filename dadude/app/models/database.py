@@ -477,6 +477,7 @@ class DiscoveredDevice(Base):
     
     # Status
     imported = Column(Boolean, default=False)  # Se importato come DeviceAssignment
+    imported_at = Column(DateTime, nullable=True)  # Data di importazione nell'inventory (se importato)
     
     created_at = Column(DateTime, default=func.now())
     

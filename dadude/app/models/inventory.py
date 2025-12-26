@@ -129,8 +129,16 @@ class InventoryDevice(Base):
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
     
+    # Tracking fields for intelligent management
+    first_seen_at = Column(DateTime, nullable=True)  # Prima volta che il device è stato visto
+    last_verified_at = Column(DateTime, nullable=True)  # Ultima volta che è stato trovato in una scansione
+    verification_count = Column(Integer, default=0)  # Numero di volte che è stato verificato
+    last_scan_network_id = Column(String(8), ForeignKey("networks.id"), nullable=True)  # ID dell'ultima rete dove è stato visto
+    cleanup_marked_at = Column(DateTime, nullable=True)  # Data in cui è stato marcato per pulizia
+    
     # Relationships
     credential = relationship("Credential", foreign_keys=[credential_id])
+    last_scan_network = relationship("Network", foreign_keys=[last_scan_network_id])
     network_interfaces = relationship("NetworkInterface", back_populates="device", cascade="all, delete-orphan")
     disks = relationship("DiskInfo", back_populates="device", cascade="all, delete-orphan")
     software = relationship("InstalledSoftware", back_populates="device", cascade="all, delete-orphan")
@@ -146,6 +154,8 @@ class InventoryDevice(Base):
         Index('idx_inventory_ip', 'primary_ip'),
         Index('idx_inventory_status', 'status'),
         Index('idx_inventory_dude', 'dude_device_id'),
+        Index('idx_inventory_last_verified', 'last_verified_at'),
+        Index('idx_inventory_cleanup_marked', 'cleanup_marked_at'),
     )
 
 
