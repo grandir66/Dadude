@@ -671,11 +671,24 @@ class ProxmoxCollector:
                     if 'Model name:' in line:
                         cpu_model = line.split(':', 1)[1].strip()
                     elif 'CPU(s):' in line:
-                        cpu_cores = int(line.split(':')[1].strip())
+                        try:
+                            cpu_val = line.split(':')[1].strip()
+                            # Gestisci formati come "0-31" (range) prendendo solo il primo numero
+                            if '-' in cpu_val:
+                                cpu_val = cpu_val.split('-')[0]
+                            cpu_cores = int(cpu_val)
+                        except (ValueError, IndexError):
+                            pass
                     elif 'Socket(s):' in line:
-                        cpu_sockets = int(line.split(':')[1].strip())
+                        try:
+                            cpu_sockets = int(line.split(':')[1].strip())
+                        except (ValueError, IndexError):
+                            pass
                     elif 'Thread(s) per core:' in line:
-                        cpu_threads = int(line.split(':')[1].strip())
+                        try:
+                            cpu_threads = int(line.split(':')[1].strip())
+                        except (ValueError, IndexError):
+                            pass
             
             # Parse memoria
             memory_total_gb = None
