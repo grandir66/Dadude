@@ -1970,10 +1970,13 @@ class DeviceProbeService:
         snmp_communities = ["public", "private"]  # Default
         if credentials_list:
             for cred in credentials_list:
-                if cred.get("type") == "snmp" and cred.get("snmp_community"):
-                    community = cred.get("snmp_community")
-                    if community not in snmp_communities:
-                        snmp_communities.insert(0, community)  # Priorità alle credenziali fornite
+                # Supporta sia "type" che "credential_type" per compatibilità
+                cred_type = cred.get("type") or cred.get("credential_type")
+                snmp_comm = cred.get("snmp_community")
+                # Aggiungi community se è di tipo SNMP o se ha una community non-default
+                if snmp_comm and snmp_comm not in snmp_communities:
+                    snmp_communities.insert(0, snmp_comm)  # Priorità alle credenziali fornite
+                    logger.debug(f"Added SNMP community '{snmp_comm}' from credential")
         
         # 2. Rileva protocolli (passa le community SNMP per il probe UDP)
         try:

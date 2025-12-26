@@ -2441,8 +2441,12 @@ async def identify_discovered_devices(
             probe_result = None
             identified_by = None
             
+            # Verifica se ci sono credenziali SNMP disponibili
+            has_snmp_creds = any(cred.get('snmp_community') and cred.get('snmp_community') != 'public' for cred in credentials_list)
+            
             # Prova SNMP prima (più veloce e informativo per network devices)
-            if 'snmp' in available_protocols and credentials_list:
+            # Prova sempre se ci sono credenziali SNMP non-default, anche se la porta 161 non è stata rilevata (UDP vs TCP)
+            if (has_snmp_creds or 'snmp' in available_protocols) and credentials_list:
                 for cred in credentials_list:
                     if cred.get('snmp_community'):
                         try:
