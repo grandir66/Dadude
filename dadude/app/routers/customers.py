@@ -3,8 +3,9 @@ DaDude - Customers Router
 API endpoints per gestione clienti/tenant
 """
 from datetime import datetime
-from fastapi import APIRouter, HTTPException, Query, Depends
-from typing import Optional, List
+from fastapi import APIRouter, HTTPException, Query, Depends, Request, Body
+from fastapi.responses import HTMLResponse
+from typing import Optional, List, Any
 from loguru import logger
 
 from ..models.customer_schemas import (
@@ -1217,14 +1218,94 @@ async def unregister_agent_from_dude(agent_id: str):
         return result
 
 
+async def _execute_scan_background(
+    scan_id: str,
+    agent_id: str,
+    networks: list,
+    scan_type: str,
+    agent: Any
+):
+    """
+    Esegue la scansione in background e aggiorna il record ScanResult esistente.
+    Usa asyncio con timeout per evitare blocchi del sistema.
+    """
+    from ..models.database import ScanResult, init_db, get_session
+    from ..config import get_settings
+    import asyncio
+    
+    settings = get_settings()
+    db_url = settings.database_url
+    engine = init_db(db_url)
+    
+    try:
+        logger.info(f"Starting background scan {scan_id} for agent {agent_id}, network {networks[0].ip_network if networks else 'unknown'}")
+        
+        # Esegui scansione con timeout di 10 minuti per evitare blocchi
+        try:
+            result = await asyncio.wait_for(
+                scan_customer_networks(
+                    agent_id=agent_id,
+                    scan_type=scan_type,
+                    network_ids=[n.id for n in networks],
+                    background=False,
+                    existing_scan_id=scan_id  # Passa scan_id per aggiornare record esistente
+                ),
+                timeout=600.0  # 10 minuti timeout
+            )
+            logger.info(f"Background scan {scan_id} completed: {result.get('scan_id')}")
+        except asyncio.TimeoutError:
+            logger.error(f"Background scan {scan_id} timed out after 10 minutes")
+            session = get_session(engine)
+            try:
+                scan_record = session.query(ScanResult).filter(ScanResult.id == scan_id).first()
+                if scan_record:
+                    scan_record.status = "failed"
+                    scan_record.error_message = "Scansione timeout dopo 10 minuti"
+                    session.commit()
+            finally:
+                session.close()
+        except Exception as e:
+            logger.error(f"Error in background scan {scan_id}: {e}", exc_info=True)
+            # Aggiorna status a "failed"
+            session = get_session(engine)
+            try:
+                scan_record = session.query(ScanResult).filter(ScanResult.id == scan_id).first()
+                if scan_record:
+                    scan_record.status = "failed"
+                    # Limita lunghezza messaggio errore
+                    error_msg = str(e)[:500] if len(str(e)) > 500 else str(e)
+                    scan_record.error_message = error_msg
+                    session.commit()
+            except Exception as db_error:
+                logger.error(f"Error updating scan record status: {db_error}")
+            finally:
+                session.close()
+    except Exception as e:
+        logger.error(f"Critical error in background scan {scan_id}: {e}", exc_info=True)
+        # Ultimo tentativo di aggiornare lo status
+        try:
+            session = get_session(engine)
+            scan_record = session.query(ScanResult).filter(ScanResult.id == scan_id).first()
+            if scan_record:
+                scan_record.status = "failed"
+                scan_record.error_message = f"Errore critico: {str(e)[:500]}"
+                session.commit()
+            session.close()
+        except:
+            pass
+
+
 @router.post("/agents/{agent_id}/scan-customer-networks")
 async def scan_customer_networks(
     agent_id: str,
     scan_type: str = Query("arp", description="Tipo scan: arp, ping, all"),
     network_ids: Optional[List[str]] = Query(None, description="IDs reti da scansionare (tutte se vuoto)"),
+    background: bool = Query(True, description="Esegui scansione in background"),
+    existing_scan_id: Optional[str] = None,  # Se fornito, aggiorna record esistente invece di crearne uno nuovo
 ):
     """
     Scansiona le reti del cliente usando la sonda con connessione diretta.
+    Se background=True, avvia la scansione in background e ritorna immediatamente.
     Salva i risultati nel database per visualizzazione successiva.
     """
     from ..services.scanner_service import get_scanner_service
@@ -1256,9 +1337,73 @@ async def scan_customer_networks(
     if not networks:
         raise HTTPException(status_code=400, detail="Nessuna rete valida selezionata")
     
+    # Crea o aggiorna record scansione
+    settings = get_settings()
+    db_url = settings.database_url
+    engine = init_db(db_url)
+    session = get_session(engine)
+    
+    try:
+        # Usa la prima rete per il record (o tutte se multiple)
+        network = networks[0]
+        
+        if existing_scan_id:
+            # Aggiorna record esistente
+            scan_record = session.query(ScanResult).filter(ScanResult.id == existing_scan_id).first()
+            if not scan_record:
+                raise HTTPException(status_code=404, detail=f"Scan record {existing_scan_id} not found")
+            scan_record.status = "running" if background else "pending"
+            scan_record.network_id = network.id
+            scan_record.network_cidr = network.ip_network
+            scan_record.scan_type = scan_type
+            scan_record.devices_found = 0
+            scan_record.error_message = None
+            scan_id = existing_scan_id
+        else:
+            # Crea nuovo record
+            scan_record = ScanResult(
+                customer_id=agent.customer_id,
+                agent_id=agent_id,
+                network_id=network.id,
+                network_cidr=network.ip_network,
+                scan_type=scan_type,
+                devices_found=0,
+                status="running" if background else "pending",
+                error_message=None,
+            )
+            session.add(scan_record)
+            session.flush()  # Per ottenere l'ID
+            scan_id = scan_record.id
+        
+        session.commit()
+    except HTTPException:
+        raise
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Error creating/updating scan record: {e}")
+        raise HTTPException(status_code=500, detail=f"Errore creazione/aggiornamento record scansione: {e}")
+    finally:
+        session.close()
+    
+    # Se background=True, avvia scansione in background e ritorna immediatamente
+    if background:
+        import asyncio
+        asyncio.create_task(_execute_scan_background(scan_id, agent_id, networks, scan_type, agent))
+        
+        return {
+            "scan_id": scan_id,
+            "agent_id": agent_id,
+            "agent_name": agent.name,
+            "customer_id": agent.customer_id,
+            "scan_type": scan_type,
+            "status": "running",
+            "message": "Scansione avviata in background",
+            "view_url": f"/customers/{agent.customer_id}/scans/{scan_id}",
+        }
+    
+    # Altrimenti esegui scansione sincrona (comportamento legacy)
     # Esegui scansione diretta tramite il router o Docker agent
     scanner = get_scanner_service()
-    network = networks[0]  # Prima rete (filtrata)
     logger.info(f"[SCAN DEBUG] Selected network: {network.id} = {network.name} ({network.ip_network})")
     
     # Verifica tipo agent
@@ -1560,19 +1705,31 @@ async def scan_customer_networks(
     devices_list = []
     
     try:
-        # Crea record scansione
-        scan_record = ScanResult(
-            customer_id=agent.customer_id,
-            agent_id=agent_id,
-            network_id=network.id,
-            network_cidr=network.ip_network,
-            scan_type=scan_type,
-            devices_found=scan_result.get("devices_found", 0),
-            status="completed" if scan_result.get("success") else "failed",
-            error_message=scan_result.get("error"),
-        )
-        session.add(scan_record)
-        session.flush()  # Per ottenere l'ID
+        # Usa record esistente se fornito, altrimenti crea nuovo
+        if existing_scan_id:
+            scan_record = session.query(ScanResult).filter(ScanResult.id == existing_scan_id).first()
+            if not scan_record:
+                raise HTTPException(status_code=404, detail=f"Scan record {existing_scan_id} not found")
+            # Aggiorna record esistente
+            scan_record.devices_found = scan_result.get("devices_found", 0)
+            scan_record.status = "completed" if scan_result.get("success") else "failed"
+            scan_record.error_message = scan_result.get("error")
+            scan_id = existing_scan_id
+        else:
+            # Crea nuovo record scansione
+            scan_record = ScanResult(
+                customer_id=agent.customer_id,
+                agent_id=agent_id,
+                network_id=network.id,
+                network_cidr=network.ip_network,
+                scan_type=scan_type,
+                devices_found=scan_result.get("devices_found", 0),
+                status="completed" if scan_result.get("success") else "failed",
+                error_message=scan_result.get("error"),
+            )
+            session.add(scan_record)
+            session.flush()  # Per ottenere l'ID
+            scan_id = scan_record.id
         
         # Salva dispositivi trovati
         # Supporta sia "results" (vecchio formato) che "devices" (nuovo formato WebSocket)
@@ -1590,6 +1747,8 @@ async def scan_customer_networks(
                 dns_servers.append(network.dns_primary)
             if network.dns_secondary:
                 dns_servers.append(network.dns_secondary)
+            
+            logger.info(f"DNS servers for network {network.ip_network}: {dns_servers}")
             
             # Crea oggetto MikroTikAgent per operazioni remote (solo per agent MikroTik)
             mikrotik_agent = None
@@ -1624,9 +1783,36 @@ async def scan_customer_networks(
                 except Exception as e:
                     logger.warning(f"MikroTik batch DNS lookup failed: {e}")
             
-            for device in devices_list:
+            # Processa device in batch per evitare blocchi
+            # Limita reverse DNS e port scan per evitare timeout
+            import asyncio
+            MAX_CONCURRENT_DNS = 5  # Massimo 5 DNS lookup in parallelo
+            MAX_CONCURRENT_PORTS = 2  # Massimo 2 port scan in parallelo (molto limitato)
+            DNS_TIMEOUT = 5.0  # Timeout DNS lookup: 5 secondi
+            PORT_SCAN_TIMEOUT = 3.0  # Timeout port scan: 3 secondi (molto breve)
+            
+            # Processa device in batch con semafori separati per DNS e port scan
+            semaphore_dns = asyncio.Semaphore(MAX_CONCURRENT_DNS)
+            semaphore_ports = asyncio.Semaphore(MAX_CONCURRENT_PORTS)
+            processed_devices = []
+            
+            async def process_with_semaphores(device):
+                """Processa device con semafori per DNS e port scan"""
                 device_ip = device.get("address", "")
                 device_mac = device.get("mac_address", "")
+                
+                # Lookup vendor dal MAC address se non presente
+                vendor = device.get("vendor", "")
+                if not vendor and device_mac:
+                    try:
+                        from ..services.mac_vendor_service import get_mac_vendor_service
+                        vendor_service = get_mac_vendor_service()
+                        vendor_info = vendor_service.lookup_vendor_with_type(device_mac)
+                        if vendor_info and vendor_info.get("vendor"):
+                            vendor = vendor_info["vendor"]
+                            logger.debug(f"Vendor lookup for {device_mac}: {vendor}")
+                    except Exception as e:
+                        logger.debug(f"Vendor lookup failed for {device_mac}: {e}")
                 
                 # Reverse DNS lookup (PTR record) - salviamo separatamente dall'hostname reale
                 reverse_dns = ""
@@ -1636,50 +1822,106 @@ async def scan_customer_networks(
                     reverse_dns = mikrotik_dns_results[device_ip]
                     logger.debug(f"Reverse DNS from MikroTik: {device_ip} -> {reverse_dns}")
                 
-                # Fallback a lookup diretto/tramite agente se non trovato
+                # Fallback a lookup diretto/tramite agente se non trovato (con timeout e semaforo)
                 if not reverse_dns and device_ip:
-                    try:
-                        # reverse_dns_lookup restituisce un dict, estrai hostname
-                        dns_result = await probe_service.reverse_dns_lookup(
-                            device_ip, 
-                            dns_server=dns_servers[0] if dns_servers else None,
-                            fallback_dns=dns_servers[1:] if len(dns_servers) > 1 else None
-                        )
-                        if dns_result and dns_result.get("success") and dns_result.get("hostname"):
-                            reverse_dns = dns_result["hostname"]
-                            logger.info(f"Reverse DNS for {device_ip}: {reverse_dns} (via {dns_result.get('dns_server', 'unknown')})")
-                        elif dns_result and not dns_result.get("success"):
-                            logger.debug(f"Reverse DNS failed for {device_ip}: {dns_result.get('error', 'unknown error')}")
-                    except Exception as e:
-                        logger.debug(f"Reverse DNS lookup failed for {device_ip}: {e}")
+                    async with semaphore_dns:
+                        try:
+                            # Usa il DNS server della rete se disponibile
+                            primary_dns = dns_servers[0] if dns_servers else None
+                            fallback_dns_list = dns_servers[1:] if len(dns_servers) > 1 else None
+                            
+                            logger.debug(f"Reverse DNS lookup for {device_ip} via DNS servers: {dns_servers}")
+                            
+                            dns_result = await asyncio.wait_for(
+                                probe_service.reverse_dns_lookup(
+                                    device_ip, 
+                                    dns_server=primary_dns,
+                                    fallback_dns=fallback_dns_list
+                                ),
+                                timeout=DNS_TIMEOUT
+                            )
+                            if dns_result and dns_result.get("success") and dns_result.get("hostname"):
+                                reverse_dns = dns_result["hostname"]
+                                logger.info(f"Reverse DNS for {device_ip}: {reverse_dns} (via {dns_result.get('dns_server', 'unknown')})")
+                            elif dns_result:
+                                logger.debug(f"Reverse DNS failed for {device_ip}: {dns_result.get('error', 'unknown error')}")
+                        except asyncio.TimeoutError:
+                            logger.debug(f"Reverse DNS timeout for {device_ip}")
+                        except Exception as e:
+                            logger.debug(f"Reverse DNS lookup failed for {device_ip}: {e}")
                 
                 # Usa nome da reverse DNS se non c'è identity (solo come fallback per display)
                 identity = device.get("identity", "")
                 if not identity and reverse_dns:
                     identity = reverse_dns.split('.')[0]  # Prendi solo la parte prima del punto
                 
-                # Scansiona porte aperte tramite agente MikroTik
+                # Scansiona porte aperte tramite agente MikroTik (con timeout breve e semaforo)
                 open_ports_data = []
                 if device_ip:
-                    try:
-                        # Usa agente MikroTik se disponibile per la scansione porte
-                        ports_result = await probe_service.scan_services(
-                            device_ip, 
-                            agent=mikrotik_agent, 
-                            use_agent=True
-                        )
-                        open_ports_data = ports_result
-                        open_count = len([p for p in ports_result if p.get('open')])
-                        scan_method = "via agent" if mikrotik_agent else "direct"
-                        logger.debug(f"Port scan for {device_ip} ({scan_method}): {open_count} ports open")
-                    except Exception as e:
-                        logger.warning(f"Port scan failed for {device_ip}: {e}")
+                    async with semaphore_ports:
+                        try:
+                            # Scansione porte veloce con timeout molto breve
+                            ports_result = await asyncio.wait_for(
+                                probe_service.scan_services(
+                                    device_ip, 
+                                    agent=mikrotik_agent, 
+                                    use_agent=True
+                                ),
+                                timeout=PORT_SCAN_TIMEOUT  # 3 secondi timeout
+                            )
+                            open_ports_data = ports_result
+                            open_count = len([p for p in ports_result if p.get('open')])
+                            if open_count > 0:
+                                logger.debug(f"Port scan for {device_ip}: {open_count} ports open")
+                        except asyncio.TimeoutError:
+                            logger.debug(f"Port scan timeout for {device_ip} (skipped)")
+                            # Continua senza porte - meglio avere il device senza porte che bloccarsi
+                        except Exception as e:
+                            logger.debug(f"Port scan failed for {device_ip}: {e}")
+                            # Continua senza porte
+                
+                return {
+                    "device": device,
+                    "device_ip": device_ip,
+                    "device_mac": device_mac,
+                    "vendor": vendor,  # Aggiungi vendor al risultato
+                    "identity": identity,
+                    "reverse_dns": reverse_dns,
+                    "open_ports_data": open_ports_data,
+                }
+            
+            # Processa tutti i device in parallelo (limitato dai semafori)
+            try:
+                tasks = [process_with_semaphores(device) for device in devices_list]
+                processed_results = await asyncio.gather(*tasks, return_exceptions=True)
+                
+                for result in processed_results:
+                    if isinstance(result, Exception):
+                        logger.warning(f"Error processing device: {result}")
+                        continue
+                    processed_devices.append(result)
+            except Exception as e:
+                logger.error(f"Error processing devices batch: {e}", exc_info=True)
+            
+            # Crea record DiscoveredDevice per ogni device processato
+            for result in processed_devices:
+                if not result:
+                    continue
+                
+                device = result["device"]
+                device_ip = result["device_ip"]
+                device_mac = result["device_mac"]
+                vendor = result.get("vendor", "")  # Vendor dal lookup MAC
+                identity = result["identity"]
+                reverse_dns = result["reverse_dns"]
+                open_ports_data = result["open_ports_data"]
                 
                 dev_record = DiscoveredDevice(
                     scan_id=scan_record.id,
                     customer_id=agent.customer_id,
                     address=device_ip,
                     mac_address=device_mac,
+                    vendor=vendor or device.get("vendor", ""),  # Usa vendor dal lookup o dal device originale
                     identity=identity,  # Identity dal protocollo o nome breve da reverse DNS
                     hostname=device.get("hostname", ""),  # Hostname reale (da probe)
                     reverse_dns=reverse_dns,  # Nome da PTR record (separato)
@@ -1770,9 +2012,36 @@ async def list_customer_scans(
         session.close()
 
 
-@router.get("/{customer_id}/scans/{scan_id}")
-async def get_scan_details(customer_id: str, scan_id: str):
-    """Dettagli di una scansione con dispositivi trovati"""
+@router.get("/{customer_id}/scans/{scan_id}", response_class=HTMLResponse)
+async def scan_results_page(request: Request, customer_id: str, scan_id: str):
+    """Pagina HTML per visualizzare i risultati di una scansione"""
+    from fastapi.templating import Jinja2Templates
+    import os
+    
+    service = get_customer_service()
+    customer = service.get_customer(customer_id)
+    if not customer:
+        raise HTTPException(status_code=404, detail="Cliente non trovato")
+    
+    # Carica dettagli scansione usando la funzione esistente
+    scan_data = await _get_scan_details_data(customer_id, scan_id)
+    
+    # Setup templates
+    templates_dir = os.path.join(os.path.dirname(__file__), "..", "templates")
+    templates = Jinja2Templates(directory=templates_dir)
+    
+    return templates.TemplateResponse("scan_results.html", {
+        "request": request,
+        "page": "scans",
+        "title": f"Risultati Scansione - {customer.name}",
+        "customer": customer,
+        "scan": scan_data["scan"],
+        "devices": scan_data["devices"],
+    })
+
+
+async def _get_scan_details_data(customer_id: str, scan_id: str):
+    """Helper function per ottenere i dati di una scansione"""
     from ..models.database import ScanResult, DiscoveredDevice, init_db, get_session
     from ..config import get_settings
     
@@ -1809,7 +2078,7 @@ async def get_scan_details(customer_id: str, scan_id: str):
                     "address": d.address,
                     "mac_address": d.mac_address,
                     "identity": d.identity,
-                    "hostname": d.hostname,  # Hostname da reverse DNS
+                    "hostname": d.hostname,
                     "platform": d.platform,
                     "board": d.board,
                     "interface": d.interface,
@@ -1829,6 +2098,736 @@ async def get_scan_details(customer_id: str, scan_id: str):
                 for d in devices
             ]
         }
+    finally:
+        session.close()
+
+
+@router.get("/{customer_id}/scans/{scan_id}/api")
+async def get_scan_details(customer_id: str, scan_id: str):
+    """Dettagli di una scansione con dispositivi trovati (API endpoint)"""
+    return await _get_scan_details_data(customer_id, scan_id)
+
+
+@router.post("/{customer_id}/scans/{scan_id}/resolve")
+async def resolve_discovered_devices(
+    customer_id: str,
+    scan_id: str,
+    request: dict = Body(...),
+):
+    """
+    Forza la risoluzione di MAC address (vendor) e DNS (reverse lookup) per i device selezionati.
+    """
+    from ..models.database import ScanResult, DiscoveredDevice, init_db, get_session
+    from ..services.device_probe_service import DeviceProbeService
+    from ..services.mac_vendor_service import get_mac_vendor_service
+    from ..config import get_settings
+    
+    device_ids = request.get("device_ids", [])
+    if not device_ids:
+        raise HTTPException(status_code=400, detail="Nessun device_id fornito")
+    
+    settings = get_settings()
+    db_url = settings.database_url
+    engine = init_db(db_url)
+    session = get_session(engine)
+    
+    try:
+        scan = session.query(ScanResult).filter(
+            ScanResult.id == scan_id,
+            ScanResult.customer_id == customer_id
+        ).first()
+        
+        if not scan:
+            raise HTTPException(status_code=404, detail="Scansione non trovata")
+        
+        # Carica device da risolvere
+        devices = session.query(DiscoveredDevice).filter(
+            DiscoveredDevice.scan_id == scan_id,
+            DiscoveredDevice.id.in_(device_ids)
+        ).all()
+        
+        if not devices:
+            raise HTTPException(status_code=400, detail="Nessun dispositivo trovato")
+        
+        # Ottieni DNS servers dalla rete se disponibile
+        from ..models.database import Network
+        network = session.query(Network).filter(Network.id == scan.network_id).first() if scan.network_id else None
+        dns_servers = []
+        if network:
+            if network.dns_primary:
+                dns_servers.append(network.dns_primary)
+            if network.dns_secondary:
+                dns_servers.append(network.dns_secondary)
+        
+        # Ottieni agent MikroTik se disponibile per batch DNS
+        mikrotik_agent = None
+        if scan.agent_id:
+            from ..models.database import AgentAssignment
+            agent = session.query(AgentAssignment).filter(AgentAssignment.id == scan.agent_id).first()
+            if agent and agent.agent_type == "mikrotik":
+                from ..services.mikrotik_service import MikroTikService
+                mikrotik_service = MikroTikService()
+                mikrotik_agent = type('obj', (object,), {
+                    'address': agent.address,
+                    'username': agent.username,
+                    'password': agent.password or "",
+                    'port': agent.port or 8728,
+                    'api_port': agent.port or 8728,
+                    'ssh_port': agent.ssh_port or 22,
+                    'use_ssl': agent.use_ssl or False,
+                })()
+        
+        probe_service = DeviceProbeService()
+        vendor_service = get_mac_vendor_service()
+        
+        vendor_resolved = 0
+        dns_resolved = 0
+        total_processed = 0
+        
+        import asyncio
+        
+        # Prova batch reverse DNS tramite MikroTik se disponibile
+        mikrotik_dns_results = {}
+        if mikrotik_agent and dns_servers:
+            try:
+                from ..services.mikrotik_service import MikroTikService
+                mikrotik_service = MikroTikService()
+                target_ips = [d.address for d in devices if d.address]
+                mikrotik_dns_results = mikrotik_service.batch_reverse_dns_lookup(
+                    address=mikrotik_agent.address,
+                    port=mikrotik_agent.api_port,
+                    username=mikrotik_agent.username,
+                    password=mikrotik_agent.password,
+                    target_ips=target_ips,
+                    dns_server=dns_servers[0] if dns_servers else None,
+                )
+                logger.info(f"MikroTik batch DNS resolved {len(mikrotik_dns_results)}/{len(target_ips)} hostnames")
+            except Exception as e:
+                logger.warning(f"MikroTik batch DNS lookup failed: {e}")
+        
+        # Processa ogni device
+        for device in devices:
+            total_processed += 1
+            updated = False
+            
+            # Risolvi vendor dal MAC address se presente
+            if device.mac_address and not device.vendor:
+                try:
+                    vendor_info = vendor_service.lookup_vendor_with_type(device.mac_address)
+                    if vendor_info and vendor_info.get("vendor"):
+                        device.vendor = vendor_info["vendor"]
+                        if vendor_info.get("device_type") and not device.category:
+                            device.category = vendor_info["device_type"]
+                        vendor_resolved += 1
+                        updated = True
+                        logger.debug(f"Resolved vendor for {device.mac_address}: {device.vendor}")
+                except Exception as e:
+                    logger.debug(f"Vendor lookup failed for {device.mac_address}: {e}")
+            
+            # Risolvi reverse DNS se non presente
+            if device.address and not device.reverse_dns:
+                reverse_dns = ""
+                
+                # Prova con risultati batch MikroTik
+                if device.address in mikrotik_dns_results:
+                    reverse_dns = mikrotik_dns_results[device.address]
+                    logger.info(f"Reverse DNS from MikroTik batch: {device.address} -> {reverse_dns}")
+                
+                # Se non trovato nel batch, prova lookup individuale tramite MikroTik
+                if not reverse_dns and mikrotik_agent:
+                    try:
+                        logger.debug(f"Trying MikroTik reverse DNS for {device.address} via {mikrotik_agent.address}")
+                        loop = asyncio.get_event_loop()
+                        dns_result = await loop.run_in_executor(
+                            None,
+                            lambda: mikrotik_service.reverse_dns_lookup(
+                                address=mikrotik_agent.address,
+                                port=mikrotik_agent.api_port,
+                                username=mikrotik_agent.username,
+                                password=mikrotik_agent.password,
+                                target_ip=device.address,
+                                dns_server=dns_servers[0] if dns_servers else None,
+                                use_ssl=mikrotik_agent.use_ssl,
+                            )
+                        )
+                        if dns_result and dns_result.get("success") and dns_result.get("hostname"):
+                            reverse_dns = dns_result["hostname"]
+                            logger.info(f"Reverse DNS via MikroTik for {device.address}: {reverse_dns}")
+                    except Exception as e:
+                        logger.debug(f"MikroTik reverse DNS lookup failed for {device.address}: {e}")
+                
+                # Fallback a lookup diretto solo se MikroTik non disponibile o fallito
+                if not reverse_dns:
+                    try:
+                        logger.debug(f"Trying direct DNS lookup for {device.address} via DNS servers: {dns_servers}")
+                        dns_result = await probe_service.reverse_dns_lookup(
+                            device.address,
+                            dns_server=dns_servers[0] if dns_servers else None,
+                            fallback_dns=dns_servers[1:] if len(dns_servers) > 1 else None,
+                            timeout=5.0
+                        )
+                        if dns_result and dns_result.get("success") and dns_result.get("hostname"):
+                            reverse_dns = dns_result["hostname"]
+                            logger.info(f"Reverse DNS for {device.address}: {reverse_dns} (via {dns_result.get('dns_server', 'unknown')})")
+                        elif dns_result:
+                            logger.debug(f"Direct DNS lookup failed for {device.address}: {dns_result.get('error', 'unknown error')}")
+                    except Exception as e:
+                        logger.debug(f"Direct DNS lookup failed for {device.address}: {e}")
+                
+                if reverse_dns:
+                    device.reverse_dns = reverse_dns
+                    # Aggiorna anche hostname se vuoto
+                    if not device.hostname:
+                        device.hostname = reverse_dns
+                    dns_resolved += 1
+                    updated = True
+                else:
+                    logger.debug(f"Could not resolve reverse DNS for {device.address} (tried MikroTik and direct DNS)")
+            
+            if updated:
+                session.add(device)
+        
+        session.commit()
+        
+        return {
+            "success": True,
+            "total_processed": total_processed,
+            "vendor_resolved": vendor_resolved,
+            "dns_resolved": dns_resolved,
+            "message": f"Risoluzione completata: {vendor_resolved} vendor, {dns_resolved} DNS"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error resolving devices: {e}", exc_info=True)
+        session.rollback()
+        raise HTTPException(status_code=500, detail=f"Errore durante la risoluzione: {str(e)}")
+    finally:
+        session.close()
+
+
+@router.post("/{customer_id}/scans/{scan_id}/identify")
+async def identify_discovered_devices(
+    customer_id: str,
+    scan_id: str,
+    request: dict = Body(...),
+):
+    """
+    Identifica dispositivi scoperti usando probe SNMP/SSH/WMI e vendor matching.
+    Aggiorna DiscoveredDevice con device_type, category, os_family, etc.
+    """
+    from ..models.database import ScanResult, DiscoveredDevice, init_db, get_session
+    from ..services.device_probe_service import DeviceProbeService
+    from ..services.mac_vendor_service import get_mac_vendor_service
+    from ..services.customer_service import get_customer_service
+    from ..config import get_settings
+    
+    device_ids = request.get("device_ids", [])
+    if not device_ids:
+        raise HTTPException(status_code=400, detail="Nessun device_id fornito")
+    
+    settings = get_settings()
+    db_url = settings.database_url
+    engine = init_db(db_url)
+    session = get_session(engine)
+    
+    try:
+        scan = session.query(ScanResult).filter(
+            ScanResult.id == scan_id,
+            ScanResult.customer_id == customer_id
+        ).first()
+        
+        if not scan:
+            raise HTTPException(status_code=404, detail="Scansione non trovata")
+        
+        # Carica device da identificare
+        devices = session.query(DiscoveredDevice).filter(
+            DiscoveredDevice.scan_id == scan_id,
+            DiscoveredDevice.id.in_(device_ids)
+        ).all()
+        
+        if not devices:
+            raise HTTPException(status_code=400, detail="Nessun dispositivo trovato")
+        
+        # Carica credenziali del cliente
+        customer_service = get_customer_service()
+        credentials_list = []
+        try:
+            customer_creds = customer_service.list_credentials(customer_id)
+            for cred in customer_creds:
+                cred_details = customer_service.get_credential(cred.id, include_secrets=True)
+                if cred_details:
+                    credentials_list.append({
+                        "id": cred_details.id,
+                        "name": cred_details.name,
+                        "type": cred_details.credential_type,
+                        "username": cred_details.username,
+                        "password": cred_details.password,
+                        "ssh_port": getattr(cred_details, 'ssh_port', 22),
+                        "ssh_private_key": getattr(cred_details, 'ssh_private_key', None),
+                        "snmp_community": getattr(cred_details, 'snmp_community', None),
+                        "snmp_version": getattr(cred_details, 'snmp_version', '2c'),
+                        "snmp_port": getattr(cred_details, 'snmp_port', 161),
+                        "wmi_domain": getattr(cred_details, 'wmi_domain', None),
+                        "mikrotik_api_port": getattr(cred_details, 'mikrotik_api_port', 8728),
+                    })
+        except Exception as e:
+            logger.warning(f"Error loading credentials for customer {customer_id}: {e}")
+        
+        probe_service = DeviceProbeService()
+        vendor_service = get_mac_vendor_service()
+        
+        identified_count = 0
+        snmp_count = 0
+        ssh_count = 0
+        wmi_count = 0
+        vendor_count = 0
+        total_processed = 0
+        
+        import asyncio
+        
+        # Processa ogni device
+        async def identify_device(device):
+            """Identifica un singolo device"""
+            nonlocal identified_count, snmp_count, ssh_count, wmi_count, vendor_count, total_processed
+            
+            updated = False
+            
+            # 1. Analizza porte aperte per determinare protocolli disponibili
+            open_ports = device.open_ports or []
+            available_protocols = []
+            
+            port_numbers = {p.get('port') for p in open_ports if p.get('open')}
+            if 161 in port_numbers:
+                available_protocols.append('snmp')
+            if 22 in port_numbers:
+                available_protocols.append('ssh')
+            if any(p in port_numbers for p in [135, 445, 3389]):
+                available_protocols.append('wmi')
+            if 8728 in port_numbers:
+                available_protocols.append('mikrotik_api')
+            
+            logger.debug(f"Device {device.address}: available protocols {available_protocols} (ports: {port_numbers})")
+            
+            # 2. Vendor matching dal MAC
+            vendor_suggested_type = None
+            vendor_suggested_category = None
+            if device.mac_address and device.vendor:
+                vendor_info = vendor_service.lookup_vendor_with_type(device.mac_address)
+                if vendor_info:
+                    vendor_name = vendor_info.get("vendor", "").lower()
+                    device_type = vendor_info.get("device_type")
+                    category = vendor_info.get("category")
+                    
+                    # Mapping vendor -> device_type più specifico
+                    if "cisco" in vendor_name:
+                        vendor_suggested_type = "network"
+                        vendor_suggested_category = "switch" if not category else category
+                    elif "mikrotik" in vendor_name:
+                        vendor_suggested_type = "mikrotik"
+                        vendor_suggested_category = "router"
+                    elif "hp" in vendor_name or "hewlett" in vendor_name:
+                        vendor_suggested_type = "network" if "switch" in vendor_name or "procurve" in vendor_name else "server"
+                        vendor_suggested_category = "switch" if "switch" in vendor_name else "server"
+                    elif "dell" in vendor_name:
+                        vendor_suggested_type = "server" if "poweredge" in vendor_name else "workstation"
+                        vendor_suggested_category = "server" if "poweredge" in vendor_name else "workstation"
+                    else:
+                        vendor_suggested_type = device_type or "other"
+                        vendor_suggested_category = category
+            
+            # 3. Esegui probe attivi in ordine di priorità
+            probe_result = None
+            identified_by = None
+            
+            # Prova SNMP prima (più veloce e informativo per network devices)
+            if 'snmp' in available_protocols and credentials_list:
+                for cred in credentials_list:
+                    if cred.get('snmp_community'):
+                        try:
+                            result = await probe_service._probe_snmp(
+                                device.address,
+                                {
+                                    "snmp_community": cred['snmp_community'],
+                                    "snmp_version": cred.get('snmp_version', '2c'),
+                                    "snmp_port": cred.get('snmp_port', 161),
+                                }
+                            )
+                            if result.success:
+                                probe_result = result
+                                identified_by = "probe_snmp"
+                                snmp_count += 1
+                                logger.info(f"SNMP probe successful for {device.address}")
+                                break
+                        except Exception as e:
+                            logger.debug(f"SNMP probe failed for {device.address}: {e}")
+                            continue
+            
+            # Prova SSH se SNMP non ha funzionato
+            if not probe_result and 'ssh' in available_protocols and credentials_list:
+                for cred in credentials_list:
+                    if cred.get('username') and (cred.get('password') or cred.get('ssh_private_key')):
+                        try:
+                            result = await probe_service._probe_ssh(
+                                device.address,
+                                {
+                                    "username": cred['username'],
+                                    "password": cred.get('password'),
+                                    "ssh_private_key": cred.get('ssh_private_key'),
+                                    "ssh_port": cred.get('ssh_port', 22),
+                                }
+                            )
+                            if result.success:
+                                probe_result = result
+                                identified_by = "probe_ssh"
+                                ssh_count += 1
+                                logger.info(f"SSH probe successful for {device.address}")
+                                break
+                        except Exception as e:
+                            logger.debug(f"SSH probe failed for {device.address}: {e}")
+                            continue
+            
+            # Prova WMI se SSH non ha funzionato
+            if not probe_result and 'wmi' in available_protocols and credentials_list:
+                for cred in credentials_list:
+                    if cred.get('username') and cred.get('password'):
+                        try:
+                            result = await probe_service._probe_wmi(
+                                device.address,
+                                {
+                                    "username": cred['username'],
+                                    "password": cred['password'],
+                                    "domain": cred.get('wmi_domain'),
+                                }
+                            )
+                            if result.success:
+                                probe_result = result
+                                identified_by = "probe_wmi"
+                                wmi_count += 1
+                                logger.info(f"WMI probe successful for {device.address}")
+                                break
+                        except Exception as e:
+                            logger.debug(f"WMI probe failed for {device.address}: {e}")
+                            continue
+            
+            # 4. Applica risultati probe o vendor matching
+            if probe_result:
+                # Usa risultati probe (più accurati)
+                extra_info = probe_result.extra_info or {}
+                
+                # Device type e category - determina da os_family se non specificato
+                if probe_result.device_type and probe_result.device_type != "other":
+                    device.device_type = probe_result.device_type
+                elif probe_result.os_family:
+                    # Determina device_type da os_family
+                    os_family_lower = probe_result.os_family.lower()
+                    if "windows" in os_family_lower:
+                        device.device_type = "windows"
+                    elif any(x in os_family_lower for x in ["linux", "ubuntu", "debian", "centos", "rhel", "alpine"]):
+                        device.device_type = "linux"
+                    elif "routeros" in os_family_lower or "mikrotik" in os_family_lower:
+                        device.device_type = "mikrotik"
+                    elif any(x in os_family_lower for x in ["ios", "ios-xe", "nx-os", "asa"]):
+                        device.device_type = "network"
+                    elif "esxi" in os_family_lower:
+                        device.device_type = "hypervisor"
+                    elif any(x in os_family_lower for x in ["qts", "qnap", "synology"]):
+                        device.device_type = "nas"
+                
+                # Category - determina da device_type o os_family se non specificato
+                if probe_result.category:
+                    device.category = probe_result.category
+                elif device.device_type:
+                    # Mappa device_type a category
+                    if device.device_type == "windows":
+                        device.category = "workstation" if not device.category else device.category
+                    elif device.device_type == "linux":
+                        device.category = "server" if not device.category else device.category
+                    elif device.device_type == "mikrotik":
+                        device.category = "router" if not device.category else device.category
+                    elif device.device_type == "network":
+                        device.category = "switch" if not device.category else device.category
+                    elif device.device_type == "hypervisor":
+                        device.category = "hypervisor" if not device.category else device.category
+                    elif device.device_type == "nas":
+                        device.category = "storage" if not device.category else device.category
+                
+                # OS e version
+                if probe_result.os_family and not device.os_family:
+                    device.os_family = probe_result.os_family
+                if probe_result.os_version and not device.os_version:
+                    device.os_version = probe_result.os_version
+                
+                # Hostname
+                if probe_result.hostname and not device.hostname:
+                    device.hostname = probe_result.hostname
+                
+                # Model
+                if probe_result.model and not device.model:
+                    device.model = probe_result.model
+                elif extra_info.get("model") and not device.model:
+                    device.model = extra_info.get("model")
+                elif extra_info.get("entPhysicalModelName") and not device.model:
+                    device.model = extra_info.get("entPhysicalModelName")
+                
+                # Vendor/Manufacturer
+                if extra_info.get("manufacturer") and not device.vendor:
+                    device.vendor = extra_info.get("manufacturer")
+                elif extra_info.get("entPhysicalMfgName") and not device.vendor:
+                    device.vendor = extra_info.get("entPhysicalMfgName")
+                
+                # Serial number
+                if extra_info.get("serial_number") and not device.serial_number:
+                    device.serial_number = extra_info.get("serial_number")
+                elif extra_info.get("entPhysicalSerialNum") and not device.serial_number:
+                    device.serial_number = extra_info.get("entPhysicalSerialNum")
+                
+                # Hardware stats
+                if extra_info.get("cpu_cores") and not device.cpu_cores:
+                    device.cpu_cores = extra_info.get("cpu_cores")
+                if extra_info.get("ram_total_mb") and not device.ram_total_mb:
+                    device.ram_total_mb = extra_info.get("ram_total_mb")
+                if extra_info.get("disk_total_gb") and not device.disk_total_gb:
+                    device.disk_total_gb = extra_info.get("disk_total_gb")
+                
+                # Platform (per MikroTik)
+                if extra_info.get("board_name") and not device.platform:
+                    device.platform = extra_info.get("board_name")
+                elif extra_info.get("platform") and not device.platform:
+                    device.platform = extra_info.get("platform")
+                
+                if identified_by:
+                    device.identified_by = identified_by
+                identified_count += 1
+                updated = True
+            elif vendor_suggested_type:
+                # Fallback a vendor matching
+                if not device.device_type:
+                    device.device_type = vendor_suggested_type
+                if vendor_suggested_category and not device.category:
+                    device.category = vendor_suggested_category
+                device.identified_by = "mac_vendor"
+                vendor_count += 1
+                identified_count += 1
+                updated = True
+            
+            # 5. Inferenza da porte aperte se ancora non identificato
+            if not device.device_type or device.device_type == "other":
+                if open_ports:
+                    open_port_numbers = {p.get('port') for p in open_ports if p.get('open')}
+                    
+                    # Windows indicators
+                    windows_ports = {135, 139, 445, 3389, 5985, 5986}
+                    if open_port_numbers & windows_ports:
+                        device.device_type = "windows"
+                        device.os_family = device.os_family or "Windows"
+                        if 3389 in open_port_numbers:
+                            device.category = device.category or "workstation"
+                        elif 389 in open_port_numbers or 636 in open_port_numbers:
+                            device.category = device.category or "server"  # Domain Controller
+                        else:
+                            device.category = device.category or "server"
+                        if not device.identified_by:
+                            device.identified_by = "port_inference"
+                        updated = True
+                    # Linux/SSH indicators
+                    elif 22 in open_port_numbers:
+                        device.device_type = "linux"
+                        device.os_family = device.os_family or "Linux"
+                        if any(p in open_port_numbers for p in [3306, 5432, 27017]):
+                            device.category = device.category or "server"  # Database server
+                        elif 80 in open_port_numbers or 443 in open_port_numbers:
+                            device.category = device.category or "server"  # Web server
+                        else:
+                            device.category = device.category or "server"
+                        if not device.identified_by:
+                            device.identified_by = "port_inference"
+                        updated = True
+                    # Network device indicators
+                    elif 161 in open_port_numbers:
+                        device.device_type = "network"
+                        device.category = device.category or "switch"
+                        if not device.identified_by:
+                            device.identified_by = "port_inference"
+                        updated = True
+                    # MikroTik indicators
+                    elif 8728 in open_port_numbers:
+                        device.device_type = "mikrotik"
+                        device.category = device.category or "router"
+                        device.os_family = device.os_family or "RouterOS"
+                        if not device.identified_by:
+                            device.identified_by = "port_inference"
+                        updated = True
+            
+            if updated:
+                session.add(device)
+                total_processed += 1
+        
+        # Processa tutti i device in parallelo (limitato)
+        semaphore = asyncio.Semaphore(5)  # Max 5 identificazioni parallele
+        
+        async def identify_with_semaphore(device):
+            async with semaphore:
+                try:
+                    await identify_device(device)
+                    return True
+                except Exception as e:
+                    logger.error(f"Error identifying device {device.address}: {e}")
+                    return False
+        
+        tasks = [identify_with_semaphore(device) for device in devices]
+        await asyncio.gather(*tasks, return_exceptions=True)
+        
+        session.commit()
+        
+        return {
+            "success": True,
+            "total_processed": total_processed,
+            "identified_count": identified_count,
+            "snmp_count": snmp_count,
+            "ssh_count": ssh_count,
+            "wmi_count": wmi_count,
+            "vendor_count": vendor_count,
+            "message": f"Identificati {identified_count} device: {snmp_count} SNMP, {ssh_count} SSH, {wmi_count} WMI, {vendor_count} vendor"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error identifying devices: {e}", exc_info=True)
+        session.rollback()
+        raise HTTPException(status_code=500, detail=f"Errore durante l'identificazione: {str(e)}")
+    finally:
+        session.close()
+
+
+@router.post("/{customer_id}/scans/{scan_id}/import")
+async def import_discovered_devices(
+    customer_id: str,
+    scan_id: str,
+    request: dict = Body(...),
+):
+    """
+    Importa dispositivi scoperti nell'inventory.
+    Crea record InventoryDevice per ogni device selezionato.
+    """
+    from ..models.database import ScanResult, DiscoveredDevice, init_db, get_session
+    from ..models.inventory import InventoryDevice
+    from ..config import get_settings
+    
+    device_ids = request.get("device_ids", [])
+    if not device_ids:
+        raise HTTPException(status_code=400, detail="Nessun device_id fornito")
+    
+    # Verifica che la scansione appartenga al cliente
+    settings = get_settings()
+    db_url = settings.database_url
+    engine = init_db(db_url)
+    session = get_session(engine)
+    
+    try:
+        scan = session.query(ScanResult).filter(
+            ScanResult.id == scan_id,
+            ScanResult.customer_id == customer_id
+        ).first()
+        
+        if not scan:
+            raise HTTPException(status_code=404, detail="Scansione non trovata")
+        
+        # Carica device da importare (permetti anche re-import di device già importati)
+        devices = session.query(DiscoveredDevice).filter(
+            DiscoveredDevice.scan_id == scan_id,
+            DiscoveredDevice.id.in_(device_ids)
+        ).all()
+        
+        if not devices:
+            raise HTTPException(status_code=400, detail="Nessun dispositivo trovato")
+        
+        imported_count = 0
+        
+        for discovered_device in devices:
+            # Verifica se esiste già un device con lo stesso IP e customer_id
+            existing = session.query(InventoryDevice).filter(
+                InventoryDevice.primary_ip == discovered_device.address,
+                InventoryDevice.customer_id == customer_id,
+                InventoryDevice.active == True
+            ).first()
+            
+            if existing:
+                # Aggiorna device esistente con informazioni dalla scansione
+                if discovered_device.mac_address and not existing.mac_address:
+                    existing.mac_address = discovered_device.mac_address
+                if discovered_device.hostname and not existing.hostname:
+                    existing.hostname = discovered_device.hostname
+                if discovered_device.vendor and not existing.manufacturer:
+                    existing.manufacturer = discovered_device.vendor
+                if discovered_device.model and not existing.model:
+                    existing.model = discovered_device.model
+                if discovered_device.device_type and not existing.device_type:
+                    existing.device_type = discovered_device.device_type
+                if discovered_device.category and not existing.category:
+                    existing.category = discovered_device.category
+                if discovered_device.os_family and not existing.os_family:
+                    existing.os_family = discovered_device.os_family
+                if discovered_device.os_version and not existing.os_version:
+                    existing.os_version = discovered_device.os_version
+                if discovered_device.identified_by and not existing.identified_by:
+                    existing.identified_by = discovered_device.identified_by
+                # Trasferisci porte aperte se disponibili
+                if discovered_device.open_ports and not existing.open_ports:
+                    existing.open_ports = discovered_device.open_ports
+                elif discovered_device.open_ports and existing.open_ports:
+                    # Unisci porte aperte, evitando duplicati
+                    existing_ports = {(p.get('port'), p.get('protocol')) for p in (existing.open_ports or [])}
+                    new_ports = [p for p in discovered_device.open_ports if (p.get('port'), p.get('protocol')) not in existing_ports]
+                    if new_ports:
+                        existing.open_ports = (existing.open_ports or []) + new_ports
+                logger.info(f"Updated existing device {existing.id} with scan data")
+            else:
+                # Crea nuovo device
+                # Usa identity o hostname o reverse_dns per il nome
+                device_name = discovered_device.identity or discovered_device.hostname or discovered_device.reverse_dns or discovered_device.address
+                
+                new_device = InventoryDevice(
+                    customer_id=customer_id,
+                    name=device_name,
+                    primary_ip=discovered_device.address,
+                    mac_address=discovered_device.mac_address,
+                    hostname=discovered_device.hostname or discovered_device.identity or discovered_device.reverse_dns,
+                    manufacturer=discovered_device.vendor,  # Usa manufacturer invece di vendor
+                    model=discovered_device.model,
+                    os_family=discovered_device.os_family,
+                    os_version=discovered_device.os_version,
+                    category=discovered_device.category,
+                    serial_number=discovered_device.serial_number,
+                    open_ports=discovered_device.open_ports,  # Trasferisci porte aperte
+                    active=True,
+                    monitored=False,  # Non monitorato di default, può essere configurato dopo
+                    status="unknown",
+                )
+                session.add(new_device)
+                logger.info(f"Created new device {new_device.id} from scan")
+            
+            # Marca device come importato
+            discovered_device.imported = True
+            imported_count += 1
+        
+        session.commit()
+        
+        return {
+            "success": True,
+            "imported_count": imported_count,
+            "total_requested": len(device_ids),
+            "message": f"Importati {imported_count} dispositivo/i con successo"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Error importing devices: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Errore durante l'importazione: {e}")
     finally:
         session.close()
 

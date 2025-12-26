@@ -109,6 +109,12 @@ async def agent_lifespan(app: FastAPI):
     """Gestione lifecycle per Agent API"""
     # Initialize shared services
     await _init_shared_services()
+    
+    # Avvia Device Monitoring Service (su Agent API perché condivide il WebSocket Hub con gli agent)
+    from .services.device_monitoring_service import get_monitoring_service
+    monitoring_service = get_monitoring_service()
+    await monitoring_service.start_async()
+    logger.info("✓ Device Monitoring Service started")
 
     logger.info("DaDude Agent API - Ready on port 8000")
 
@@ -116,6 +122,13 @@ async def agent_lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("Shutting down Agent API...")
+    
+    # Ferma monitoring service
+    try:
+        monitoring_service.stop()
+        logger.info("Device Monitoring Service stopped")
+    except Exception as e:
+        logger.warning(f"Error stopping monitoring service: {e}")
 
 
 @asynccontextmanager

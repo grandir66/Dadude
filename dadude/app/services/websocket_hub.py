@@ -48,6 +48,7 @@ class CommandType(str, Enum):
     GET_STATUS = "get_status"
     EXEC_COMMAND = "exec_command"  # Esegui comando locale sull'agent
     EXEC_SSH = "exec_ssh"  # Esegui comando su host remoto via SSH
+    PING = "ping"  # ICMP ping a un target
 
 
 @dataclass

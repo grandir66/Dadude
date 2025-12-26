@@ -87,9 +87,9 @@ async def lifespan(app: FastAPI):
             logger.warning(f"Backup Scheduler not started: {e}")
     
     # Avvia Device Monitoring Service
-    from ..services.device_monitoring_service import get_monitoring_service
+    from .services.device_monitoring_service import get_monitoring_service
     monitoring_service = get_monitoring_service()
-    monitoring_service.start()
+    await monitoring_service.start_async()
     logger.info("Device Monitoring Service started")
     
     # Connetti a Dude Server (opzionale)

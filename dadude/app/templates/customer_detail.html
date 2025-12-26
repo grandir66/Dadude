@@ -388,6 +388,40 @@
     
     <!-- Tab Dispositivi (unificato) -->
     <div class="tab-pane fade" id="inventory">
+        <!-- Card Scansioni -->
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h6 class="mb-0"><i class="bi bi-list-task me-2"></i>Scansioni di Rete</h6>
+                <button class="btn btn-sm btn-outline-primary" onclick="loadScans()">
+                    <i class="bi bi-arrow-clockwise"></i> Aggiorna
+                </button>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>Rete</th>
+                                <th>Tipo</th>
+                                <th>Stato</th>
+                                <th>Device Trovati</th>
+                                <th>Data</th>
+                                <th>Azioni</th>
+                            </tr>
+                        </thead>
+                        <tbody id="scansTableBody">
+                            <tr>
+                                <td colspan="6" class="text-center text-muted py-3">
+                                    <div class="spinner-border spinner-border-sm me-2"></div>
+                                    Caricamento scansioni...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        
         <!-- Card Discovery -->
         <div class="card mb-4">
             <div class="card-header bg-primary text-white">
@@ -2551,6 +2585,167 @@ async function testAgent(agentId) {
     }
 }
 
+// Carica scansioni del cliente
+async function loadScans() {
+    const tbody = document.getElementById('scansTableBody');
+    if (!tbody) {
+        console.error('scansTableBody not found');
+        return;
+    }
+    
+    // Ottieni customer_id dall'URL o dal template
+    const customerId = '{{ customer.id }}' || window.location.pathname.match(/\/customers\/([^\/]+)/)?.[1];
+    if (!customerId) {
+        console.error('Customer ID not found');
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-danger py-3">Errore: Customer ID non trovato</td></tr>';
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/v1/customers/${customerId}/scans?limit=20`);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        const data = await response.json();
+        
+        if (data.scans && data.scans.length > 0) {
+            tbody.innerHTML = data.scans.map(scan => {
+                const statusBadge = scan.status === 'completed' 
+                    ? '<span class="badge bg-success">Completata</span>'
+                    : scan.status === 'running'
+                    ? '<span class="badge bg-primary"><i class="bi bi-hourglass-split"></i> In Corso</span>'
+                    : scan.status === 'failed'
+                    ? '<span class="badge bg-danger">Fallita</span>'
+                    : '<span class="badge bg-secondary">' + scan.status + '</span>';
+                
+                const date = scan.created_at ? new Date(scan.created_at).toLocaleString('it-IT') : '-';
+                
+                return `
+                    <tr>
+                        <td><code>${scan.network_cidr || '-'}</code></td>
+                        <td><span class="badge bg-info">${scan.scan_type || '-'}</span></td>
+                        <td>${statusBadge}</td>
+                        <td><strong>${scan.devices_found || 0}</strong></td>
+                        <td>${date}</td>
+                        <td>
+                            ${scan.status === 'completed' 
+                                ? `<a href="/customers/${customerId}/scans/${scan.id}" class="btn btn-sm btn-outline-primary">
+                                    <i class="bi bi-eye"></i> Risultati
+                                   </a>`
+                                : scan.status === 'running'
+                                ? '<span class="text-muted">In attesa...</span>'
+                                : ''
+                            }
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        } else {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="6" class="text-center text-muted py-3">
+                        Nessuna scansione trovata
+                    </td>
+                </tr>
+            `;
+        }
+    } catch (error) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="6" class="text-center text-danger py-3">
+                    Errore caricamento scansioni: ${error.message}
+                </td>
+            </tr>
+        `;
+    }
+}
+
+// Auto-refresh scansioni ogni 10 secondi se ci sono scansioni in corso
+let scansRefreshInterval = null;
+function startScansAutoRefresh() {
+    if (scansRefreshInterval) return;
+    
+    scansRefreshInterval = setInterval(async () => {
+        const tbody = document.getElementById('scansTableBody');
+        if (!tbody) return;
+        
+        // Controlla se ci sono scansioni in corso
+        const rows = tbody.querySelectorAll('tr');
+        let hasRunning = false;
+        for (const row of rows) {
+            if (row.innerHTML.includes('In Corso')) {
+                hasRunning = true;
+                break;
+            }
+        }
+        
+        if (hasRunning) {
+            await loadScans();
+        } else {
+            // Ferma auto-refresh se non ci sono scansioni in corso
+            if (scansRefreshInterval) {
+                clearInterval(scansRefreshInterval);
+                scansRefreshInterval = null;
+            }
+        }
+    }, 10000); // Refresh ogni 10 secondi
+}
+
+// Carica scansioni all'apertura del tab
+(function() {
+    // Funzione per inizializzare scansioni
+    function initScans() {
+        const tbody = document.getElementById('scansTableBody');
+        if (!tbody) {
+            console.log('scansTableBody not found, retrying...');
+            // Se il tab non è ancora caricato, riprova dopo un breve delay
+            setTimeout(initScans, 500);
+            return;
+        }
+        
+        console.log('Initializing scans...');
+        loadScans();
+        startScansAutoRefresh();
+    }
+    
+    // Listener globale per tutti i tab Bootstrap
+    document.addEventListener('shown.bs.tab', function(event) {
+        // Controlla se il tab attivato è quello inventory
+        const target = event.target;
+        if (target && (target.getAttribute('href') === '#inventory' || target.id === 'inventory-tab')) {
+            console.log('Inventory tab shown, initializing scans...');
+            setTimeout(initScans, 100);
+        }
+    });
+    
+    // Carica scansioni anche se il tab è già attivo al caricamento della pagina
+    function checkAndInit() {
+        const inventoryPane = document.getElementById('inventory');
+        if (inventoryPane && inventoryPane.classList.contains('active') && inventoryPane.classList.contains('show')) {
+            console.log('Inventory tab already active, initializing scans...');
+            initScans();
+        }
+    }
+    
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', function() {
+            setTimeout(checkAndInit, 200);
+        });
+    } else {
+        // DOM già caricato
+        setTimeout(checkAndInit, 200);
+    }
+    
+    // Fallback: anche quando viene chiamato loadInventory
+    const originalLoadInventory = window.loadInventory;
+    if (originalLoadInventory) {
+        window.loadInventory = function() {
+            originalLoadInventory.apply(this, arguments);
+            setTimeout(initScans, 300);
+        };
+    }
+})();
+
 // Avvia Scansione
 async function startScan(agentId) {
     const scanType = prompt('Tipo scansione (ping/arp/snmp/all):', 'ping');
@@ -2714,6 +2909,22 @@ async function runCustomerDiscovery() {
         
         const scanResponse = await fetch(scanUrl, { method: 'POST' });
         const scanData = await scanResponse.json();
+        
+        // Se la scansione è in background, mostra messaggio e ricarica scansioni
+        if (scanData.status === 'running' && scanData.scan_id) {
+            loadingText.textContent = `Scansione avviata in background (ID: ${scanData.scan_id}). Puoi chiudere questa pagina.`;
+            loading.style.display = 'block';
+            // Ricarica scansioni per mostrare la nuova scansione
+            setTimeout(() => {
+                loadScans();
+                startScansAutoRefresh();
+            }, 1000);
+            // Mostra messaggio informativo
+            setTimeout(() => {
+                alert(`✅ Scansione avviata in background!\n\nID: ${scanData.scan_id}\n\nPuoi chiudere questa pagina, la scansione continuerà in background.\n\nPuoi controllare lo stato nella sezione "Scansioni di Rete" sopra.`);
+            }, 500);
+            return;
+        }
         
         // Gestisci formati diversi di risposta (MikroTik vs Docker)
         let scanResults = [];

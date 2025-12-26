@@ -81,6 +81,7 @@ class AgentService:
             "address": agent.address,
             "port": getattr(agent, 'port', 8728),
             "agent_type": getattr(agent, 'agent_type', 'mikrotik'),
+            "dude_agent_id": getattr(agent, 'dude_agent_id', None),
             "username": getattr(agent, 'username', None),
             "use_ssl": getattr(agent, 'use_ssl', False),
             "ssh_port": getattr(agent, 'ssh_port', 22),

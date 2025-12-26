@@ -458,11 +458,13 @@ class DiscoveredDevice(Base):
     source = Column(String(20), nullable=True)  # neighbor, arp
     
     # Inventory details
+    device_type = Column(String(50), nullable=True)  # windows, linux, mikrotik, network, etc
     os_family = Column(String(100), nullable=True)
     os_version = Column(String(100), nullable=True)
     vendor = Column(String(100), nullable=True)
     model = Column(String(100), nullable=True)
     category = Column(String(50), nullable=True)
+    identified_by = Column(String(50), nullable=True)  # probe_snmp, probe_ssh, probe_wmi, mac_vendor, port_inference
     
     # Hardware stats (se rilevati in fase di discovery)
     cpu_cores = Column(Integer, nullable=True)

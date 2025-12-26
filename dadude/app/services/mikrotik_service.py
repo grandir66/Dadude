@@ -1153,6 +1153,50 @@ class MikroTikRemoteService:
             return {"success": False, "error": str(e)}
 
 
+    async def ping_via_router(
+        self,
+        address: str,
+        port: int,
+        username: str,
+        password: str,
+        target: str,
+        use_ssl: bool = False,
+    ) -> bool:
+        """
+        Async wrapper per ping tramite router MikroTik.
+        Ritorna True se il target risponde, False altrimenti.
+        """
+        import asyncio
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: self.ping_check(address, port, username, password, target, count=3, use_ssl=use_ssl)
+        )
+        return result.get("alive", False) if result.get("success") else False
+    
+    async def check_port_via_router(
+        self,
+        address: str,
+        port: int,
+        username: str,
+        password: str,
+        target: str,
+        target_port: int,
+        use_ssl: bool = False,
+    ) -> bool:
+        """
+        Async wrapper per check porta tramite router MikroTik.
+        Ritorna True se la porta è aperta, False altrimenti.
+        """
+        import asyncio
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: self.check_port(address, port, username, password, target, target_port, use_ssl=use_ssl)
+        )
+        return result.get("is_open", False) if result.get("success") else False
+
+
 # Singleton
 _mikrotik_service: Optional[MikroTikRemoteService] = None
 

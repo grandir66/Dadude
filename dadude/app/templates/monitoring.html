@@ -19,7 +19,7 @@
                 <select class="form-select" id="customerFilter" name="customer_id" onchange="loadMonitoredDevices()">
                     <option value="">-- Tutti i clienti --</option>
                     {% for customer in customers %}
-                    <option value="{{ customer.id }}" {% if selected_customer_id == customer.id %}selected{% endif %}>
+                    <option value="{{ customer.id|e }}" {% if selected_customer_id|string == customer.id|string %}selected{% endif %}>
                         {{ customer.name }} ({{ customer.code }})
                     </option>
                     {% endfor %}
@@ -29,11 +29,11 @@
                 <label class="form-label">Tipo Monitoraggio</label>
                 <select class="form-select" id="monitoringTypeFilter" name="monitoring_type" onchange="loadMonitoredDevices()">
                     <option value="">Tutti</option>
-                    <option value="none">Nessuno (da configurare)</option>
-                    <option value="icmp">ICMP</option>
-                    <option value="tcp">TCP</option>
-                    <option value="netwatch">MikroTik Netwatch</option>
-                    <option value="agent">Agent Remoto</option>
+                    <option value="none" {% if monitoring_type_filter == 'none' %}selected{% endif %}>Nessuno (da configurare)</option>
+                    <option value="icmp" {% if monitoring_type_filter == 'icmp' %}selected{% endif %}>ICMP</option>
+                    <option value="tcp" {% if monitoring_type_filter == 'tcp' %}selected{% endif %}>TCP</option>
+                    <option value="netwatch" {% if monitoring_type_filter == 'netwatch' %}selected{% endif %}>MikroTik Netwatch</option>
+                    <option value="agent" {% if monitoring_type_filter == 'agent' %}selected{% endif %}>Agent Remoto</option>
                 </select>
             </div>
             <div class="col-md-3">
@@ -196,6 +196,8 @@ async function loadMonitoredDevices() {
     const status = document.getElementById('statusFilter')?.value || '';
     const showAll = document.getElementById('showAllDevices')?.checked || false;
     
+    console.log('loadMonitoredDevices called:', { customerId, monitoringType, status, showAll });
+    
     // Costruisci URL con parametri per ricaricare la pagina
     const params = new URLSearchParams();
     if (customerId) params.append('customer_id', customerId);
@@ -203,8 +205,11 @@ async function loadMonitoredDevices() {
     if (status) params.append('status', status);
     if (showAll) params.append('show_all', 'true');
     
+    const url = `/monitoring?${params.toString()}`;
+    console.log('Navigating to:', url);
+    
     // Ricarica pagina con nuovi filtri (più semplice e affidabile)
-    window.location.href = `/monitoring?${params.toString()}`;
+    window.location.href = url;
 }
 
 // Funzione globale per toggleMonitoringFields (fallback se Vue non è disponibile)
@@ -251,7 +256,7 @@ function initMonitoringApp() {
             return {
                 devices: devicesData || [],
                 showAll: {{ 'true' if show_all else 'false' }},
-                selectedCustomerId: {{ ('"' + selected_customer_id + '"') if selected_customer_id else 'null' }},
+                selectedCustomerId: {{ selected_customer_id|tojson if selected_customer_id else 'null' }},
                 columns: [
                     { key: 'customer_name', label: 'Cliente', field: 'customer_name', sortable: true },
                     { key: 'name', label: 'Nome', field: 'name', sortable: true },
