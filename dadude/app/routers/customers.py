@@ -2463,6 +2463,17 @@ async def identify_discovered_devices(
         
         import asyncio
         
+        # Prepara community SNMP (rimuovi duplicati, aggiungi 'public' come fallback)
+        snmp_communities_unique = []
+        for cred in credentials_list:
+            comm = cred.get('snmp_community')
+            if comm and comm not in snmp_communities_unique:
+                snmp_communities_unique.append(comm)
+        if 'public' not in snmp_communities_unique:
+            snmp_communities_unique.append('public')
+        
+        logger.info(f"[IDENTIFY] SNMP communities loaded: {snmp_communities_unique}")
+        
         # Processa ogni device
         async def identify_device(device):
             """Identifica un singolo device"""
@@ -2470,8 +2481,32 @@ async def identify_discovered_devices(
             
             updated = False
             
-            # 1. Analizza porte aperte per determinare protocolli disponibili
+            # 1. Se non ci sono porte aperte, esegui scansione completa
             open_ports = device.open_ports or []
+            
+            if not open_ports and device.address:
+                try:
+                    logger.info(f"[IDENTIFY] {device.address}: No ports cached, running port scan...")
+                    scanned_ports = await asyncio.wait_for(
+                        probe_service.scan_services(
+                            device.address, 
+                            agent=None,  # Usa scansione diretta
+                            use_agent=False,
+                            snmp_communities=snmp_communities_unique
+                        ),
+                        timeout=30.0  # 30 secondi max per scansione porte
+                    )
+                    if scanned_ports:
+                        open_ports = scanned_ports
+                        device.open_ports = open_ports  # Salva nel device
+                        updated = True
+                        logger.info(f"[IDENTIFY] {device.address}: Found {len([p for p in open_ports if p.get('open')])} open ports")
+                except asyncio.TimeoutError:
+                    logger.warning(f"[IDENTIFY] {device.address}: Port scan timeout")
+                except Exception as e:
+                    logger.warning(f"[IDENTIFY] {device.address}: Port scan failed: {e}")
+            
+            # 2. Analizza porte aperte per determinare protocolli disponibili
             available_protocols = []
             
             port_numbers = {p.get('port') for p in open_ports if p.get('open')}
@@ -2517,16 +2552,7 @@ async def identify_discovered_devices(
             probe_result = None
             identified_by = None
             
-            # Verifica se ci sono credenziali SNMP disponibili (rimuovi duplicati)
-            snmp_communities_unique = []
-            for cred in credentials_list:
-                comm = cred.get('snmp_community')
-                if comm and comm not in snmp_communities_unique:
-                    snmp_communities_unique.append(comm)
-            # Aggiungi 'public' come fallback se non presente
-            if 'public' not in snmp_communities_unique:
-                snmp_communities_unique.append('public')
-            
+            # Verifica se ci sono credenziali SNMP non-default
             has_snmp_creds = any(c != 'public' for c in snmp_communities_unique)
             
             logger.info(f"[IDENTIFY] {device.address}: has_snmp_creds={has_snmp_creds}, communities={snmp_communities_unique}, available_protocols={available_protocols}")
