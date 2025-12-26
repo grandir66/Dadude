@@ -3181,6 +3181,12 @@ async def refresh_advanced_info(customer_id: str, device_id: str):
         
         if is_proxmox:
             logger.info(f"Device {device_id} identified as Proxmox, collecting host/VM/storage info...")
+            logger.info(f"Proxmox collector: Using {len(credentials_list)} credentials for {device.primary_ip}")
+            if credentials_list:
+                logger.info(f"Credential types: {[c.get('type') for c in credentials_list]}")
+            else:
+                logger.warning(f"No credentials available for Proxmox device {device_id} at {device.primary_ip}")
+            
             proxmox_collector = get_proxmox_collector()
             
             try:
@@ -3189,6 +3195,9 @@ async def refresh_advanced_info(customer_id: str, device_id: str):
                 )
                 
                 if host_info:
+                    logger.info(f"Proxmox host info collected successfully for {device_id}: node_name={host_info.get('node_name')}")
+                else:
+                    logger.warning(f"Proxmox host info collection returned None for {device_id}")
                     # Aggiorna o crea ProxmoxHost
                     existing_host = session.query(ProxmoxHost).filter(
                         ProxmoxHost.device_id == device_id

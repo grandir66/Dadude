@@ -96,7 +96,7 @@ class ProxmoxCollector:
                 if host_info:
                     break
             except Exception as e:
-                logger.debug(f"Proxmox API failed for {device_address}: {e}")
+                logger.warning(f"Proxmox API failed for {device_address} with cred {cred.get('id', 'unknown')}: {e}")
                 continue
             
             # Fallback a SSH
@@ -105,11 +105,13 @@ class ProxmoxCollector:
                 if host_info:
                     break
             except Exception as e:
-                logger.debug(f"Proxmox SSH failed for {device_address}: {e}")
+                logger.warning(f"Proxmox SSH failed for {device_address} with cred {cred.get('id', 'unknown')}: {e}")
                 continue
         
         if host_info:
             logger.info(f"Proxmox host info collected for {device_address}")
+        else:
+            logger.warning(f"Proxmox host info collection failed for {device_address} - no valid credentials or connection failed")
         
         return host_info
     
