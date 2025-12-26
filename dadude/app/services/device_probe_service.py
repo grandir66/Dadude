@@ -2214,7 +2214,8 @@ class DeviceProbeService:
                 # Controlla anche manufacturer se vendor non è disponibile
                 os_family_lower = (result.get("os_family") or "").lower()
                 manufacturer_lower = (result.get("manufacturer") or "").lower()
-                elif device_type == "hypervisor" or "proxmox" in vendor or "proxmox" in manufacturer_lower or "proxmox" in os_family_lower:
+                
+                if device_type == "hypervisor" or "proxmox" in vendor or "proxmox" in manufacturer_lower or "proxmox" in os_family_lower:
                     logger.info(f"Collecting advanced Proxmox info for {address}...")
                     from .proxmox_collector import get_proxmox_collector
                     proxmox_collector = get_proxmox_collector()
