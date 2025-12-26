@@ -1642,7 +1642,8 @@ class DeviceProbeService:
         self, 
         address: str, 
         agent: Optional['MikroTikAgent'] = None,
-        use_agent: bool = True
+        use_agent: bool = True,
+        snmp_communities: List[str] = None
     ) -> List[Dict[str, Any]]:
         """
         Esegue scansione completa delle porte per identificare servizi attivi.
@@ -1652,13 +1653,14 @@ class DeviceProbeService:
             address: IP del dispositivo da scansionare
             agent: Agente MikroTik da usare per la scansione (opzionale)
             use_agent: Se True e agent è specificato, usa l'agente. Se False, usa connessione diretta.
+            snmp_communities: Lista di community SNMP da provare per il probe UDP 161
 
         Returns:
             Lista di servizi rilevati: [{"port": 80, "protocol": "tcp", "service": "http", "open": true}, ...]
         """
         # Se abbiamo un agente e use_agent è True, usa MikroTik
         if agent and use_agent:
-            return await self._scan_services_via_mikrotik(address, agent)
+            return await self._scan_services_via_mikrotik(address, agent, snmp_communities=snmp_communities)
         # Porte TCP da scansionare (priorità per identificazione OS/ruolo)
         tcp_ports = {
             # Remote Access (identificazione OS)
@@ -1720,6 +1722,10 @@ class DeviceProbeService:
             8728: "mikrotik-api",
             8291: "mikrotik-winbox",
 
+            # Virtualization / Hypervisors
+            8006: "proxmox-ve",     # Proxmox VE Web UI
+            8007: "proxmox-backup", # Proxmox Backup Server
+
             # DNS
             53: "dns",         # DNS (server DNS dedicati, AD, appliance)
 
@@ -1766,7 +1772,7 @@ class DeviceProbeService:
         udp_critical = {53: "dns", 67: "dhcp-server", 68: "dhcp-client", 123: "ntp", 161: "snmp", 162: "snmp-trap", 500: "ipsec-ike", 1900: "ssdp"}
         udp_tasks = []
         for port, service_name in udp_critical.items():
-            udp_tasks.append(self._scan_udp_port(address, port, service_name))
+            udp_tasks.append(self._scan_udp_port(address, port, service_name, snmp_communities=snmp_communities))
 
         udp_results = await asyncio.gather(*udp_tasks, return_exceptions=True)
         for result in udp_results:
@@ -1809,8 +1815,31 @@ class DeviceProbeService:
                 "open": False
             }
 
-    async def _scan_udp_port(self, address: str, port: int, service_name: str) -> Dict[str, Any]:
+    async def _scan_udp_port(self, address: str, port: int, service_name: str, snmp_communities: List[str] = None) -> Dict[str, Any]:
         """Scansiona una singola porta UDP"""
+        
+        # Per SNMP (porta 161), usa il probe SNMP reale con diverse community
+        if port == 161:
+            communities_to_try = snmp_communities or ["public", "private"]
+            for community in communities_to_try:
+                is_open = await self.probe_snmp_udp(address, community=community, port=port, timeout=2.0)
+                if is_open:
+                    logger.debug(f"SNMP detected on {address}:{port} with community '{community}'")
+                    return {
+                        "port": port,
+                        "protocol": "udp",
+                        "service": service_name,
+                        "open": True,
+                        "snmp_community": community
+                    }
+            return {
+                "port": port,
+                "protocol": "udp",
+                "service": service_name,
+                "open": False
+            }
+        
+        # Per altre porte UDP, usa il metodo standard
         loop = asyncio.get_event_loop()
 
         def check():
@@ -1818,23 +1847,13 @@ class DeviceProbeService:
             sock.settimeout(1.0)
             try:
                 # Per UDP, proviamo a inviare un pacchetto e vedere se c'è risposta
-                # Alcuni servizi UDP rispondono solo a query specifiche
                 sock.sendto(b'\x00', (address, port))
                 sock.recvfrom(1024)
                 return True
             except socket.timeout:
-                # Timeout può significare porta aperta ma senza risposta
-                # Per SNMP/DNS/NTP proviamo query specifiche
-                if port == 161:  # SNMP
+                # Per DNS proviamo query specifica
+                if port == 53:  # DNS
                     try:
-                        sock.sendto(b'\x30\x26\x02\x01\x00\x04\x06\x70\x75\x62\x6c\x69\x63\xa0\x19\x02\x04', (address, port))
-                        sock.recvfrom(1024)
-                        return True
-                    except:
-                        return False
-                elif port == 53:  # DNS
-                    try:
-                        import struct
                         query = b'\x12\x34\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00\x07example\x03com\x00\x00\x01\x00\x01'
                         sock.sendto(query, (address, port))
                         sock.recvfrom(1024)
@@ -1867,7 +1886,8 @@ class DeviceProbeService:
     async def _scan_services_via_mikrotik(
         self, 
         address: str, 
-        agent: 'MikroTikAgent'
+        agent: 'MikroTikAgent',
+        snmp_communities: List[str] = None
     ) -> List[Dict[str, Any]]:
         """
         Esegue scansione porte tramite router MikroTik.
