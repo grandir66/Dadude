@@ -1880,9 +1880,12 @@ async def scan_customer_networks(
                         try:
                             # Scansione porte QUICK - solo porte critiche per pre-assegnazione
                             ports_result = await asyncio.wait_for(
-                                probe_service.scan_services_quick(
+                                probe_service.scan_services(
                                     device_ip, 
-                                    snmp_communities=snmp_communities
+                                    agent=None,
+                                    use_agent=False,
+                                    snmp_communities=snmp_communities,
+                                    quick=True  # Solo porte critiche per pre-assegnazione
                                 ),
                                 timeout=PORT_SCAN_TIMEOUT  # 3 secondi timeout (sufficiente per 13 porte)
                             )

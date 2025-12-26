@@ -1638,77 +1638,23 @@ class DeviceProbeService:
         logger.warning(f"Could not determine credential type for {address}")
         return "unknown"
     
-    async def scan_services_quick(
-        self, 
-        address: str, 
-        snmp_communities: List[str] = None
-    ) -> List[Dict[str, Any]]:
-        """
-        Scansione veloce delle porte critiche per pre-assegnazione OS/device_type.
-        Solo le porte necessarie per identificare Windows/Linux/MikroTik/Proxmox/network.
-        
-        Args:
-            address: IP del dispositivo da scansionare
-            snmp_communities: Lista di community SNMP da provare per il probe UDP 161
-
-        Returns:
-            Lista di servizi rilevati: [{"port": 80, "protocol": "tcp", "service": "http", "open": true}, ...]
-        """
-        # Porte TCP critiche per pre-assegnazione
-        tcp_ports_quick = {
-            22: "ssh",          # Linux
-            135: "wmi",         # Windows
-            139: "netbios",     # Windows
-            445: "smb",         # Windows
-            3389: "rdp",        # Windows
-            80: "http",         # Web
-            443: "https",       # Web
-            3306: "mysql",      # Database
-            5432: "postgresql", # Database
-            2049: "nfs",        # NFS
-            8006: "proxmox-ve", # Proxmox
-            8728: "mikrotik-api", # MikroTik
-            8291: "mikrotik-winbox", # MikroTik
-        }
-        
-        logger.debug(f"Quick port scan on {address} ({len(tcp_ports_quick)} TCP + SNMP UDP)")
-        
-        services = []
-        
-        # Scansione TCP in parallelo
-        tcp_tasks = [self._scan_tcp_port(address, port, service) for port, service in tcp_ports_quick.items()]
-        tcp_results = await asyncio.gather(*tcp_tasks, return_exceptions=True)
-        for result in tcp_results:
-            if isinstance(result, dict) and result.get("open"):
-                services.append(result)
-        
-        # Probe SNMP UDP (critico per network devices)
-        if snmp_communities is None:
-            snmp_communities = ["public"]
-        for community in snmp_communities:
-            if await self.probe_snmp_udp(address, community=community):
-                services.append({"port": 161, "protocol": "udp", "service": "snmp", "open": True})
-                break
-        
-        logger.debug(f"Quick scan complete for {address}: {len(services)} ports open")
-        return services
-
     async def scan_services(
         self, 
         address: str, 
         agent: Optional['MikroTikAgent'] = None,
         use_agent: bool = True,
-        snmp_communities: List[str] = None
+        snmp_communities: List[str] = None,
+        quick: bool = False
     ) -> List[Dict[str, Any]]:
         """
-        Esegue scansione completa delle porte per identificare servizi attivi.
-        Include tutte le porte TCP/UDP importanti per identificazione OS/ruolo sistema.
+        Esegue scansione delle porte per identificare servizi attivi.
 
         Args:
             address: IP del dispositivo da scansionare
             agent: Agente MikroTik da usare per la scansione (opzionale)
             use_agent: Se True e agent è specificato, usa l'agente. Se False, usa connessione diretta.
             snmp_communities: Lista di community SNMP da provare per il probe UDP 161
+            quick: Se True, scansiona solo porte critiche per pre-assegnazione OS/device_type
 
         Returns:
             Lista di servizi rilevati: [{"port": 80, "protocol": "tcp", "service": "http", "open": true}, ...]
@@ -1716,6 +1662,48 @@ class DeviceProbeService:
         # Se abbiamo un agente e use_agent è True, usa MikroTik
         if agent and use_agent:
             return await self._scan_services_via_mikrotik(address, agent, snmp_communities=snmp_communities)
+        
+        # Modalità QUICK: solo porte critiche per pre-assegnazione
+        if quick:
+            tcp_ports = {
+                22: "ssh",          # Linux
+                135: "wmi",         # Windows
+                139: "netbios",     # Windows
+                445: "smb",         # Windows
+                3389: "rdp",        # Windows
+                80: "http",         # Web
+                443: "https",       # Web
+                3306: "mysql",      # Database
+                5432: "postgresql", # Database
+                2049: "nfs",        # NFS
+                8006: "proxmox-ve", # Proxmox
+                8728: "mikrotik-api", # MikroTik
+                8291: "mikrotik-winbox", # MikroTik
+            }
+            
+            logger.debug(f"Quick port scan on {address} ({len(tcp_ports)} TCP + SNMP UDP)")
+            
+            services = []
+            
+            # Scansione TCP in parallelo
+            tcp_tasks = [self._scan_tcp_port(address, port, service) for port, service in tcp_ports.items()]
+            tcp_results = await asyncio.gather(*tcp_tasks, return_exceptions=True)
+            for result in tcp_results:
+                if isinstance(result, dict) and result.get("open"):
+                    services.append(result)
+            
+            # Probe SNMP UDP (critico per network devices)
+            if snmp_communities is None:
+                snmp_communities = ["public"]
+            for community in snmp_communities:
+                if await self.probe_snmp_udp(address, community=community):
+                    services.append({"port": 161, "protocol": "udp", "service": "snmp", "open": True})
+                    break
+            
+            logger.debug(f"Quick scan complete for {address}: {len(services)} ports open")
+            return services
+        
+        # Modalità COMPLETA: tutte le porte
         # Porte TCP da scansionare (priorità per identificazione OS/ruolo)
         tcp_ports = {
             # Remote Access (identificazione OS)
