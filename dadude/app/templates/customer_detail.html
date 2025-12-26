@@ -4746,10 +4746,12 @@ async function viewInventoryDevice(deviceId) {
         const deviceType = (device.device_type || '').toLowerCase();
         const manufacturer = (device.manufacturer || '').toLowerCase();
         const osFamily = (device.os_family || '').toLowerCase();
-        const isNetworkDevice = deviceType in ['network', 'router', 'switch'] || 
-                               'mikrotik' in manufacturer || 'cisco' in manufacturer || 
-                               'hp' in manufacturer || 'aruba' in manufacturer || 'ubiquiti' in manufacturer;
-        const isProxmox = deviceType === 'hypervisor' || 'proxmox' in manufacturer || 'proxmox' in osFamily;
+        const isNetworkDevice = ['network', 'router', 'switch'].includes(deviceType) || 
+                               (manufacturer && (manufacturer.includes('mikrotik') || manufacturer.includes('cisco') || 
+                                manufacturer.includes('hp') || manufacturer.includes('aruba') || manufacturer.includes('ubiquiti')));
+        const isProxmox = deviceType === 'hypervisor' || 
+                         (manufacturer && manufacturer.includes('proxmox')) || 
+                         (osFamily && osFamily.includes('proxmox'));
         
         // Crea struttura con tab Bootstrap
         let modalContent = `
