@@ -1878,6 +1878,7 @@ async def scan_customer_networks(
                 if device_ip:
                     async with semaphore_ports:
                         try:
+                            logger.info(f"[SCAN] Starting quick port scan for {device_ip}")
                             # Scansione porte QUICK - solo porte critiche per pre-assegnazione
                             ports_result = await asyncio.wait_for(
                                 probe_service.scan_services_quick(
@@ -1888,13 +1889,14 @@ async def scan_customer_networks(
                             )
                             open_ports_data = ports_result
                             open_count = len([p for p in ports_result if p.get('open')])
+                            logger.info(f"[SCAN] Quick port scan for {device_ip}: {open_count} ports open (total scanned: {len(ports_result)})")
                             if open_count > 0:
-                                logger.debug(f"Quick port scan for {device_ip}: {open_count} ports open")
+                                logger.info(f"[SCAN] Open ports for {device_ip}: {[p.get('port') for p in ports_result if p.get('open')]}")
                         except asyncio.TimeoutError:
-                            logger.debug(f"Quick port scan timeout for {device_ip} (skipped)")
+                            logger.warning(f"[SCAN] Quick port scan timeout for {device_ip} (skipped)")
                             # Continua senza porte - meglio avere il device senza porte che bloccarsi
                         except Exception as e:
-                            logger.debug(f"Quick port scan failed for {device_ip}: {e}")
+                            logger.error(f"[SCAN] Quick port scan failed for {device_ip}: {e}", exc_info=True)
                             # Continua senza porte
                 
                 return {
@@ -1986,6 +1988,8 @@ async def scan_customer_networks(
                         pre_os_family = "Linux"
                         pre_device_type = "linux"
                         pre_category = "server"
+                
+                logger.info(f"[SCAN] Saving device {device_ip}: ports={len(open_ports_data) if open_ports_data else 0}, type={pre_device_type}, category={pre_category}, os={pre_os_family}")
                 
                 dev_record = DiscoveredDevice(
                     scan_id=scan_record.id,
