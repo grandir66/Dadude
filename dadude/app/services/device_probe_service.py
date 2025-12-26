@@ -2159,6 +2159,95 @@ class DeviceProbeService:
             logger.warning(f"Could not fully identify device {address} - only MAC vendor available")
         else:
             logger.info(f"Device identification complete for {address}: {result['device_type']} ({result['hostname'] or 'no hostname'})")
+        
+        # 5. Raccogli informazioni avanzate se dispositivo identificato e credenziali disponibili
+        if result.get("identified_by") and result["identified_by"].startswith("probe_") and credentials_list:
+            try:
+                device_type = result.get("device_type", "").lower()
+                vendor = (result.get("vendor") or "").lower()
+                
+                # Switch/Router: raccogli LLDP/CDP neighbors e dettagli interfacce
+                if device_type in ["network", "router", "switch"] or "mikrotik" in vendor or "cisco" in vendor or "hp" in vendor or "aruba" in vendor or "ubiquiti" in vendor:
+                    logger.info(f"Collecting advanced network info (LLDP/CDP/interfaces) for {address}...")
+                    from .lldp_cdp_collector import get_lldp_cdp_collector
+                    lldp_collector = get_lldp_cdp_collector()
+                    
+                    # Raccogli LLDP neighbors
+                    try:
+                        lldp_neighbors = await lldp_collector.collect_lldp_neighbors(
+                            address, device_type, vendor, credentials_list
+                        )
+                        if lldp_neighbors:
+                            result["lldp_neighbors"] = lldp_neighbors
+                            logger.info(f"Found {len(lldp_neighbors)} LLDP neighbors")
+                    except Exception as e:
+                        logger.debug(f"LLDP collection failed: {e}")
+                    
+                    # Raccogli CDP neighbors (solo Cisco)
+                    if "cisco" in vendor:
+                        try:
+                            cdp_neighbors = await lldp_collector.collect_cdp_neighbors(
+                                address, vendor, credentials_list
+                            )
+                            if cdp_neighbors:
+                                result["cdp_neighbors"] = cdp_neighbors
+                                logger.info(f"Found {len(cdp_neighbors)} CDP neighbors")
+                        except Exception as e:
+                            logger.debug(f"CDP collection failed: {e}")
+                    
+                    # Raccogli dettagli interfacce
+                    try:
+                        interfaces = await lldp_collector.collect_interface_details(
+                            address, device_type, vendor, credentials_list
+                        )
+                        if interfaces:
+                            result["interface_details"] = interfaces
+                            logger.info(f"Found {len(interfaces)} interfaces with details")
+                    except Exception as e:
+                        logger.debug(f"Interface details collection failed: {e}")
+                
+                # Proxmox: raccogli info host, VM, storage, backup
+                elif device_type == "hypervisor" or "proxmox" in vendor or "proxmox" in (result.get("os_family") or "").lower():
+                    logger.info(f"Collecting advanced Proxmox info for {address}...")
+                    from .proxmox_collector import get_proxmox_collector
+                    proxmox_collector = get_proxmox_collector()
+                    
+                    # Raccogli info host
+                    try:
+                        host_info = await proxmox_collector.collect_proxmox_host_info(
+                            address, credentials_list
+                        )
+                        if host_info:
+                            result["proxmox_host_info"] = host_info
+                            node_name = host_info.get("node_name")
+                            
+                            # Raccogli VM se abbiamo il node name
+                            if node_name:
+                                try:
+                                    vms = await proxmox_collector.collect_proxmox_vms(
+                                        address, node_name, credentials_list
+                                    )
+                                    if vms:
+                                        result["proxmox_vms"] = vms
+                                        logger.info(f"Found {len(vms)} Proxmox VMs")
+                                except Exception as e:
+                                    logger.debug(f"Proxmox VM collection failed: {e}")
+                                
+                                # Raccogli storage
+                                try:
+                                    storage = await proxmox_collector.collect_proxmox_storage(
+                                        address, node_name, credentials_list
+                                    )
+                                    if storage:
+                                        result["proxmox_storage"] = storage
+                                        logger.info(f"Found {len(storage)} Proxmox storage")
+                                except Exception as e:
+                                    logger.debug(f"Proxmox storage collection failed: {e}")
+                    except Exception as e:
+                        logger.debug(f"Proxmox host info collection failed: {e}")
+                
+            except Exception as e:
+                logger.warning(f"Advanced info collection failed for {address}: {e}")
 
         return result
 

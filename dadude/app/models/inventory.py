@@ -187,6 +187,16 @@ class NetworkInterface(Base):
     vlan_id = Column(Integer, nullable=True)
     is_management = Column(Boolean, default=False)
     
+    # Campi avanzati per switch/router
+    lldp_enabled = Column(Boolean, nullable=True)
+    cdp_enabled = Column(Boolean, nullable=True)
+    poe_enabled = Column(Boolean, nullable=True)
+    poe_power_watts = Column(Float, nullable=True)
+    vlan_native = Column(Integer, nullable=True)
+    vlan_trunk_allowed = Column(JSON, nullable=True)  # [10, 20, 30]
+    stp_state = Column(String(20), nullable=True)  # forwarding, blocking, disabled
+    lacp_enabled = Column(Boolean, nullable=True)
+    
     # Traffic stats (ultimo polling)
     bytes_in = Column(Integer, nullable=True)
     bytes_out = Column(Integer, nullable=True)
@@ -616,4 +626,210 @@ class DudeAgent(Base):
     __table_args__ = (
         Index('idx_dude_agent_dude_id', 'dude_id'),
         Index('idx_dude_agent_customer', 'customer_id'),
+    )
+
+
+# ==========================================
+# LLDP/CDP NEIGHBORS
+# ==========================================
+
+class LLDPNeighbor(Base):
+    """Neighbor LLDP rilevati su switch/router"""
+    __tablename__ = "inventory_lldp_neighbors"
+    
+    id = Column(String(8), primary_key=True, default=generate_uuid)
+    device_id = Column(String(8), ForeignKey("inventory_devices.id"), nullable=False)
+    
+    local_interface = Column(String(100), nullable=False)  # ether1, GigabitEthernet0/1
+    remote_device_name = Column(String(255), nullable=True)
+    remote_device_description = Column(String(500), nullable=True)
+    remote_port = Column(String(100), nullable=True)  # Porta remota
+    remote_mac = Column(String(20), nullable=True)
+    remote_ip = Column(String(50), nullable=True)
+    
+    chassis_id = Column(String(100), nullable=True)
+    chassis_id_type = Column(String(20), nullable=True)  # mac, network, local
+    capabilities = Column(JSON, nullable=True)  # {"router": true, "switch": true, "bridge": false}
+    
+    last_seen = Column(DateTime, default=func.now())
+    created_at = Column(DateTime, default=func.now())
+    
+    device = relationship("InventoryDevice")
+    
+    __table_args__ = (
+        Index('idx_lldp_device', 'device_id'),
+        Index('idx_lldp_local_interface', 'local_interface'),
+        Index('idx_lldp_remote_mac', 'remote_mac'),
+    )
+
+
+class CDPNeighbor(Base):
+    """Neighbor CDP rilevati (Cisco)"""
+    __tablename__ = "inventory_cdp_neighbors"
+    
+    id = Column(String(8), primary_key=True, default=generate_uuid)
+    device_id = Column(String(8), ForeignKey("inventory_devices.id"), nullable=False)
+    
+    local_interface = Column(String(100), nullable=False)
+    remote_device_id = Column(String(255), nullable=True)  # Device ID Cisco
+    remote_device_name = Column(String(255), nullable=True)
+    remote_port = Column(String(100), nullable=True)
+    remote_ip = Column(String(50), nullable=True)
+    remote_version = Column(String(255), nullable=True)  # IOS version
+    platform = Column(String(100), nullable=True)  # Platform type
+    capabilities = Column(JSON, nullable=True)  # {"router": true, "switch": true}
+    
+    last_seen = Column(DateTime, default=func.now())
+    created_at = Column(DateTime, default=func.now())
+    
+    device = relationship("InventoryDevice")
+    
+    __table_args__ = (
+        Index('idx_cdp_device', 'device_id'),
+        Index('idx_cdp_local_interface', 'local_interface'),
+        Index('idx_cdp_remote_device_id', 'remote_device_id'),
+    )
+
+
+# ==========================================
+# PROXMOX INFORMATION
+# ==========================================
+
+class ProxmoxHost(Base):
+    """Informazioni host Proxmox"""
+    __tablename__ = "inventory_proxmox_hosts"
+    
+    id = Column(String(8), primary_key=True, default=generate_uuid)
+    device_id = Column(String(8), ForeignKey("inventory_devices.id"), nullable=False, unique=True)
+    
+    node_name = Column(String(100), nullable=False)
+    cluster_name = Column(String(100), nullable=True)
+    
+    proxmox_version = Column(String(50), nullable=True)
+    kernel_version = Column(String(100), nullable=True)
+    
+    cpu_model = Column(String(200), nullable=True)
+    cpu_cores = Column(Integer, nullable=True)
+    cpu_sockets = Column(Integer, nullable=True)
+    cpu_threads = Column(Integer, nullable=True)
+    cpu_total_cores = Column(Integer, nullable=True)
+    
+    memory_total_gb = Column(Float, nullable=True)
+    memory_used_gb = Column(Float, nullable=True)
+    memory_free_gb = Column(Float, nullable=True)
+    memory_usage_percent = Column(Float, nullable=True)
+    
+    storage_list = Column(JSON, nullable=True)  # Lista storage configurati
+    network_interfaces = Column(JSON, nullable=True)  # Configurazione network
+    
+    license_status = Column(String(50), nullable=True)
+    license_message = Column(Text, nullable=True)
+    license_level = Column(String(50), nullable=True)
+    subscription_type = Column(String(50), nullable=True)
+    subscription_key = Column(String(255), nullable=True)
+    
+    uptime_seconds = Column(Integer, nullable=True)
+    uptime_human = Column(String(100), nullable=True)
+    
+    load_average_1m = Column(Float, nullable=True)
+    load_average_5m = Column(Float, nullable=True)
+    load_average_15m = Column(Float, nullable=True)
+    
+    cpu_usage_percent = Column(Float, nullable=True)
+    io_delay_percent = Column(Float, nullable=True)
+    
+    last_updated = Column(DateTime, default=func.now())
+    
+    device = relationship("InventoryDevice")
+    
+    __table_args__ = (
+        Index('idx_proxmox_host_device', 'device_id'),
+        Index('idx_proxmox_host_node', 'node_name'),
+    )
+
+
+class ProxmoxVM(Base):
+    """Informazioni VM Proxmox"""
+    __tablename__ = "inventory_proxmox_vms"
+    
+    id = Column(String(8), primary_key=True, default=generate_uuid)
+    host_id = Column(String(8), ForeignKey("inventory_proxmox_hosts.id"), nullable=False)
+    
+    vm_id = Column(Integer, nullable=False)  # ID VM in Proxmox (100, 101, ecc.)
+    name = Column(String(255), nullable=False)
+    status = Column(String(20), nullable=True)  # running, stopped, paused
+    
+    cpu_cores = Column(Integer, nullable=True)
+    memory_mb = Column(Integer, nullable=True)
+    disk_total_gb = Column(Float, nullable=True)
+    
+    network_interfaces = Column(JSON, nullable=True)  # Lista interfacce di rete
+    os_type = Column(String(50), nullable=True)  # l26, win10, win11, ecc.
+    template = Column(Boolean, default=False)
+    
+    backup_enabled = Column(Boolean, nullable=True)
+    last_backup = Column(DateTime, nullable=True)
+    
+    created_at = Column(DateTime, nullable=True)  # Data creazione VM
+    last_updated = Column(DateTime, default=func.now())
+    
+    host = relationship("ProxmoxHost")
+    
+    __table_args__ = (
+        Index('idx_proxmox_vm_host', 'host_id'),
+        Index('idx_proxmox_vm_vm_id', 'vm_id'),
+        Index('idx_proxmox_vm_status', 'status'),
+    )
+
+
+class ProxmoxStorage(Base):
+    """Storage Proxmox"""
+    __tablename__ = "inventory_proxmox_storage"
+    
+    id = Column(String(8), primary_key=True, default=generate_uuid)
+    host_id = Column(String(8), ForeignKey("inventory_proxmox_hosts.id"), nullable=False)
+    
+    storage_name = Column(String(100), nullable=False)
+    storage_type = Column(String(50), nullable=True)  # dir, lvm, lvm-thin, zfs, nfs, cifs
+    content_types = Column(JSON, nullable=True)  # ["images", "iso", "backup"]
+    
+    total_gb = Column(Float, nullable=True)
+    used_gb = Column(Float, nullable=True)
+    available_gb = Column(Float, nullable=True)
+    usage_percent = Column(Float, nullable=True)
+    
+    last_updated = Column(DateTime, default=func.now())
+    
+    host = relationship("ProxmoxHost")
+    
+    __table_args__ = (
+        Index('idx_proxmox_storage_host', 'host_id'),
+        Index('idx_proxmox_storage_name', 'storage_name'),
+    )
+
+
+class ProxmoxBackup(Base):
+    """Backup Proxmox"""
+    __tablename__ = "inventory_proxmox_backups"
+    
+    id = Column(String(8), primary_key=True, default=generate_uuid)
+    vm_id = Column(String(8), ForeignKey("inventory_proxmox_vms.id"), nullable=False)
+    
+    backup_id = Column(String(255), nullable=False)  # ID backup in Proxmox
+    backup_type = Column(String(20), nullable=True)  # vzdump, pbs
+    size_gb = Column(Float, nullable=True)
+    status = Column(String(20), nullable=True)  # ok, failed, running
+    
+    start_time = Column(DateTime, nullable=True)
+    end_time = Column(DateTime, nullable=True)
+    duration_seconds = Column(Integer, nullable=True)
+    
+    created_at = Column(DateTime, default=func.now())
+    
+    vm = relationship("ProxmoxVM")
+    
+    __table_args__ = (
+        Index('idx_proxmox_backup_vm', 'vm_id'),
+        Index('idx_proxmox_backup_status', 'status'),
+        Index('idx_proxmox_backup_start_time', 'start_time'),
     )

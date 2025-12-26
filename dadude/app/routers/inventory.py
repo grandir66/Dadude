@@ -2362,3 +2362,678 @@ async def get_manufacturers(customer_id: Optional[str] = Query(None)):
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         session.close()
+
+
+# ==========================================
+# ADVANCED DEVICE INFORMATION ENDPOINTS
+# ==========================================
+
+@router.get("/{customer_id}/devices/{device_id}/lldp-neighbors")
+async def get_device_lldp_neighbors(customer_id: str, device_id: str):
+    """Ottiene lista neighbor LLDP per un dispositivo"""
+    from ..models.database import init_db, get_session
+    from ..models.inventory import InventoryDevice, LLDPNeighbor
+    from ..config import get_settings
+    
+    settings = get_settings()
+    db_url = settings.database_url
+    engine = init_db(db_url)
+    session = get_session(engine)
+    
+    try:
+        device = session.query(InventoryDevice).filter(
+            InventoryDevice.id == device_id,
+            InventoryDevice.customer_id == customer_id
+        ).first()
+        
+        if not device:
+            raise HTTPException(status_code=404, detail="Device not found")
+        
+        neighbors = session.query(LLDPNeighbor).filter(
+            LLDPNeighbor.device_id == device_id
+        ).order_by(LLDPNeighbor.local_interface, LLDPNeighbor.last_seen.desc()).all()
+        
+        return {
+            "success": True,
+            "device_id": device_id,
+            "neighbors": [
+                {
+                    "id": n.id,
+                    "local_interface": n.local_interface,
+                    "remote_device_name": n.remote_device_name,
+                    "remote_device_description": n.remote_device_description,
+                    "remote_port": n.remote_port,
+                    "remote_mac": n.remote_mac,
+                    "remote_ip": n.remote_ip,
+                    "chassis_id": n.chassis_id,
+                    "chassis_id_type": n.chassis_id_type,
+                    "capabilities": n.capabilities,
+                    "last_seen": n.last_seen.isoformat() if n.last_seen else None,
+                }
+                for n in neighbors
+            ],
+            "count": len(neighbors)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching LLDP neighbors: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        session.close()
+
+
+@router.get("/{customer_id}/devices/{device_id}/cdp-neighbors")
+async def get_device_cdp_neighbors(customer_id: str, device_id: str):
+    """Ottiene lista neighbor CDP per un dispositivo"""
+    from ..models.database import init_db, get_session
+    from ..models.inventory import InventoryDevice, CDPNeighbor
+    from ..config import get_settings
+    
+    settings = get_settings()
+    db_url = settings.database_url
+    engine = init_db(db_url)
+    session = get_session(engine)
+    
+    try:
+        device = session.query(InventoryDevice).filter(
+            InventoryDevice.id == device_id,
+            InventoryDevice.customer_id == customer_id
+        ).first()
+        
+        if not device:
+            raise HTTPException(status_code=404, detail="Device not found")
+        
+        neighbors = session.query(CDPNeighbor).filter(
+            CDPNeighbor.device_id == device_id
+        ).order_by(CDPNeighbor.local_interface, CDPNeighbor.last_seen.desc()).all()
+        
+        return {
+            "success": True,
+            "device_id": device_id,
+            "neighbors": [
+                {
+                    "id": n.id,
+                    "local_interface": n.local_interface,
+                    "remote_device_id": n.remote_device_id,
+                    "remote_device_name": n.remote_device_name,
+                    "remote_port": n.remote_port,
+                    "remote_ip": n.remote_ip,
+                    "remote_version": n.remote_version,
+                    "platform": n.platform,
+                    "capabilities": n.capabilities,
+                    "last_seen": n.last_seen.isoformat() if n.last_seen else None,
+                }
+                for n in neighbors
+            ],
+            "count": len(neighbors)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching CDP neighbors: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        session.close()
+
+
+@router.get("/{customer_id}/devices/{device_id}/interfaces")
+async def get_device_interfaces(customer_id: str, device_id: str):
+    """Ottiene dettagli interfacce di rete per un dispositivo"""
+    from ..models.database import init_db, get_session
+    from ..models.inventory import InventoryDevice, NetworkInterface
+    from ..config import get_settings
+    
+    settings = get_settings()
+    db_url = settings.database_url
+    engine = init_db(db_url)
+    session = get_session(engine)
+    
+    try:
+        device = session.query(InventoryDevice).filter(
+            InventoryDevice.id == device_id,
+            InventoryDevice.customer_id == customer_id
+        ).first()
+        
+        if not device:
+            raise HTTPException(status_code=404, detail="Device not found")
+        
+        interfaces = session.query(NetworkInterface).filter(
+            NetworkInterface.device_id == device_id
+        ).order_by(NetworkInterface.name).all()
+        
+        return {
+            "success": True,
+            "device_id": device_id,
+            "interfaces": [
+                {
+                    "id": i.id,
+                    "name": i.name,
+                    "description": i.description,
+                    "interface_type": i.interface_type,
+                    "mac_address": i.mac_address,
+                    "ip_addresses": i.ip_addresses,
+                    "speed_mbps": i.speed_mbps,
+                    "duplex": i.duplex,
+                    "mtu": i.mtu,
+                    "admin_status": i.admin_status,
+                    "oper_status": i.oper_status,
+                    "vlan_id": i.vlan_id,
+                    "is_management": i.is_management,
+                    "lldp_enabled": i.lldp_enabled,
+                    "cdp_enabled": i.cdp_enabled,
+                    "poe_enabled": i.poe_enabled,
+                    "poe_power_watts": i.poe_power_watts,
+                    "vlan_native": i.vlan_native,
+                    "vlan_trunk_allowed": i.vlan_trunk_allowed,
+                    "stp_state": i.stp_state,
+                    "lacp_enabled": i.lacp_enabled,
+                    "last_updated": i.last_updated.isoformat() if i.last_updated else None,
+                }
+                for i in interfaces
+            ],
+            "count": len(interfaces)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching interfaces: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        session.close()
+
+
+@router.get("/{customer_id}/devices/{device_id}/proxmox/host")
+async def get_proxmox_host_info(customer_id: str, device_id: str):
+    """Ottiene informazioni host Proxmox"""
+    from ..models.database import init_db, get_session
+    from ..models.inventory import InventoryDevice, ProxmoxHost
+    from ..config import get_settings
+    
+    settings = get_settings()
+    db_url = settings.database_url
+    engine = init_db(db_url)
+    session = get_session(engine)
+    
+    try:
+        device = session.query(InventoryDevice).filter(
+            InventoryDevice.id == device_id,
+            InventoryDevice.customer_id == customer_id
+        ).first()
+        
+        if not device:
+            raise HTTPException(status_code=404, detail="Device not found")
+        
+        host_info = session.query(ProxmoxHost).filter(
+            ProxmoxHost.device_id == device_id
+        ).first()
+        
+        if not host_info:
+            return {
+                "success": False,
+                "message": "Proxmox host info not available. Run refresh-advanced-info first."
+            }
+        
+        return {
+            "success": True,
+            "device_id": device_id,
+            "host_info": {
+                "node_name": host_info.node_name,
+                "cluster_name": host_info.cluster_name,
+                "proxmox_version": host_info.proxmox_version,
+                "kernel_version": host_info.kernel_version,
+                "cpu_model": host_info.cpu_model,
+                "cpu_cores": host_info.cpu_cores,
+                "cpu_sockets": host_info.cpu_sockets,
+                "cpu_threads": host_info.cpu_threads,
+                "cpu_total_cores": host_info.cpu_total_cores,
+                "memory_total_gb": host_info.memory_total_gb,
+                "memory_used_gb": host_info.memory_used_gb,
+                "memory_free_gb": host_info.memory_free_gb,
+                "memory_usage_percent": host_info.memory_usage_percent,
+                "storage_list": host_info.storage_list,
+                "network_interfaces": host_info.network_interfaces,
+                "license_status": host_info.license_status,
+                "license_message": host_info.license_message,
+                "license_level": host_info.license_level,
+                "subscription_type": host_info.subscription_type,
+                "subscription_key": host_info.subscription_key,
+                "uptime_seconds": host_info.uptime_seconds,
+                "uptime_human": host_info.uptime_human,
+                "load_average_1m": host_info.load_average_1m,
+                "load_average_5m": host_info.load_average_5m,
+                "load_average_15m": host_info.load_average_15m,
+                "cpu_usage_percent": host_info.cpu_usage_percent,
+                "io_delay_percent": host_info.io_delay_percent,
+                "last_updated": host_info.last_updated.isoformat() if host_info.last_updated else None,
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching Proxmox host info: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        session.close()
+
+
+@router.get("/{customer_id}/devices/{device_id}/proxmox/vms")
+async def get_proxmox_vms(customer_id: str, device_id: str):
+    """Ottiene lista VM Proxmox per un host"""
+    from ..models.database import init_db, get_session
+    from ..models.inventory import InventoryDevice, ProxmoxHost, ProxmoxVM
+    from ..config import get_settings
+    
+    settings = get_settings()
+    db_url = settings.database_url
+    engine = init_db(db_url)
+    session = get_session(engine)
+    
+    try:
+        device = session.query(InventoryDevice).filter(
+            InventoryDevice.id == device_id,
+            InventoryDevice.customer_id == customer_id
+        ).first()
+        
+        if not device:
+            raise HTTPException(status_code=404, detail="Device not found")
+        
+        host_info = session.query(ProxmoxHost).filter(
+            ProxmoxHost.device_id == device_id
+        ).first()
+        
+        if not host_info:
+            return {
+                "success": False,
+                "message": "Proxmox host info not available. Run refresh-advanced-info first."
+            }
+        
+        vms = session.query(ProxmoxVM).filter(
+            ProxmoxVM.host_id == host_info.id
+        ).order_by(ProxmoxVM.vm_id).all()
+        
+        return {
+            "success": True,
+            "device_id": device_id,
+            "host_id": host_info.id,
+            "vms": [
+                {
+                    "id": vm.id,
+                    "vm_id": vm.vm_id,
+                    "name": vm.name,
+                    "status": vm.status,
+                    "cpu_cores": vm.cpu_cores,
+                    "memory_mb": vm.memory_mb,
+                    "disk_total_gb": vm.disk_total_gb,
+                    "network_interfaces": vm.network_interfaces,
+                    "os_type": vm.os_type,
+                    "template": vm.template,
+                    "backup_enabled": vm.backup_enabled,
+                    "last_backup": vm.last_backup.isoformat() if vm.last_backup else None,
+                    "created_at": vm.created_at.isoformat() if vm.created_at else None,
+                    "last_updated": vm.last_updated.isoformat() if vm.last_updated else None,
+                }
+                for vm in vms
+            ],
+            "count": len(vms)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching Proxmox VMs: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        session.close()
+
+
+@router.get("/{customer_id}/devices/{device_id}/proxmox/storage")
+async def get_proxmox_storage(customer_id: str, device_id: str):
+    """Ottiene lista storage Proxmox per un host"""
+    from ..models.database import init_db, get_session
+    from ..models.inventory import InventoryDevice, ProxmoxHost, ProxmoxStorage
+    from ..config import get_settings
+    
+    settings = get_settings()
+    db_url = settings.database_url
+    engine = init_db(db_url)
+    session = get_session(engine)
+    
+    try:
+        device = session.query(InventoryDevice).filter(
+            InventoryDevice.id == device_id,
+            InventoryDevice.customer_id == customer_id
+        ).first()
+        
+        if not device:
+            raise HTTPException(status_code=404, detail="Device not found")
+        
+        host_info = session.query(ProxmoxHost).filter(
+            ProxmoxHost.device_id == device_id
+        ).first()
+        
+        if not host_info:
+            return {
+                "success": False,
+                "message": "Proxmox host info not available. Run refresh-advanced-info first."
+            }
+        
+        storage_list = session.query(ProxmoxStorage).filter(
+            ProxmoxStorage.host_id == host_info.id
+        ).order_by(ProxmoxStorage.storage_name).all()
+        
+        return {
+            "success": True,
+            "device_id": device_id,
+            "host_id": host_info.id,
+            "storage": [
+                {
+                    "id": s.id,
+                    "storage_name": s.storage_name,
+                    "storage_type": s.storage_type,
+                    "content_types": s.content_types,
+                    "total_gb": s.total_gb,
+                    "used_gb": s.used_gb,
+                    "available_gb": s.available_gb,
+                    "usage_percent": s.usage_percent,
+                    "last_updated": s.last_updated.isoformat() if s.last_updated else None,
+                }
+                for s in storage_list
+            ],
+            "count": len(storage_list)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching Proxmox storage: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        session.close()
+
+
+@router.post("/{customer_id}/devices/{device_id}/refresh-advanced-info")
+async def refresh_advanced_info(customer_id: str, device_id: str):
+    """Forza refresh informazioni avanzate per un dispositivo"""
+    from ..models.database import init_db, get_session
+    from ..models.inventory import InventoryDevice, LLDPNeighbor, CDPNeighbor, NetworkInterface, ProxmoxHost, ProxmoxVM, ProxmoxStorage
+    from ..config import get_settings
+    from ..services.device_probe_service import get_device_probe_service
+    from ..services.lldp_cdp_collector import get_lldp_cdp_collector
+    from ..services.proxmox_collector import get_proxmox_collector
+    from datetime import datetime
+    import uuid
+    
+    settings = get_settings()
+    db_url = settings.database_url
+    engine = init_db(db_url)
+    session = get_session(engine)
+    
+    try:
+        device = session.query(InventoryDevice).filter(
+            InventoryDevice.id == device_id,
+            InventoryDevice.customer_id == customer_id
+        ).first()
+        
+        if not device:
+            raise HTTPException(status_code=404, detail="Device not found")
+        
+        # Ottieni credenziali del cliente
+        from ..models.database import Credential
+        credentials = session.query(Credential).filter(
+            Credential.customer_id == customer_id,
+            Credential.active == True
+        ).all()
+        
+        credentials_list = []
+        for cred in credentials:
+            cred_dict = {
+                "id": cred.id,
+                "type": cred.credential_type,
+                "username": cred.username,
+                "password": cred.password,
+                "snmp_community": cred.snmp_community,
+                "snmp_port": cred.snmp_port,
+                "snmp_version": cred.snmp_version,
+                "ssh_port": cred.ssh_port,
+                "mikrotik_api_port": cred.mikrotik_api_port,
+                "use_ssl": cred.use_ssl,
+            }
+            credentials_list.append(cred_dict)
+        
+        device_type = device.device_type or ""
+        vendor = device.manufacturer or ""
+        
+        # Switch/Router: raccogli LLDP/CDP e interfacce
+        if device_type.lower() in ["network", "router", "switch"] or "mikrotik" in vendor.lower() or "cisco" in vendor.lower() or "hp" in vendor.lower() or "aruba" in vendor.lower() or "ubiquiti" in vendor.lower():
+            lldp_collector = get_lldp_cdp_collector()
+            
+            # LLDP neighbors
+            try:
+                lldp_neighbors = await lldp_collector.collect_lldp_neighbors(
+                    device.primary_ip, device_type, vendor, credentials_list
+                )
+                
+                # Elimina vecchi neighbor
+                session.query(LLDPNeighbor).filter(LLDPNeighbor.device_id == device_id).delete()
+                
+                # Salva nuovi neighbor
+                for neighbor in lldp_neighbors:
+                    lldp_neighbor = LLDPNeighbor(
+                        id=uuid.uuid4().hex[:8],
+                        device_id=device_id,
+                        local_interface=neighbor.get("local_interface", ""),
+                        remote_device_name=neighbor.get("remote_device_name"),
+                        remote_device_description=neighbor.get("remote_device_description"),
+                        remote_port=neighbor.get("remote_port"),
+                        remote_mac=neighbor.get("remote_mac"),
+                        remote_ip=neighbor.get("remote_ip"),
+                        chassis_id=neighbor.get("chassis_id"),
+                        chassis_id_type=neighbor.get("chassis_id_type"),
+                        capabilities=neighbor.get("capabilities"),
+                        last_seen=datetime.now(),
+                    )
+                    session.add(lldp_neighbor)
+                
+                logger.info(f"Saved {len(lldp_neighbors)} LLDP neighbors for device {device_id}")
+            except Exception as e:
+                logger.error(f"Error collecting LLDP neighbors: {e}")
+            
+            # CDP neighbors (solo Cisco)
+            if "cisco" in vendor.lower():
+                try:
+                    cdp_neighbors = await lldp_collector.collect_cdp_neighbors(
+                        device.primary_ip, vendor, credentials_list
+                    )
+                    
+                    # Elimina vecchi neighbor
+                    session.query(CDPNeighbor).filter(CDPNeighbor.device_id == device_id).delete()
+                    
+                    # Salva nuovi neighbor
+                    for neighbor in cdp_neighbors:
+                        cdp_neighbor = CDPNeighbor(
+                            id=uuid.uuid4().hex[:8],
+                            device_id=device_id,
+                            local_interface=neighbor.get("local_interface", ""),
+                            remote_device_id=neighbor.get("remote_device_id"),
+                            remote_device_name=neighbor.get("remote_device_name"),
+                            remote_port=neighbor.get("remote_port"),
+                            remote_ip=neighbor.get("remote_ip"),
+                            remote_version=neighbor.get("remote_version"),
+                            platform=neighbor.get("platform"),
+                            capabilities=neighbor.get("capabilities"),
+                            last_seen=datetime.now(),
+                        )
+                        session.add(cdp_neighbor)
+                    
+                    logger.info(f"Saved {len(cdp_neighbors)} CDP neighbors for device {device_id}")
+                except Exception as e:
+                    logger.error(f"Error collecting CDP neighbors: {e}")
+            
+            # Dettagli interfacce
+            try:
+                interfaces = await lldp_collector.collect_interface_details(
+                    device.primary_ip, device_type, vendor, credentials_list
+                )
+                
+                # Aggiorna interfacce esistenti o crea nuove
+                for iface_data in interfaces:
+                    existing = session.query(NetworkInterface).filter(
+                        NetworkInterface.device_id == device_id,
+                        NetworkInterface.name == iface_data.get("name")
+                    ).first()
+                    
+                    if existing:
+                        # Aggiorna
+                        existing.description = iface_data.get("description")
+                        existing.interface_type = iface_data.get("interface_type")
+                        existing.mac_address = iface_data.get("mac_address")
+                        existing.ip_addresses = iface_data.get("ip_addresses")
+                        existing.speed_mbps = iface_data.get("speed_mbps")
+                        existing.duplex = iface_data.get("duplex")
+                        existing.mtu = iface_data.get("mtu")
+                        existing.admin_status = iface_data.get("admin_status")
+                        existing.oper_status = iface_data.get("oper_status")
+                        existing.lldp_enabled = iface_data.get("lldp_enabled")
+                        existing.cdp_enabled = iface_data.get("cdp_enabled")
+                        existing.poe_enabled = iface_data.get("poe_enabled")
+                        existing.poe_power_watts = iface_data.get("poe_power_watts")
+                        existing.vlan_native = iface_data.get("vlan_native")
+                        existing.vlan_trunk_allowed = iface_data.get("vlan_trunk_allowed")
+                        existing.stp_state = iface_data.get("stp_state")
+                        existing.lacp_enabled = iface_data.get("lacp_enabled")
+                        existing.last_updated = datetime.now()
+                    else:
+                        # Crea nuova
+                        new_iface = NetworkInterface(
+                            id=uuid.uuid4().hex[:8],
+                            device_id=device_id,
+                            name=iface_data.get("name", ""),
+                            description=iface_data.get("description"),
+                            interface_type=iface_data.get("interface_type"),
+                            mac_address=iface_data.get("mac_address"),
+                            ip_addresses=iface_data.get("ip_addresses"),
+                            speed_mbps=iface_data.get("speed_mbps"),
+                            duplex=iface_data.get("duplex"),
+                            mtu=iface_data.get("mtu"),
+                            admin_status=iface_data.get("admin_status"),
+                            oper_status=iface_data.get("oper_status"),
+                            lldp_enabled=iface_data.get("lldp_enabled"),
+                            cdp_enabled=iface_data.get("cdp_enabled"),
+                            poe_enabled=iface_data.get("poe_enabled"),
+                            poe_power_watts=iface_data.get("poe_power_watts"),
+                            vlan_native=iface_data.get("vlan_native"),
+                            vlan_trunk_allowed=iface_data.get("vlan_trunk_allowed"),
+                            stp_state=iface_data.get("stp_state"),
+                            lacp_enabled=iface_data.get("lacp_enabled"),
+                        )
+                        session.add(new_iface)
+                
+                logger.info(f"Updated {len(interfaces)} interfaces for device {device_id}")
+            except Exception as e:
+                logger.error(f"Error collecting interface details: {e}")
+        
+        # Proxmox: raccogli info host, VM, storage
+        elif device_type.lower() == "hypervisor" or "proxmox" in vendor.lower() or "proxmox" in (device.os_family or "").lower():
+            proxmox_collector = get_proxmox_collector()
+            
+            try:
+                host_info = await proxmox_collector.collect_proxmox_host_info(
+                    device.primary_ip, credentials_list
+                )
+                
+                if host_info:
+                    # Aggiorna o crea ProxmoxHost
+                    existing_host = session.query(ProxmoxHost).filter(
+                        ProxmoxHost.device_id == device_id
+                    ).first()
+                    
+                    if existing_host:
+                        # Aggiorna
+                        for key, value in host_info.items():
+                            if hasattr(existing_host, key):
+                                setattr(existing_host, key, value)
+                        existing_host.last_updated = datetime.now()
+                        host_id = existing_host.id
+                    else:
+                        # Crea nuovo
+                        new_host = ProxmoxHost(
+                            id=uuid.uuid4().hex[:8],
+                            device_id=device_id,
+                            **{k: v for k, v in host_info.items() if hasattr(ProxmoxHost, k)}
+                        )
+                        session.add(new_host)
+                        session.flush()
+                        host_id = new_host.id
+                    
+                    # Raccogli VM
+                    node_name = host_info.get("node_name")
+                    if node_name:
+                        vms = await proxmox_collector.collect_proxmox_vms(
+                            device.primary_ip, node_name, credentials_list
+                        )
+                        
+                        # Elimina vecchie VM
+                        session.query(ProxmoxVM).filter(ProxmoxVM.host_id == host_id).delete()
+                        
+                        # Salva nuove VM
+                        for vm_data in vms:
+                            vm = ProxmoxVM(
+                                id=uuid.uuid4().hex[:8],
+                                host_id=host_id,
+                                vm_id=vm_data.get("vm_id", 0),
+                                name=vm_data.get("name", ""),
+                                status=vm_data.get("status"),
+                                cpu_cores=vm_data.get("cpu_cores"),
+                                memory_mb=vm_data.get("memory_mb"),
+                                disk_total_gb=vm_data.get("disk_total_gb"),
+                                network_interfaces=vm_data.get("network_interfaces"),
+                                os_type=vm_data.get("os_type"),
+                                template=vm_data.get("template", False),
+                            )
+                            session.add(vm)
+                        
+                        logger.info(f"Saved {len(vms)} Proxmox VMs for device {device_id}")
+                        
+                        # Raccogli storage
+                        storage_list = await proxmox_collector.collect_proxmox_storage(
+                            device.primary_ip, node_name, credentials_list
+                        )
+                        
+                        # Elimina vecchio storage
+                        session.query(ProxmoxStorage).filter(ProxmoxStorage.host_id == host_id).delete()
+                        
+                        # Salva nuovo storage
+                        for storage_data in storage_list:
+                            storage = ProxmoxStorage(
+                                id=uuid.uuid4().hex[:8],
+                                host_id=host_id,
+                                storage_name=storage_data.get("storage_name", ""),
+                                storage_type=storage_data.get("storage_type"),
+                                content_types=storage_data.get("content_types"),
+                                total_gb=storage_data.get("total_gb"),
+                                used_gb=storage_data.get("used_gb"),
+                                available_gb=storage_data.get("available_gb"),
+                                usage_percent=storage_data.get("usage_percent"),
+                            )
+                            session.add(storage)
+                        
+                        logger.info(f"Saved {len(storage_list)} Proxmox storage for device {device_id}")
+                
+            except Exception as e:
+                logger.error(f"Error collecting Proxmox info: {e}")
+        
+        session.commit()
+        
+        return {
+            "success": True,
+            "message": "Advanced info refreshed successfully",
+            "device_id": device_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Error refreshing advanced info: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        session.close()
