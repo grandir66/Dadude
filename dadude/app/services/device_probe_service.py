@@ -1231,7 +1231,7 @@ class DeviceProbeService:
             )
     
     async def probe_port(self, address: str, port: int, timeout: float = 2.0) -> bool:
-        """Test se una porta è aperta"""
+        """Test se una porta TCP è aperta"""
         loop = asyncio.get_event_loop()
         
         def check():
@@ -1245,30 +1245,89 @@ class DeviceProbeService:
         
         return await loop.run_in_executor(self._executor, check)
     
-    async def detect_available_protocols(self, address: str) -> List[str]:
-        """Rileva quali protocolli sono disponibili su un host"""
+    async def probe_snmp_udp(self, address: str, community: str = "public", port: int = 161, timeout: float = 3.0) -> bool:
+        """
+        Test se SNMP è attivo su UDP porta 161.
+        Esegue una vera query SNMP (sysDescr) per verificare che il servizio risponda.
+        """
+        try:
+            from pysnmp.hlapi.v1arch.asyncio import (
+                get_cmd, SnmpDispatcher, CommunityData, UdpTransportTarget,
+                ObjectType, ObjectIdentity
+            )
+            
+            dispatcher = SnmpDispatcher()
+            try:
+                transport = await UdpTransportTarget.create(
+                    (address, port),
+                    timeout=timeout,
+                    retries=1
+                )
+                
+                # Query sysDescr per verificare risposta SNMP
+                errorIndication, errorStatus, errorIndex, varBinds = await get_cmd(
+                    dispatcher,
+                    CommunityData(community, mpModel=1),  # SNMPv2c
+                    transport,
+                    ObjectType(ObjectIdentity("1.3.6.1.2.1.1.1.0"))  # sysDescr
+                )
+                
+                if errorIndication or errorStatus:
+                    return False
+                
+                # Se abbiamo una risposta valida, SNMP è attivo
+                for varBind in varBinds:
+                    value = str(varBind[1])
+                    if value and value != "No Such Object" and value != "No Such Instance":
+                        logger.debug(f"SNMP probe success on {address}:{port} with community '{community}'")
+                        return True
+                
+                return False
+            finally:
+                dispatcher.transport_dispatcher.close_dispatcher()
+                
+        except Exception as e:
+            logger.debug(f"SNMP UDP probe failed for {address}:{port}: {e}")
+            return False
+    
+    async def detect_available_protocols(self, address: str, snmp_communities: List[str] = None) -> List[str]:
+        """
+        Rileva quali protocolli sono disponibili su un host.
+        Per SNMP usa probe UDP reale invece di TCP.
+        """
         protocols = []
+        
+        if snmp_communities is None:
+            snmp_communities = ["public", "private"]
 
-        # Test porte comuni
-        port_checks = [
+        # Test porte TCP comuni
+        tcp_port_checks = [
             (8728, "mikrotik_api"),  # RouterOS API
             (22, "ssh"),             # SSH
-            (161, "snmp"),           # SNMP (UDP, ma testiamo comunque)
             (135, "wmi"),            # WMI/RPC
             (445, "wmi"),            # SMB (per WMI)
         ]
 
-        tasks = []
-        for port, protocol in port_checks:
-            tasks.append(self.probe_port(address, port))
+        # Test TCP in parallelo
+        tcp_tasks = []
+        for port, protocol in tcp_port_checks:
+            tcp_tasks.append(self.probe_port(address, port))
 
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        tcp_results = await asyncio.gather(*tcp_tasks, return_exceptions=True)
 
         seen = set()
-        for (port, protocol), result in zip(port_checks, results):
+        for (port, protocol), result in zip(tcp_port_checks, tcp_results):
             if result is True and protocol not in seen:
                 protocols.append(protocol)
                 seen.add(protocol)
+        
+        # Test SNMP UDP separatamente (prova diverse community)
+        for community in snmp_communities:
+            snmp_available = await self.probe_snmp_udp(address, community=community)
+            if snmp_available:
+                protocols.append("snmp")
+                logger.debug(f"SNMP detected on {address} with community '{community}'")
+                break
 
         return protocols
 
@@ -1907,9 +1966,18 @@ class DeviceProbeService:
                 if vendor_info.get("vendor"):
                     result["identified_by"] = "mac_vendor"
         
-        # 2. Rileva protocolli
+        # Estrai community SNMP dalle credenziali per il probe
+        snmp_communities = ["public", "private"]  # Default
+        if credentials_list:
+            for cred in credentials_list:
+                if cred.get("type") == "snmp" and cred.get("snmp_community"):
+                    community = cred.get("snmp_community")
+                    if community not in snmp_communities:
+                        snmp_communities.insert(0, community)  # Priorità alle credenziali fornite
+        
+        # 2. Rileva protocolli (passa le community SNMP per il probe UDP)
         try:
-            result["available_protocols"] = await self.detect_available_protocols(address)
+            result["available_protocols"] = await self.detect_available_protocols(address, snmp_communities=snmp_communities)
         except Exception as e:
             logger.warning(f"Protocol detection failed for {address}: {e}")
         
