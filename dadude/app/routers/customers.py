@@ -2442,31 +2442,40 @@ async def identify_discovered_devices(
             identified_by = None
             
             # Verifica se ci sono credenziali SNMP disponibili
-            has_snmp_creds = any(cred.get('snmp_community') and cred.get('snmp_community') != 'public' for cred in credentials_list)
+            snmp_communities_available = [cred.get('snmp_community') for cred in credentials_list if cred.get('snmp_community')]
+            has_snmp_creds = any(c and c != 'public' for c in snmp_communities_available)
+            
+            logger.info(f"[IDENTIFY] {device.address}: has_snmp_creds={has_snmp_creds}, communities={snmp_communities_available}, available_protocols={available_protocols}")
             
             # Prova SNMP prima (più veloce e informativo per network devices)
             # Prova sempre se ci sono credenziali SNMP non-default, anche se la porta 161 non è stata rilevata (UDP vs TCP)
             if (has_snmp_creds or 'snmp' in available_protocols) and credentials_list:
+                logger.info(f"[IDENTIFY] {device.address}: Trying SNMP probe with {len(snmp_communities_available)} communities")
                 for cred in credentials_list:
                     if cred.get('snmp_community'):
+                        community = cred['snmp_community']
+                        logger.info(f"[IDENTIFY] {device.address}: Probing with community '{community}'")
                         try:
                             result = await probe_service._probe_snmp(
                                 device.address,
                                 {
-                                    "snmp_community": cred['snmp_community'],
+                                    "snmp_community": community,
                                     "snmp_version": cred.get('snmp_version', '2c'),
                                     "snmp_port": cred.get('snmp_port', 161),
                                 }
                             )
+                            logger.info(f"[IDENTIFY] {device.address}: SNMP result success={result.success}")
                             if result.success:
                                 probe_result = result
                                 identified_by = "probe_snmp"
                                 snmp_count += 1
-                                logger.info(f"SNMP probe successful for {device.address}")
+                                logger.info(f"SNMP probe successful for {device.address} with community '{community}'")
                                 break
                         except Exception as e:
-                            logger.debug(f"SNMP probe failed for {device.address}: {e}")
+                            logger.warning(f"SNMP probe failed for {device.address} with community '{community}': {e}")
                             continue
+            else:
+                logger.info(f"[IDENTIFY] {device.address}: Skipping SNMP (has_snmp_creds={has_snmp_creds}, snmp in protocols={'snmp' in available_protocols})")
             
             # Prova SSH se SNMP non ha funzionato
             if not probe_result and 'ssh' in available_protocols and credentials_list:
