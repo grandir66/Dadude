@@ -90,23 +90,52 @@ class ProxmoxCollector:
         host_info = None
         
         for cred in credentials:
-            # Prova API Proxmox
-            try:
-                host_info = await self._collect_host_info_api(device_address, cred)
-                if host_info:
-                    break
-            except Exception as e:
-                logger.warning(f"Proxmox API failed for {device_address} with cred {cred.get('id', 'unknown')}: {e}")
-                continue
+            cred_type = cred.get('type', '').lower()
+            cred_id = cred.get('id', 'unknown')
             
-            # Fallback a SSH
-            try:
-                host_info = await self._collect_host_info_ssh(device_address, cred)
-                if host_info:
-                    break
-            except Exception as e:
-                logger.warning(f"Proxmox SSH failed for {device_address} with cred {cred.get('id', 'unknown')}: {e}")
-                continue
+            # Per credenziali SSH, prova prima SSH (più affidabile per Proxmox)
+            # Per altre credenziali, prova prima API
+            if cred_type == 'ssh':
+                # Prova SSH prima
+                try:
+                    logger.debug(f"Trying SSH for Proxmox {device_address} with cred {cred_id}")
+                    host_info = await self._collect_host_info_ssh(device_address, cred)
+                    if host_info:
+                        logger.info(f"Proxmox SSH collection successful for {device_address} with cred {cred_id}")
+                        break
+                except Exception as e:
+                    logger.debug(f"Proxmox SSH failed for {device_address} with cred {cred_id}: {e}")
+                
+                # Fallback a API con credenziali SSH
+                try:
+                    logger.debug(f"Trying API (fallback) for Proxmox {device_address} with cred {cred_id}")
+                    host_info = await self._collect_host_info_api(device_address, cred)
+                    if host_info:
+                        logger.info(f"Proxmox API collection successful for {device_address} with cred {cred_id}")
+                        break
+                except Exception as e:
+                    logger.debug(f"Proxmox API failed for {device_address} with cred {cred_id}: {e}")
+            else:
+                # Prova API prima per credenziali non-SSH
+                try:
+                    logger.debug(f"Trying API for Proxmox {device_address} with cred {cred_id}")
+                    host_info = await self._collect_host_info_api(device_address, cred)
+                    if host_info:
+                        logger.info(f"Proxmox API collection successful for {device_address} with cred {cred_id}")
+                        break
+                except Exception as e:
+                    logger.debug(f"Proxmox API failed for {device_address} with cred {cred_id}: {e}")
+                
+                # Fallback a SSH se disponibile
+                if cred.get('username') and cred.get('password'):
+                    try:
+                        logger.debug(f"Trying SSH (fallback) for Proxmox {device_address} with cred {cred_id}")
+                        host_info = await self._collect_host_info_ssh(device_address, cred)
+                        if host_info:
+                            logger.info(f"Proxmox SSH collection successful for {device_address} with cred {cred_id}")
+                            break
+                    except Exception as e:
+                        logger.debug(f"Proxmox SSH failed for {device_address} with cred {cred_id}: {e}")
         
         if host_info:
             logger.info(f"Proxmox host info collected for {device_address}")
