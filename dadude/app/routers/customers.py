@@ -1873,30 +1873,28 @@ async def scan_customer_networks(
                 if not identity and reverse_dns:
                     identity = reverse_dns.split('.')[0]  # Prendi solo la parte prima del punto
                 
-                # Scansiona porte aperte tramite agente MikroTik (con timeout breve e semaforo)
+                # Scansiona porte critiche per pre-assegnazione OS/device_type (veloce)
                 open_ports_data = []
                 if device_ip:
                     async with semaphore_ports:
                         try:
-                            # Scansione porte veloce con timeout molto breve
+                            # Scansione porte QUICK - solo porte critiche per pre-assegnazione
                             ports_result = await asyncio.wait_for(
-                                probe_service.scan_services(
+                                probe_service.scan_services_quick(
                                     device_ip, 
-                                    agent=mikrotik_agent, 
-                                    use_agent=True,
                                     snmp_communities=snmp_communities
                                 ),
-                                timeout=PORT_SCAN_TIMEOUT  # 3 secondi timeout
+                                timeout=PORT_SCAN_TIMEOUT  # 3 secondi timeout (sufficiente per 13 porte)
                             )
                             open_ports_data = ports_result
                             open_count = len([p for p in ports_result if p.get('open')])
                             if open_count > 0:
-                                logger.debug(f"Port scan for {device_ip}: {open_count} ports open")
+                                logger.debug(f"Quick port scan for {device_ip}: {open_count} ports open")
                         except asyncio.TimeoutError:
-                            logger.debug(f"Port scan timeout for {device_ip} (skipped)")
+                            logger.debug(f"Quick port scan timeout for {device_ip} (skipped)")
                             # Continua senza porte - meglio avere il device senza porte che bloccarsi
                         except Exception as e:
-                            logger.debug(f"Port scan failed for {device_ip}: {e}")
+                            logger.debug(f"Quick port scan failed for {device_ip}: {e}")
                             # Continua senza porte
                 
                 return {
