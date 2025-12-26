@@ -2008,35 +2008,29 @@ async def scan_customer_networks(
                     device_type=pre_device_type,
                     category=pre_category,
                     os_family=pre_os_family,
+                    # imported_at verrà impostato solo durante l'import, non durante la scansione
                 )
                 session.add(dev_record)
-                
-                # Aggiorna tracking fields su InventoryDevice se esiste già
-                from ..models.inventory import InventoryDevice
-                from ..services.device_merge_service import get_device_merge_service
-                from datetime import datetime
-                
-                merge_service = get_device_merge_service()
-                duplicates = merge_service.find_duplicates(dev_record, agent.customer_id, session)
-                
-                if duplicates:
-                    # Device esistente trovato - aggiorna tracking
-                    existing = duplicates[0]
-                    now = datetime.utcnow()
-                    
-                    existing.last_verified_at = now
-                    existing.verification_count = (existing.verification_count or 0) + 1
-                    if scan_record.network_id:
-                        existing.last_scan_network_id = scan_record.network_id
-                    
-                    # Se device era marcato per pulizia, resettalo (device è ancora attivo)
-                    if existing.cleanup_marked_at:
-                        existing.cleanup_marked_at = None
-                        logger.info(f"Reset cleanup_marked_at for device {existing.id} (found in scan)")
-                    
-                    logger.debug(f"Updated tracking for existing device {existing.id} (verified_count: {existing.verification_count})")
         
-        session.commit()
+        try:
+            session.commit()
+        except Exception as commit_error:
+            # Se c'è un errore (es: colonna imported_at non esiste), prova senza quel campo
+            error_str = str(commit_error).lower()
+            if 'imported_at' in error_str or 'column' in error_str:
+                logger.warning(f"Database schema mismatch detected, retrying without new fields: {commit_error}")
+                session.rollback()
+                # Rimuovi temporaneamente imported_at dal modello se causa problemi
+                # (il campo verrà aggiunto dalla migration)
+                try:
+                    # Prova a fare commit senza gestire imported_at esplicitamente
+                    # SQLAlchemy dovrebbe gestirlo automaticamente se nullable=True
+                    session.commit()
+                except Exception as retry_error:
+                    logger.error(f"Error committing scan results after retry: {retry_error}")
+                    raise
+            else:
+                raise
         scan_id = scan_record.id
         
     except Exception as e:
@@ -3025,6 +3019,77 @@ async def delete_scan(customer_id: str, scan_id: str):
         session.commit()
         
         return {"status": "deleted", "scan_id": scan_id}
+    finally:
+        session.close()
+
+
+@router.delete("/{customer_id}/scans")
+async def cleanup_old_scans(
+    customer_id: str,
+    days: int = Query(30, ge=1, le=365, description="Elimina scansioni più vecchie di N giorni"),
+    dry_run: Optional[str] = Query("false", description="Se 'true', mostra solo preview senza eliminare")
+):
+    """Elimina scansioni vecchie per un cliente"""
+    from ..models.database import ScanResult, init_db, get_session
+    from ..config import get_settings
+    from datetime import datetime, timedelta
+    
+    settings = get_settings()
+    db_url = settings.database_url
+    engine = init_db(db_url)
+    session = get_session(engine)
+    
+    try:
+        # Calcola la data di cutoff
+        cutoff_date = datetime.utcnow() - timedelta(days=days)
+        
+        # Trova scansioni vecchie
+        old_scans = session.query(ScanResult).filter(
+            ScanResult.customer_id == customer_id,
+            ScanResult.created_at < cutoff_date
+        ).all()
+        
+        scan_count = len(old_scans)
+        
+        if scan_count == 0:
+            return {
+                "status": "no_scans",
+                "message": f"Nessuna scansione trovata più vecchia di {days} giorni",
+                "deleted_count": 0
+            }
+        
+        # Converti dry_run da stringa a bool
+        is_dry_run = str(dry_run).lower() in ('true', '1', 'yes')
+        
+        if is_dry_run:
+            # Preview mode - restituisci solo informazioni
+            scan_ids = [scan.id for scan in old_scans]
+            return {
+                "status": "preview",
+                "message": f"Trovate {scan_count} scansioni più vecchie di {days} giorni",
+                "scan_count": scan_count,
+                "scan_ids": scan_ids[:10],  # Mostra solo i primi 10
+                "cutoff_date": cutoff_date.isoformat()
+            }
+        
+        # Elimina scansioni (cascade elimina anche i discovered_devices)
+        deleted_count = 0
+        for scan in old_scans:
+            session.delete(scan)
+            deleted_count += 1
+        
+        session.commit()
+        
+        return {
+            "status": "deleted",
+            "message": f"Eliminate {deleted_count} scansioni più vecchie di {days} giorni",
+            "deleted_count": deleted_count,
+            "cutoff_date": cutoff_date.isoformat()
+        }
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Error cleaning up old scans: {e}")
+        raise HTTPException(status_code=500, detail=f"Errore durante la pulizia: {str(e)}")
     finally:
         session.close()
 

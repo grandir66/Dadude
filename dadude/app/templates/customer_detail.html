@@ -95,8 +95,13 @@
         </a>
     </li>
     <li class="nav-item">
+        <a class="nav-link" data-bs-toggle="tab" href="#scans" onclick="loadScans()">
+            <i class="bi bi-search"></i> Scansioni
+        </a>
+    </li>
+    <li class="nav-item">
         <a class="nav-link" data-bs-toggle="tab" href="#inventory" onclick="loadInventory()">
-            <i class="bi bi-hdd-network"></i> Dispositivi <span id="inventoryCount" class="badge bg-secondary">0</span>
+            <i class="bi bi-hdd-network"></i> Inventario <span id="inventoryCount" class="badge bg-secondary">0</span>
         </a>
     </li>
     <li class="nav-item">
@@ -391,44 +396,10 @@
         </div>
     </div>
     
-    <!-- Tab Dispositivi (unificato) -->
-    <div class="tab-pane fade" id="inventory">
-        <!-- Card Scansioni -->
-        <div class="card mb-4">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h6 class="mb-0"><i class="bi bi-list-task me-2"></i>Scansioni di Rete</h6>
-                <button class="btn btn-sm btn-outline-primary" onclick="loadScans()">
-                    <i class="bi bi-arrow-clockwise"></i> Aggiorna
-                </button>
-            </div>
-            <div class="card-body p-0">
-                <div class="table-responsive">
-                    <table class="table table-hover mb-0">
-                        <thead>
-                            <tr>
-                                <th>Rete</th>
-                                <th>Tipo</th>
-                                <th>Stato</th>
-                                <th>Device Trovati</th>
-                                <th>Data</th>
-                                <th>Azioni</th>
-                            </tr>
-                        </thead>
-                        <tbody id="scansTableBody">
-                            <tr>
-                                <td colspan="6" class="text-center text-muted py-3">
-                                    <div class="spinner-border spinner-border-sm me-2"></div>
-                                    Caricamento scansioni...
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-        
+    <!-- Tab Scansioni -->
+    <div class="tab-pane fade" id="scans">
         <!-- Card Discovery -->
-        <div class="card mb-4">
+        <div class="card">
             <div class="card-header bg-primary text-white">
                 <h6 class="mb-0"><i class="bi bi-search me-2"></i>Discovery & Import Dispositivi</h6>
             </div>
@@ -443,7 +414,7 @@
                             {% endfor %}
                         </select>
                     </div>
-                    <div class="col-md-3">
+                    <div class="col-md-4">
                         <label class="form-label">Sonda</label>
                         <select class="form-select" id="discoveryAgent">
                             <option value="">-- Seleziona sonda --</option>
@@ -454,29 +425,6 @@
                                 {{ agent.name }} ({{ agent.address }})
                             </option>
                             {% endfor %}
-                        </select>
-                    </div>
-                    <div class="col-md-4">
-                        <label class="form-label">Credenziali per identificazione</label>
-                        <select class="form-select" id="discoveryCredentials" multiple size="3">
-                            {% if global_credentials %}
-                            <optgroup label="🌐 Credenziali Globali">
-                            {% for cred in global_credentials %}
-                            <option value="{{ cred.id }}" {% if cred.credential_type in ['ssh', 'snmp', 'mikrotik'] and cred.is_default %}selected{% endif %}>
-                                {{ cred.name }} ({{ cred.credential_type }})
-                            </option>
-                            {% endfor %}
-                            </optgroup>
-                            {% endif %}
-                            {% if credentials %}
-                            <optgroup label="📁 Credenziali Cliente">
-                            {% for cred in credentials %}
-                            <option value="{{ cred.id }}" {% if cred.credential_type in ['ssh', 'snmp', 'mikrotik'] and cred.is_default %}selected{% endif %}>
-                                {{ cred.name }} ({{ cred.credential_type }})
-                            </option>
-                            {% endfor %}
-                            </optgroup>
-                            {% endif %}
                         </select>
                     </div>
                     <div class="col-md-2 d-flex align-items-end">
@@ -533,6 +481,48 @@
             </div>
         </div>
         
+        <!-- Card Scansioni di Rete -->
+        <div class="card mb-4 mt-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h6 class="mb-0"><i class="bi bi-list-task me-2"></i>Scansioni di Rete</h6>
+                <div class="btn-group">
+                    <button class="btn btn-sm btn-outline-danger" onclick="cleanupOldScans()" title="Elimina scansioni vecchie">
+                        <i class="bi bi-trash"></i> Pulisci Vecchie
+                    </button>
+                    <button class="btn btn-sm btn-outline-primary" onclick="loadScans()">
+                        <i class="bi bi-arrow-clockwise"></i> Aggiorna
+                    </button>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>Rete</th>
+                                <th>Tipo</th>
+                                <th>Stato</th>
+                                <th>Device Trovati</th>
+                                <th>Data</th>
+                                <th>Azioni</th>
+                            </tr>
+                        </thead>
+                        <tbody id="scansTableBody">
+                            <tr>
+                                <td colspan="6" class="text-center text-muted py-3">
+                                    <div class="spinner-border spinner-border-sm me-2"></div>
+                                    Caricamento scansioni...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Tab Inventario -->
+    <div class="tab-pane fade" id="inventory">
         <!-- Card Inventario Esistente -->
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
@@ -2687,6 +2677,88 @@ async function loadScans() {
     }
 }
 
+// Funzione per pulire scansioni vecchie
+async function cleanupOldScans() {
+    const customerId = '{{ customer.id }}' || window.location.pathname.match(/\/customers\/([^\/]+)/)?.[1];
+    if (!customerId) {
+        alert('Errore: Customer ID non trovato');
+        return;
+    }
+    
+    // Chiedi quanti giorni mantenere
+    const daysInput = prompt('Elimina scansioni più vecchie di quanti giorni?\n(Inserisci un numero tra 1 e 365, default: 30)', '30');
+    if (!daysInput) {
+        return; // Utente ha annullato
+    }
+    
+    const days = parseInt(daysInput);
+    if (isNaN(days) || days < 1 || days > 365) {
+        alert('Inserisci un numero valido tra 1 e 365');
+        return;
+    }
+    
+    // Conferma
+    const confirmMsg = `Sei sicuro di voler eliminare tutte le scansioni più vecchie di ${days} giorni?\n\nQuesta operazione eliminerà anche tutti i dispositivi scoperti associati a quelle scansioni.`;
+    if (!confirm(confirmMsg)) {
+        return;
+    }
+    
+    try {
+        // Prima mostra preview
+        const previewResponse = await fetch(`/api/v1/customers/${customerId}/scans?days=${days}&dry_run=true`, {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (!previewResponse.ok) {
+            throw new Error(`HTTP ${previewResponse.status}: ${previewResponse.statusText}`);
+        }
+        
+        const previewData = await previewResponse.json();
+        
+        if (previewData.status === 'no_scans') {
+            alert(previewData.message);
+            return;
+        }
+        
+        // Mostra preview e chiedi conferma finale
+        const finalConfirm = confirm(
+            `Trovate ${previewData.scan_count} scansioni più vecchie di ${days} giorni.\n\n` +
+            `Vuoi procedere con l'eliminazione?\n\n` +
+            `Questa operazione non può essere annullata.`
+        );
+        
+        if (!finalConfirm) {
+            return;
+        }
+        
+        // Esegui eliminazione
+        const deleteResponse = await fetch(`/api/v1/customers/${customerId}/scans?days=${days}&dry_run=false`, {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (!deleteResponse.ok) {
+            throw new Error(`HTTP ${deleteResponse.status}: ${deleteResponse.statusText}`);
+        }
+        
+        const deleteData = await deleteResponse.json();
+        
+        alert(`✓ ${deleteData.message}\n\nEliminate ${deleteData.deleted_count} scansioni.`);
+        
+        // Ricarica la lista scansioni
+        await loadScans();
+        
+    } catch (error) {
+        console.error('Error cleaning up scans:', error);
+        alert(`Errore durante la pulizia: ${error.message}`);
+    }
+}
+
 // Auto-refresh scansioni ogni 10 secondi se ci sono scansioni in corso
 let scansRefreshInterval = null;
 function startScansAutoRefresh() {
@@ -2737,20 +2809,30 @@ function startScansAutoRefresh() {
     
     // Listener globale per tutti i tab Bootstrap
     document.addEventListener('shown.bs.tab', function(event) {
-        // Controlla se il tab attivato è quello inventory
+        // Controlla se il tab attivato è quello scansioni
         const target = event.target;
-        if (target && (target.getAttribute('href') === '#inventory' || target.id === 'inventory-tab')) {
-            console.log('Inventory tab shown, initializing scans...');
+        if (target && (target.getAttribute('href') === '#scans' || target.id === 'scans-tab')) {
+            console.log('Scans tab shown, initializing scans...');
             setTimeout(initScans, 100);
+        }
+        // Controlla se il tab attivato è quello inventario
+        if (target && (target.getAttribute('href') === '#inventory' || target.id === 'inventory-tab')) {
+            console.log('Inventory tab shown, loading inventory...');
+            setTimeout(loadInventory, 100);
         }
     });
     
     // Carica scansioni anche se il tab è già attivo al caricamento della pagina
     function checkAndInit() {
+        const scansPane = document.getElementById('scans');
+        if (scansPane && scansPane.classList.contains('active') && scansPane.classList.contains('show')) {
+            console.log('Scans tab already active, initializing scans...');
+            initScans();
+        }
         const inventoryPane = document.getElementById('inventory');
         if (inventoryPane && inventoryPane.classList.contains('active') && inventoryPane.classList.contains('show')) {
-            console.log('Inventory tab already active, initializing scans...');
-            initScans();
+            console.log('Inventory tab already active, loading inventory...');
+            loadInventory();
         }
     }
     
@@ -3262,12 +3344,30 @@ async function identifyDiscoveredDevices() {
         return;
     }
     
-    // Get credenziali selezionate
-    const credSelect = document.getElementById('discoveryCredentials');
-    const credentialIds = Array.from(credSelect.selectedOptions).map(o => o.value);
+    // Usa automaticamente tutte le credenziali del cliente e globali
+    // (quelle di tipo ssh, snmp, mikrotik)
+    const credentialIds = [];
+    
+    // Aggiungi credenziali globali
+    {% if global_credentials %}
+    {% for cred in global_credentials %}
+    {% if cred.credential_type in ['ssh', 'snmp', 'mikrotik'] %}
+    credentialIds.push('{{ cred.id }}');
+    {% endif %}
+    {% endfor %}
+    {% endif %}
+    
+    // Aggiungi credenziali del cliente
+    {% if credentials %}
+    {% for cred in credentials %}
+    {% if cred.credential_type in ['ssh', 'snmp', 'mikrotik'] %}
+    credentialIds.push('{{ cred.id }}');
+    {% endif %}
+    {% endfor %}
+    {% endif %}
     
     if (credentialIds.length === 0) {
-        alert('Seleziona almeno una credenziale per l\'identificazione');
+        alert('Nessuna credenziale disponibile per l\'identificazione. Configura almeno una credenziale SSH, SNMP o MikroTik.');
         return;
     }
     
@@ -3283,7 +3383,7 @@ async function identifyDiscoveredDevices() {
     const loading = document.getElementById('discoveryLoading');
     const loadingText = document.getElementById('discoveryLoadingText');
     loading.style.display = 'block';
-    loadingText.textContent = `Identificazione ${devices.length} dispositivi...`;
+    loadingText.textContent = `Identificazione ${devices.length} dispositivi con ${credentialIds.length} credenziali...`;
     
     try {
         const response = await fetch(`/api/v1/inventory/probe-devices?customer_id=${customerId}`, {
@@ -3422,10 +3522,10 @@ async function loadInventory() {
         const response = await fetch(url);
         const data = await response.json();
         
-        document.getElementById('inventoryCount').textContent = data.total;
+        document.getElementById('inventoryCount').textContent = data.total || 0;
         tbody.innerHTML = '';
 
-        if (data.devices.length === 0) {
+        if (!data.devices || data.devices.length === 0) {
             tbody.innerHTML = '<tr><td colspan="12" class="text-center py-4 text-muted">Nessun dispositivo in inventario. Esegui una scansione sopra.</td></tr>';
         } else {
             // Helper function per determinare azioni device
@@ -3680,6 +3780,99 @@ async function loadInventory() {
         tbody.innerHTML = `<tr><td colspan="13" class="text-center py-4 text-danger">Errore: ${e.message}</td></tr>`;
     } finally {
         loading.style.display = 'none';
+    }
+}
+
+async function loadDuplicates() {
+    const loading = document.getElementById('duplicatesLoading');
+    const content = document.getElementById('duplicatesContent');
+    
+    loading.style.display = 'block';
+    content.innerHTML = '';
+    
+    try {
+        const response = await fetch(`/api/v1/customers/${customerId}/devices/duplicates`);
+        const data = await response.json();
+        
+        if (data.success) {
+            document.getElementById('duplicatesCount').textContent = data.total_groups || 0;
+            
+            if (data.duplicate_groups && data.duplicate_groups.length > 0) {
+                let html = '<div class="table-responsive"><table class="table table-hover"><thead><tr>';
+                html += '<th>Gruppo</th><th>Device</th><th>IP</th><th>MAC</th><th>Hostname</th><th>Ultima Verifica</th><th>Verifiche</th><th>Azioni</th>';
+                html += '</tr></thead><tbody>';
+                
+                data.duplicate_groups.forEach((group, groupIdx) => {
+                    group.devices.forEach((device, deviceIdx) => {
+                        html += '<tr>';
+                        if (deviceIdx === 0) {
+                            html += `<td rowspan="${group.count}" class="align-middle"><strong>Gruppo ${groupIdx + 1}</strong><br><small class="text-muted">${group.count} device</small></td>`;
+                        }
+                        html += `<td>${device.name || '-'}</td>`;
+                        html += `<td><code>${device.primary_ip || '-'}</code></td>`;
+                        html += `<td><code>${device.mac_address || '-'}</code></td>`;
+                        html += `<td>${device.hostname || '-'}</td>`;
+                        html += `<td>${device.last_verified_at ? new Date(device.last_verified_at).toLocaleDateString() : 'Mai'}</td>`;
+                        html += `<td><span class="badge bg-info">${device.verification_count || 0}</span></td>`;
+                        if (deviceIdx === 0) {
+                            html += `<td rowspan="${group.count}" class="align-middle">`;
+                            html += `<button class="btn btn-sm btn-primary" onclick="mergeDuplicateGroup(${groupIdx}, [${group.devices.map(d => `'${d.id}'`).join(',')}])">Merge</button>`;
+                            html += '</td>';
+                        }
+                        html += '</tr>';
+                    });
+                });
+                
+                html += '</tbody></table></div>';
+                content.innerHTML = html;
+            } else {
+                content.innerHTML = '<p class="text-muted text-center py-4">Nessun duplicato trovato.</p>';
+            }
+        } else {
+            content.innerHTML = `<p class="text-danger text-center py-4">Errore: ${data.detail || data.error || 'Errore sconosciuto'}</p>`;
+        }
+    } catch (e) {
+        content.innerHTML = `<p class="text-danger text-center py-4">Errore: ${e.message}</p>`;
+    } finally {
+        loading.style.display = 'none';
+    }
+}
+
+async function mergeDuplicateGroup(groupIdx, deviceIds) {
+    if (deviceIds.length < 2) {
+        alert('Serve almeno 2 device per fare merge');
+        return;
+    }
+    
+    const targetId = deviceIds[0];
+    const sourceIds = deviceIds.slice(1);
+    
+    if (!confirm(`Vuoi mergiare ${sourceIds.length} device nel device principale (${targetId})?`)) {
+        return;
+    }
+    
+    try {
+        for (const sourceId of sourceIds) {
+            const response = await fetch(`/api/v1/customers/${customerId}/devices/${sourceId}/merge`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    target_device_id: targetId,
+                    merge_strategy: 'merge'
+                })
+            });
+            
+            const result = await response.json();
+            if (!result.success) {
+                alert(`Errore merge device ${sourceId}: ${result.detail || result.error}`);
+                return;
+            }
+        }
+        
+        alert('Merge completato con successo!');
+        loadDuplicates();
+    } catch (e) {
+        alert('Errore: ' + e.message);
     }
 }
 

@@ -51,31 +51,30 @@ def migrate_add_device_tracking_fields(database_url: str = None):
                     col_type = pg_type if is_postgres else sqlite_type
                     print(f"Aggiungo colonna {col_name} a inventory_devices...")
                     
-                    if col_name == 'verification_count':
-                        # Con default value
-                        if is_postgres:
-                            engine.execute(text(
+                    with engine.connect() as conn:
+                        if col_name == 'verification_count':
+                            # Con default value
+                            conn.execute(text(
                                 f"ALTER TABLE inventory_devices ADD COLUMN {col_name} {col_type} DEFAULT 0"
                             ))
                         else:
-                            engine.execute(text(
-                                f"ALTER TABLE inventory_devices ADD COLUMN {col_name} {col_type} DEFAULT 0"
+                            # Nullable
+                            conn.execute(text(
+                                f"ALTER TABLE inventory_devices ADD COLUMN {col_name} {col_type}"
                             ))
-                    else:
-                        # Nullable
-                        engine.execute(text(
-                            f"ALTER TABLE inventory_devices ADD COLUMN {col_name} {col_type}"
-                        ))
+                        conn.commit()
             
             # Aggiungi foreign key per last_scan_network_id se non esiste
             if 'last_scan_network_id' not in columns:
                 # La colonna è già stata aggiunta sopra, ora aggiungiamo FK se PostgreSQL
                 if is_postgres:
                     try:
-                        engine.execute(text(
-                            "ALTER TABLE inventory_devices ADD CONSTRAINT fk_inventory_last_scan_network "
-                            "FOREIGN KEY (last_scan_network_id) REFERENCES networks(id)"
-                        ))
+                        with engine.connect() as conn:
+                            conn.execute(text(
+                                "ALTER TABLE inventory_devices ADD CONSTRAINT fk_inventory_last_scan_network "
+                                "FOREIGN KEY (last_scan_network_id) REFERENCES networks(id)"
+                            ))
+                            conn.commit()
                         print("✓ Foreign key aggiunta per last_scan_network_id")
                     except Exception as e:
                         print(f"⚠ Impossibile aggiungere FK (potrebbe esistere già): {e}")
@@ -85,25 +84,19 @@ def migrate_add_device_tracking_fields(database_url: str = None):
             
             if 'idx_inventory_last_verified' not in indexes:
                 print("Creo indice idx_inventory_last_verified...")
-                if is_postgres:
-                    engine.execute(text(
+                with engine.connect() as conn:
+                    conn.execute(text(
                         "CREATE INDEX idx_inventory_last_verified ON inventory_devices(last_verified_at)"
                     ))
-                else:
-                    engine.execute(text(
-                        "CREATE INDEX idx_inventory_last_verified ON inventory_devices(last_verified_at)"
-                    ))
+                    conn.commit()
             
             if 'idx_inventory_cleanup_marked' not in indexes:
                 print("Creo indice idx_inventory_cleanup_marked...")
-                if is_postgres:
-                    engine.execute(text(
+                with engine.connect() as conn:
+                    conn.execute(text(
                         "CREATE INDEX idx_inventory_cleanup_marked ON inventory_devices(cleanup_marked_at)"
                     ))
-                else:
-                    engine.execute(text(
-                        "CREATE INDEX idx_inventory_cleanup_marked ON inventory_devices(cleanup_marked_at)"
-                    ))
+                    conn.commit()
             
             # Inizializza valori per device esistenti
             print("Inizializzo valori per device esistenti...")
@@ -144,9 +137,11 @@ def migrate_add_device_tracking_fields(database_url: str = None):
             if 'imported_at' not in columns:
                 col_type = 'TIMESTAMP' if is_postgres else 'DATETIME'
                 print(f"Aggiungo colonna imported_at a discovered_devices...")
-                engine.execute(text(
-                    f"ALTER TABLE discovered_devices ADD COLUMN imported_at {col_type}"
-                ))
+                with engine.connect() as conn:
+                    conn.execute(text(
+                        f"ALTER TABLE discovered_devices ADD COLUMN imported_at {col_type}"
+                    ))
+                    conn.commit()
         
         print("✓ Migrazione completata con successo")
         

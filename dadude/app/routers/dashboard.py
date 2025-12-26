@@ -577,10 +577,29 @@ async def customer_detail_page(request: Request, customer_id: str):
         raise HTTPException(status_code=404, detail="Cliente non trovato")
     
     networks = customer_service.list_networks(customer_id=customer_id, active_only=False)
-    credentials = customer_service.list_credentials(customer_id=customer_id, active_only=False)
-    global_credentials = customer_service.list_global_credentials(active_only=True)
+    credentials_raw = customer_service.list_credentials(customer_id=customer_id, active_only=False)
+    global_credentials_raw = customer_service.list_global_credentials(active_only=True)
     devices = customer_service.list_device_assignments(customer_id=customer_id, active_only=False)
     agents_raw = customer_service.list_agents(customer_id=customer_id, active_only=False)
+    
+    # Converti credenziali in dizionari per il template
+    credentials = []
+    for cred in credentials_raw:
+        if hasattr(cred, 'model_dump'):
+            credentials.append(cred.model_dump(mode='json'))
+        elif hasattr(cred, 'dict'):
+            credentials.append(cred.dict())
+        else:
+            credentials.append(dict(cred))
+    
+    global_credentials = []
+    for cred in global_credentials_raw:
+        if hasattr(cred, 'model_dump'):
+            global_credentials.append(cred.model_dump(mode='json'))
+        elif hasattr(cred, 'dict'):
+            global_credentials.append(cred.dict())
+        else:
+            global_credentials.append(dict(cred))
     
     # Ottieni stato WebSocket via HTTP dall'Agent API (porta 8000)
     ws_connected_names = set()
