@@ -1750,6 +1750,20 @@ async def scan_customer_networks(
             
             logger.info(f"DNS servers for network {network.ip_network}: {dns_servers}")
             
+            # Carica credenziali SNMP del cliente per il probe UDP
+            snmp_communities = ["public", "private"]  # Default
+            if agent.customer_id:
+                try:
+                    customer_service = get_customer_service()
+                    customer_creds = customer_service.list_credentials(agent.customer_id)
+                    for cred in customer_creds:
+                        cred_details = customer_service.get_credential(cred.id, include_secrets=True)
+                        if cred_details and cred_details.snmp_community and cred_details.snmp_community not in snmp_communities:
+                            snmp_communities.insert(0, cred_details.snmp_community)
+                    logger.info(f"SNMP communities for scan: {snmp_communities}")
+                except Exception as e:
+                    logger.warning(f"Error loading SNMP credentials: {e}")
+            
             # Crea oggetto MikroTikAgent per operazioni remote (solo per agent MikroTik)
             mikrotik_agent = None
             if agent_type == "mikrotik" and agent and agent.address and agent.username:
@@ -1865,7 +1879,8 @@ async def scan_customer_networks(
                                 probe_service.scan_services(
                                     device_ip, 
                                     agent=mikrotik_agent, 
-                                    use_agent=True
+                                    use_agent=True,
+                                    snmp_communities=snmp_communities
                                 ),
                                 timeout=PORT_SCAN_TIMEOUT  # 3 secondi timeout
                             )
