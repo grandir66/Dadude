@@ -1682,13 +1682,22 @@ class DeviceProbeService:
             if isinstance(result, dict) and result.get("open"):
                 services.append(result)
         
-        # Probe SNMP UDP (critico per network devices)
+        # Probe SNMP UDP (critico per network devices) - timeout breve per scansione veloce
         if snmp_communities is None:
             snmp_communities = ["public"]
-        for community in snmp_communities:
-            if await self.probe_snmp_udp(address, community=community):
-                services.append({"port": 161, "protocol": "udp", "service": "snmp", "open": True})
-                break
+        # Limita a max 2 community per velocità
+        communities_to_try = snmp_communities[:2]
+        for community in communities_to_try:
+            try:
+                # Timeout breve per SNMP probe (1.5 secondi)
+                if await asyncio.wait_for(self.probe_snmp_udp(address, community=community, timeout=1.5), timeout=2.0):
+                    services.append({"port": 161, "protocol": "udp", "service": "snmp", "open": True})
+                    break
+            except asyncio.TimeoutError:
+                continue
+            except Exception as e:
+                logger.debug(f"SNMP probe failed for {address} with community '{community}': {e}")
+                continue
         
         logger.info(f"Quick scan complete for {address}: {len(services)} ports open")
         return services

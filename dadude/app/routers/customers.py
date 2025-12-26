@@ -1807,7 +1807,7 @@ async def scan_customer_networks(
             MAX_CONCURRENT_DNS = 5  # Massimo 5 DNS lookup in parallelo
             MAX_CONCURRENT_PORTS = 2  # Massimo 2 port scan in parallelo (molto limitato)
             DNS_TIMEOUT = 5.0  # Timeout DNS lookup: 5 secondi
-            PORT_SCAN_TIMEOUT = 3.0  # Timeout port scan: 3 secondi (molto breve)
+            PORT_SCAN_TIMEOUT = 15.0  # Timeout port scan: 15 secondi (sufficiente per 13 porte TCP + SNMP UDP)
             
             # Processa device in batch con semafori separati per DNS e port scan
             semaphore_dns = asyncio.Semaphore(MAX_CONCURRENT_DNS)
