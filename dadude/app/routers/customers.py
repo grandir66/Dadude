@@ -1935,6 +1935,60 @@ async def scan_customer_networks(
                 reverse_dns = result["reverse_dns"]
                 open_ports_data = result["open_ports_data"]
                 
+                # Pre-assegna OS/device_type in base alle porte aperte
+                pre_device_type = None
+                pre_category = None
+                pre_os_family = None
+                
+                if open_ports_data:
+                    ports_set = {p.get('port') for p in open_ports_data if p.get('open')}
+                    services_set = {p.get('service') for p in open_ports_data if p.get('open') and p.get('service')}
+                    
+                    # Windows indicators (priorità alta)
+                    windows_ports = {135, 139, 445, 3389, 5985, 5986}
+                    if ports_set & windows_ports:
+                        pre_os_family = "Windows"
+                        pre_device_type = "windows"
+                        if 3389 in ports_set and 445 not in ports_set:
+                            pre_category = "workstation"
+                        elif 389 in ports_set:
+                            pre_category = "server"  # Domain Controller
+                        else:
+                            pre_category = "server"
+                    # MikroTik
+                    elif 8728 in ports_set or 8291 in ports_set:
+                        pre_os_family = "RouterOS"
+                        pre_device_type = "mikrotik"
+                        pre_category = "router"
+                    # Proxmox
+                    elif 8006 in ports_set:
+                        pre_os_family = "Proxmox"
+                        pre_device_type = "linux"
+                        pre_category = "hypervisor"
+                    # Linux/Unix (SSH ma non Windows)
+                    elif 22 in ports_set and not (ports_set & windows_ports):
+                        pre_os_family = "Linux"
+                        pre_device_type = "linux"
+                        if 3306 in ports_set or 5432 in ports_set:
+                            pre_category = "server"  # Database
+                        elif 80 in ports_set or 443 in ports_set:
+                            pre_category = "server"  # Web
+                        elif 2049 in ports_set:
+                            pre_category = "server"  # NFS
+                        elif 161 in ports_set:
+                            pre_category = "network"  # Network device
+                        else:
+                            pre_category = "server"
+                    # SNMP only = network device
+                    elif 161 in ports_set:
+                        pre_device_type = "network"
+                        pre_category = "switch"
+                    # NFS
+                    elif 2049 in ports_set:
+                        pre_os_family = "Linux"
+                        pre_device_type = "linux"
+                        pre_category = "server"
+                
                 dev_record = DiscoveredDevice(
                     scan_id=scan_record.id,
                     customer_id=agent.customer_id,
@@ -1949,6 +2003,9 @@ async def scan_customer_networks(
                     interface=device.get("interface", ""),
                     source=device.get("source", ""),
                     open_ports=open_ports_data if open_ports_data else None,
+                    device_type=pre_device_type,
+                    category=pre_category,
+                    os_family=pre_os_family,
                 )
                 session.add(dev_record)
         
