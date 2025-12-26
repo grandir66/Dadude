@@ -2984,8 +2984,22 @@ async def refresh_advanced_info(customer_id: str, device_id: str):
         device_type = device.device_type or ""
         vendor = device.manufacturer or ""
         
+        logger.info(f"Refresh advanced info for device {device_id}: type={device_type}, vendor={vendor}, credentials={len(credentials_list)}")
+        
         # Switch/Router: raccogli LLDP/CDP e interfacce
-        if device_type.lower() in ["network", "router", "switch"] or "mikrotik" in vendor.lower() or "cisco" in vendor.lower() or "hp" in vendor.lower() or "aruba" in vendor.lower() or "ubiquiti" in vendor.lower():
+        device_type_lower = device_type.lower()
+        vendor_lower = vendor.lower()
+        is_network_device = (
+            device_type_lower in ["network", "router", "switch"] or 
+            "mikrotik" in vendor_lower or 
+            "cisco" in vendor_lower or 
+            "hp" in vendor_lower or 
+            "aruba" in vendor_lower or 
+            "ubiquiti" in vendor_lower
+        )
+        
+        if is_network_device:
+            logger.info(f"Device {device_id} identified as network device, collecting LLDP/CDP/interfaces...")
             lldp_collector = get_lldp_cdp_collector()
             
             # LLDP neighbors
@@ -3114,7 +3128,15 @@ async def refresh_advanced_info(customer_id: str, device_id: str):
                 logger.error(f"Error collecting interface details: {e}")
         
         # Proxmox: raccogli info host, VM, storage
-        elif device_type.lower() == "hypervisor" or "proxmox" in vendor.lower() or "proxmox" in (device.os_family or "").lower():
+        os_family_lower = (device.os_family or "").lower()
+        is_proxmox = (
+            device_type_lower == "hypervisor" or 
+            "proxmox" in vendor_lower or 
+            "proxmox" in os_family_lower
+        )
+        
+        if is_proxmox:
+            logger.info(f"Device {device_id} identified as Proxmox, collecting host/VM/storage info...")
             proxmox_collector = get_proxmox_collector()
             
             try:
@@ -3201,7 +3223,10 @@ async def refresh_advanced_info(customer_id: str, device_id: str):
                         logger.info(f"Saved {len(storage_list)} Proxmox storage for device {device_id}")
                 
             except Exception as e:
-                logger.error(f"Error collecting Proxmox info: {e}")
+                logger.error(f"Error collecting Proxmox info for device {device_id}: {e}", exc_info=True)
+        
+        if not is_network_device and not is_proxmox:
+            logger.info(f"Device {device_id} (type={device_type}, vendor={vendor}) does not match network or Proxmox criteria, skipping advanced info collection")
         
         session.commit()
         
