@@ -1751,7 +1751,8 @@ async def scan_customer_networks(
             logger.info(f"DNS servers for network {network.ip_network}: {dns_servers}")
             
             # Carica credenziali SNMP del cliente per il probe UDP
-            snmp_communities = ["public", "private"]  # Default
+            # "public" è sempre inclusa come fallback standard
+            snmp_communities = []
             if agent.customer_id:
                 try:
                     customer_service = get_customer_service()
@@ -1759,10 +1760,13 @@ async def scan_customer_networks(
                     for cred in customer_creds:
                         cred_details = customer_service.get_credential(cred.id, include_secrets=True)
                         if cred_details and cred_details.snmp_community and cred_details.snmp_community not in snmp_communities:
-                            snmp_communities.insert(0, cred_details.snmp_community)
-                    logger.info(f"SNMP communities for scan: {snmp_communities}")
+                            snmp_communities.append(cred_details.snmp_community)
                 except Exception as e:
                     logger.warning(f"Error loading SNMP credentials: {e}")
+            # Aggiungi sempre "public" alla fine come fallback
+            if "public" not in snmp_communities:
+                snmp_communities.append("public")
+            logger.info(f"SNMP communities for scan: {snmp_communities}")
             
             # Crea oggetto MikroTikAgent per operazioni remote (solo per agent MikroTik)
             mikrotik_agent = None
