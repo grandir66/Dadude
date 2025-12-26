@@ -586,9 +586,169 @@ class ProxmoxCollector:
         address: str,
         credentials: Dict[str, Any]
     ) -> Optional[Dict[str, Any]]:
-        """Raccoglie info host via SSH"""
-        # Implementazione semplificata
-        return None
+        """Raccoglie info host via SSH usando comandi pvesh"""
+        import paramiko
+        
+        username = credentials.get('username')
+        password = credentials.get('password')
+        ssh_port = credentials.get('ssh_port', 22)
+        ssh_key = credentials.get('ssh_private_key')
+        
+        if not username or not password:
+            logger.warning(f"SSH credentials incomplete for {address}: missing username or password")
+            return None
+        
+        try:
+            # Connetti via SSH
+            client = paramiko.SSHClient()
+            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            
+            # Usa chiave privata se disponibile
+            pkey = None
+            if ssh_key:
+                try:
+                    from io import StringIO
+                    pkey = paramiko.RSAKey.from_private_key(StringIO(ssh_key))
+                except Exception as e:
+                    logger.debug(f"Failed to load SSH key, using password: {e}")
+            
+            logger.info(f"Connecting to Proxmox {address}:{ssh_port} via SSH (user: {username})")
+            client.connect(
+                address,
+                port=ssh_port,
+                username=username,
+                password=password,
+                pkey=pkey,
+                timeout=30
+            )
+            
+            def exec_cmd(cmd: str) -> Optional[str]:
+                """Esegue comando SSH"""
+                try:
+                    stdin, stdout, stderr = client.exec_command(cmd, timeout=30)
+                    exit_status = stdout.channel.recv_exit_status()
+                    if exit_status == 0:
+                        return stdout.read().decode('utf-8').strip()
+                    else:
+                        error = stderr.read().decode('utf-8').strip()
+                        logger.debug(f"Command failed: {cmd[:50]}... (exit: {exit_status}, error: {error})")
+                        return None
+                except Exception as e:
+                    logger.debug(f"Error executing command {cmd[:50]}...: {e}")
+                    return None
+            
+            # Ottieni nome nodo
+            hostname = exec_cmd('hostname') or 'unknown'
+            
+            # Ottieni info nodo via pvesh
+            node_info_cmd = f'pvesh get /nodes/{hostname}/status --output-format json'
+            node_info_json = exec_cmd(node_info_cmd)
+            
+            if not node_info_json:
+                logger.warning(f"Failed to get node info via pvesh for {address}")
+                client.close()
+                return None
+            
+            import json
+            node_data = json.loads(node_info_json)
+            
+            # Ottieni versione Proxmox
+            version_cmd = f'pvesh get /version --output-format json'
+            version_json = exec_cmd(version_cmd)
+            version_data = json.loads(version_json) if version_json else {}
+            
+            # Ottieni info CPU/memoria
+            cpuinfo = exec_cmd('lscpu')
+            meminfo = exec_cmd('grep MemTotal /proc/meminfo')
+            
+            # Parse CPU info
+            cpu_model = None
+            cpu_cores = None
+            cpu_sockets = None
+            cpu_threads = None
+            if cpuinfo:
+                for line in cpuinfo.split('\n'):
+                    if 'Model name:' in line:
+                        cpu_model = line.split(':', 1)[1].strip()
+                    elif 'CPU(s):' in line:
+                        cpu_cores = int(line.split(':')[1].strip())
+                    elif 'Socket(s):' in line:
+                        cpu_sockets = int(line.split(':')[1].strip())
+                    elif 'Thread(s) per core:' in line:
+                        cpu_threads = int(line.split(':')[1].strip())
+            
+            # Parse memoria
+            memory_total_gb = None
+            if meminfo:
+                try:
+                    mem_kb = int(meminfo.split()[1])
+                    memory_total_gb = round(mem_kb / 1024 / 1024, 2)
+                except:
+                    pass
+            
+            # Calcola CPU totale
+            cpu_total_cores = cpu_cores
+            
+            # Ottieni uptime
+            uptime_seconds = node_data.get('uptime', 0)
+            uptime_human = seconds_to_human(uptime_seconds)
+            
+            # Ottieni load average
+            load_avg = node_data.get('loadavg', [0, 0, 0])
+            load_1m = load_avg[0] if len(load_avg) > 0 else None
+            load_5m = load_avg[1] if len(load_avg) > 1 else None
+            load_15m = load_avg[2] if len(load_avg) > 2 else None
+            
+            # Ottieni CPU usage
+            cpu_usage = node_data.get('cpu', 0)
+            
+            # Ottieni memoria
+            memory_used_gb = None
+            memory_free_gb = None
+            memory_usage_percent = None
+            if memory_total_gb:
+                mem_used = node_data.get('mem', 0) / (1024**3)  # Converti byte a GB
+                memory_used_gb = round(mem_used, 2)
+                memory_free_gb = round(memory_total_gb - mem_used, 2)
+                memory_usage_percent = round((mem_used / memory_total_gb) * 100, 2) if memory_total_gb > 0 else None
+            
+            # Ottieni kernel version
+            kernel_version = exec_cmd('uname -r')
+            
+            # Ottieni versione Proxmox
+            proxmox_version = version_data.get('version', '')
+            manager_version = version_data.get('release', '')
+            
+            client.close()
+            
+            host_info = {
+                'node_name': hostname,
+                'cluster_name': None,  # Da ottenere separatamente se necessario
+                'proxmox_version': proxmox_version,
+                'kernel_version': kernel_version,
+                'cpu_model': cpu_model,
+                'cpu_cores': cpu_cores,
+                'cpu_sockets': cpu_sockets,
+                'cpu_threads': cpu_threads,
+                'cpu_total_cores': cpu_total_cores,
+                'memory_total_gb': memory_total_gb,
+                'memory_used_gb': memory_used_gb,
+                'memory_free_gb': memory_free_gb,
+                'memory_usage_percent': memory_usage_percent,
+                'uptime_seconds': uptime_seconds,
+                'uptime_human': uptime_human,
+                'load_average_1m': load_1m,
+                'load_average_5m': load_5m,
+                'load_average_15m': load_15m,
+                'cpu_usage_percent': cpu_usage,
+            }
+            
+            logger.info(f"Successfully collected Proxmox host info via SSH for {address}: node={hostname}")
+            return host_info
+            
+        except Exception as e:
+            logger.error(f"Error collecting Proxmox host info via SSH for {address}: {e}", exc_info=True)
+            return None
     
     async def _collect_vms_ssh(
         self,
