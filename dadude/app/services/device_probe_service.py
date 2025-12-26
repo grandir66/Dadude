@@ -2167,7 +2167,8 @@ class DeviceProbeService:
         if is_identified and credentials_list:
             try:
                 device_type = result.get("device_type", "").lower()
-                vendor = (result.get("vendor") or "").lower()
+                # Usa vendor o manufacturer come fallback
+                vendor = (result.get("vendor") or result.get("manufacturer") or "").lower()
                 
                 # Switch/Router: raccogli LLDP/CDP neighbors e dettagli interfacce
                 if device_type in ["network", "router", "switch"] or "mikrotik" in vendor or "cisco" in vendor or "hp" in vendor or "aruba" in vendor or "ubiquiti" in vendor:
@@ -2210,7 +2211,10 @@ class DeviceProbeService:
                         logger.debug(f"Interface details collection failed: {e}")
                 
                 # Proxmox: raccogli info host, VM, storage, backup
-                elif device_type == "hypervisor" or "proxmox" in vendor or "proxmox" in (result.get("os_family") or "").lower():
+                # Controlla anche manufacturer se vendor non è disponibile
+                os_family_lower = (result.get("os_family") or "").lower()
+                manufacturer_lower = (result.get("manufacturer") or "").lower()
+                elif device_type == "hypervisor" or "proxmox" in vendor or "proxmox" in manufacturer_lower or "proxmox" in os_family_lower:
                     logger.info(f"Collecting advanced Proxmox info for {address}...")
                     from .proxmox_collector import get_proxmox_collector
                     proxmox_collector = get_proxmox_collector()
