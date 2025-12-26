@@ -4742,10 +4742,66 @@ async function viewInventoryDevice(deviceId) {
         // Parse custom_fields for extra data
         const cf = device.custom_fields ? (typeof device.custom_fields === 'string' ? JSON.parse(device.custom_fields) : device.custom_fields) : {};
         
+        // Determina se mostrare tab avanzate
+        const deviceType = (device.device_type || '').toLowerCase();
+        const manufacturer = (device.manufacturer || '').toLowerCase();
+        const osFamily = (device.os_family || '').toLowerCase();
+        const isNetworkDevice = deviceType in ['network', 'router', 'switch'] || 
+                               'mikrotik' in manufacturer || 'cisco' in manufacturer || 
+                               'hp' in manufacturer || 'aruba' in manufacturer || 'ubiquiti' in manufacturer;
+        const isProxmox = deviceType === 'hypervisor' || 'proxmox' in manufacturer || 'proxmox' in osFamily;
+        
+        // Crea struttura con tab Bootstrap
+        let modalContent = `
+            <ul class="nav nav-tabs mb-3" id="deviceDetailTabs" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active" id="general-tab" data-bs-toggle="tab" data-bs-target="#general" type="button" role="tab">
+                        <i class="bi bi-info-circle"></i> Generale
+                    </button>
+                </li>
+                ${device.network_interfaces && device.network_interfaces.length > 0 ? `
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="interfaces-tab" data-bs-toggle="tab" data-bs-target="#interfaces" type="button" role="tab">
+                        <i class="bi bi-ethernet"></i> Interfacce
+                    </button>
+                </li>
+                ` : ''}
+                ${device.disks && device.disks.length > 0 ? `
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="disks-tab" data-bs-toggle="tab" data-bs-target="#disks" type="button" role="tab">
+                        <i class="bi bi-hdd"></i> Dischi
+                    </button>
+                </li>
+                ` : ''}
+                ${isNetworkDevice ? `
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="neighbors-tab" data-bs-toggle="tab" data-bs-target="#neighbors" type="button" role="tab" onclick="loadDeviceNeighbors('${deviceId}')">
+                        <i class="bi bi-diagram-3"></i> Neighbor
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="advanced-interfaces-tab" data-bs-toggle="tab" data-bs-target="#advanced-interfaces" type="button" role="tab" onclick="loadDeviceAdvancedInterfaces('${deviceId}')">
+                        <i class="bi bi-router"></i> Interfacce Avanzate
+                    </button>
+                </li>
+                ` : ''}
+                ${isProxmox ? `
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="proxmox-tab" data-bs-toggle="tab" data-bs-target="#proxmox" type="button" role="tab" onclick="loadProxmoxInfo('${deviceId}')">
+                        <i class="bi bi-server"></i> Proxmox
+                    </button>
+                </li>
+                ` : ''}
+            </ul>
+            <div class="tab-content" id="deviceDetailTabContent">
+                <div class="tab-pane fade show active" id="general" role="tabpanel">
+                    ${detailsHtml}
+        `;
+        
         // Server Roles (Windows)
         const serverRoles = device.server_roles || cf.server_roles;
         if (serverRoles && serverRoles.length > 0) {
-            detailsHtml += `
+            modalContent += `
                 <hr>
                 <h6 class="text-muted mb-3">Ruoli Server (${serverRoles.length})</h6>
                 <div class="d-flex flex-wrap gap-1">
@@ -4912,16 +4968,158 @@ async function viewInventoryDevice(deviceId) {
 
         // Note e descrizione
         if (device.description || device.notes) {
-            detailsHtml += `
+            modalContent += `
                 <hr>
                 <h6 class="text-muted mb-3">Note</h6>
                 ${device.description ? '<p><strong>Descrizione:</strong> ' + device.description + '</p>' : ''}
                 ${device.notes ? '<p><strong>Note:</strong> ' + device.notes + '</p>' : ''}
             `;
         }
+        
+        modalContent += `
+                </div>
+                ${device.network_interfaces && device.network_interfaces.length > 0 ? `
+                <div class="tab-pane fade" id="interfaces" role="tabpanel">
+                    <h6 class="text-muted mb-3">Interfacce di Rete (${device.network_interfaces.length})</h6>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Nome</th>
+                                    <th>MAC</th>
+                                    <th>IP</th>
+                                    <th>Velocità</th>
+                                    <th>Stato</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${device.network_interfaces.map(nic => {
+                                    const ips = nic.ip_addresses ? (typeof nic.ip_addresses === 'string' ? JSON.parse(nic.ip_addresses) : nic.ip_addresses).map(ip => ip.ip || ip).join(', ') : '-';
+                                    return `
+                                        <tr>
+                                            <td><code>${nic.name}</code></td>
+                                            <td><small>${nic.mac_address || '-'}</small></td>
+                                            <td><small>${ips}</small></td>
+                                            <td>${nic.speed_mbps ? nic.speed_mbps + ' Mbps' : '-'}</td>
+                                            <td><span class="badge bg-${nic.admin_status === 'up' ? 'success' : 'secondary'}">${nic.admin_status || '-'}</span></td>
+                                        </tr>
+                                    `;
+                                }).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                ` : ''}
+                ${device.disks && device.disks.length > 0 ? `
+                <div class="tab-pane fade" id="disks" role="tabpanel">
+                    <h6 class="text-muted mb-3">Dischi (${device.disks.length})</h6>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Nome</th>
+                                    <th>Mount Point</th>
+                                    <th>Filesystem</th>
+                                    <th>Dimensione</th>
+                                    <th>Utilizzato</th>
+                                    <th>Uso %</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${device.disks.map(disk => {
+                                    const usedPercent = disk.percent_used || (disk.size_gb && disk.used_gb ? Math.round((disk.used_gb / disk.size_gb) * 100) : 0);
+                                    const progressColor = usedPercent > 90 ? 'danger' : usedPercent > 75 ? 'warning' : 'success';
+                                    return `
+                                        <tr>
+                                            <td><code>${disk.name}</code></td>
+                                            <td>${disk.mount_point || '-'}</td>
+                                            <td>${disk.filesystem || '-'}</td>
+                                            <td>${disk.size_gb ? disk.size_gb.toFixed(1) + ' GB' : '-'}</td>
+                                            <td>${disk.used_gb ? disk.used_gb.toFixed(1) + ' GB' : '-'}</td>
+                                            <td>
+                                                <div class="progress" style="height: 20px;">
+                                                    <div class="progress-bar bg-${progressColor}" style="width: ${usedPercent}%">${usedPercent}%</div>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    `;
+                                }).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                ` : ''}
+                ${isNetworkDevice ? `
+                <div class="tab-pane fade" id="neighbors" role="tabpanel">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h6 class="text-muted mb-0">Neighbor Discovery</h6>
+                        <div class="btn-group btn-group-sm">
+                            <button class="btn btn-outline-primary" onclick="loadDeviceNeighbors('${deviceId}')">
+                                <i class="bi bi-arrow-clockwise"></i> Aggiorna
+                            </button>
+                            <button class="btn btn-outline-success" onclick="refreshAdvancedDeviceInfo('${deviceId}')">
+                                <i class="bi bi-download"></i> Refresh Info
+                            </button>
+                        </div>
+                    </div>
+                    <ul class="nav nav-pills mb-3" id="neighborTabs" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active" id="lldp-tab" data-bs-toggle="pill" data-bs-target="#lldp-neighbors" type="button" role="tab" onclick="loadLLDPNeighbors('${deviceId}')">
+                                LLDP Neighbors
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="cdp-tab" data-bs-toggle="pill" data-bs-target="#cdp-neighbors" type="button" role="tab" onclick="loadCDPNeighbors('${deviceId}')">
+                                CDP Neighbors
+                            </button>
+                        </li>
+                    </ul>
+                    <div class="tab-content" id="neighborTabContent">
+                        <div class="tab-pane fade show active" id="lldp-neighbors" role="tabpanel">
+                            <div id="lldpNeighborsContent" class="text-center py-4 text-muted">
+                                <div class="spinner-border spinner-border-sm me-2"></div>
+                                Caricamento LLDP neighbors...
+                            </div>
+                        </div>
+                        <div class="tab-pane fade" id="cdp-neighbors" role="tabpanel">
+                            <div id="cdpNeighborsContent" class="text-center py-4 text-muted">
+                                Clicca su "CDP Neighbors" per caricare i dati
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="tab-pane fade" id="advanced-interfaces" role="tabpanel">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h6 class="text-muted mb-0">Interfacce Avanzate</h6>
+                        <button class="btn btn-outline-success btn-sm" onclick="refreshAdvancedDeviceInfo('${deviceId}')">
+                            <i class="bi bi-download"></i> Refresh Info
+                        </button>
+                    </div>
+                    <div id="advancedInterfacesContent" class="text-center py-4 text-muted">
+                        <div class="spinner-border spinner-border-sm me-2"></div>
+                        Caricamento interfacce avanzate...
+                    </div>
+                </div>
+                ` : ''}
+                ${isProxmox ? `
+                <div class="tab-pane fade" id="proxmox" role="tabpanel">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h6 class="text-muted mb-0">Informazioni Proxmox</h6>
+                        <button class="btn btn-outline-success btn-sm" onclick="refreshAdvancedDeviceInfo('${deviceId}')">
+                            <i class="bi bi-download"></i> Refresh Info
+                        </button>
+                    </div>
+                    <div id="proxmoxContent" class="text-center py-4 text-muted">
+                        <div class="spinner-border spinner-border-sm me-2"></div>
+                        Caricamento informazioni Proxmox...
+                    </div>
+                </div>
+                ` : ''}
+            </div>
+        `;
 
         // Mostra modal
-        showModal('Dettagli Dispositivo: ' + device.name, detailsHtml, 'lg');
+        showModal('Dettagli Dispositivo: ' + device.name, modalContent, 'xl');
 
     } catch (e) {
         alert('Errore caricamento dettagli: ' + e.message);
@@ -5199,6 +5397,450 @@ async function backupProxmoxDevice(deviceId, deviceIp) {
         }
     } catch (e) {
         alert('Errore: ' + e.message);
+    }
+}
+
+// ==========================================
+// FUNZIONI PER INFORMAZIONI AVANZATE DEVICE
+// ==========================================
+
+async function loadDeviceNeighbors(deviceId) {
+    await Promise.all([
+        loadLLDPNeighbors(deviceId),
+        loadCDPNeighbors(deviceId)
+    ]);
+}
+
+async function loadLLDPNeighbors(deviceId) {
+    const content = document.getElementById('lldpNeighborsContent');
+    if (!content) return;
+    
+    content.innerHTML = '<div class="spinner-border spinner-border-sm me-2"></div>Caricamento...';
+    
+    try {
+        const response = await fetch(`/api/v1/inventory/${customerId}/devices/${deviceId}/lldp-neighbors`);
+        const data = await response.json();
+        
+        if (data.success && data.neighbors && data.neighbors.length > 0) {
+            content.innerHTML = `
+                <div class="table-responsive">
+                    <table class="table table-sm table-striped">
+                        <thead>
+                            <tr>
+                                <th>Interfaccia Locale</th>
+                                <th>Dispositivo Remoto</th>
+                                <th>Porta Remota</th>
+                                <th>MAC Remoto</th>
+                                <th>IP Remoto</th>
+                                <th>Chassis ID</th>
+                                <th>Ultimo Visto</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${data.neighbors.map(n => `
+                                <tr>
+                                    <td><code>${n.local_interface}</code></td>
+                                    <td>
+                                        <strong>${n.remote_device_name || '-'}</strong>
+                                        ${n.remote_device_description ? '<br><small class="text-muted">' + n.remote_device_description + '</small>' : ''}
+                                    </td>
+                                    <td>${n.remote_port || '-'}</td>
+                                    <td><code class="small">${n.remote_mac || '-'}</code></td>
+                                    <td><code class="small">${n.remote_ip || '-'}</code></td>
+                                    <td><code class="small">${n.chassis_id || '-'}</code></td>
+                                    <td><small>${n.last_seen ? new Date(n.last_seen).toLocaleString('it-IT') : '-'}</small></td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="mt-2 text-muted small">
+                    <i class="bi bi-info-circle"></i> Trovati ${data.count || data.neighbors.length} neighbor LLDP
+                </div>
+            `;
+        } else {
+            content.innerHTML = `
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle"></i> Nessun neighbor LLDP trovato.
+                    <br><small>Esegui "Refresh Info" per raccogliere i dati dal dispositivo.</small>
+                </div>
+            `;
+        }
+    } catch (e) {
+        content.innerHTML = `<div class="alert alert-danger">Errore: ${e.message}</div>`;
+    }
+}
+
+async function loadCDPNeighbors(deviceId) {
+    const content = document.getElementById('cdpNeighborsContent');
+    if (!content) return;
+    
+    content.innerHTML = '<div class="spinner-border spinner-border-sm me-2"></div>Caricamento...';
+    
+    try {
+        const response = await fetch(`/api/v1/inventory/${customerId}/devices/${deviceId}/cdp-neighbors`);
+        const data = await response.json();
+        
+        if (data.success && data.neighbors && data.neighbors.length > 0) {
+            content.innerHTML = `
+                <div class="table-responsive">
+                    <table class="table table-sm table-striped">
+                        <thead>
+                            <tr>
+                                <th>Interfaccia Locale</th>
+                                <th>Device ID</th>
+                                <th>Nome Dispositivo</th>
+                                <th>Porta Remota</th>
+                                <th>IP Remoto</th>
+                                <th>Versione</th>
+                                <th>Platform</th>
+                                <th>Ultimo Visto</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${data.neighbors.map(n => `
+                                <tr>
+                                    <td><code>${n.local_interface}</code></td>
+                                    <td><code class="small">${n.remote_device_id || '-'}</code></td>
+                                    <td><strong>${n.remote_device_name || '-'}</strong></td>
+                                    <td>${n.remote_port || '-'}</td>
+                                    <td><code class="small">${n.remote_ip || '-'}</code></td>
+                                    <td><small>${n.remote_version || '-'}</small></td>
+                                    <td><small>${n.platform || '-'}</small></td>
+                                    <td><small>${n.last_seen ? new Date(n.last_seen).toLocaleString('it-IT') : '-'}</small></td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="mt-2 text-muted small">
+                    <i class="bi bi-info-circle"></i> Trovati ${data.count || data.neighbors.length} neighbor CDP
+                </div>
+            `;
+        } else {
+            content.innerHTML = `
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle"></i> Nessun neighbor CDP trovato.
+                    <br><small>CDP è disponibile solo su dispositivi Cisco.</small>
+                </div>
+            `;
+        }
+    } catch (e) {
+        content.innerHTML = `<div class="alert alert-danger">Errore: ${e.message}</div>`;
+    }
+}
+
+async function loadDeviceAdvancedInterfaces(deviceId) {
+    const content = document.getElementById('advancedInterfacesContent');
+    if (!content) return;
+    
+    content.innerHTML = '<div class="spinner-border spinner-border-sm me-2"></div>Caricamento...';
+    
+    try {
+        const response = await fetch(`/api/v1/inventory/${customerId}/devices/${deviceId}/interfaces`);
+        const data = await response.json();
+        
+        if (data.success && data.interfaces && data.interfaces.length > 0) {
+            content.innerHTML = `
+                <div class="table-responsive">
+                    <table class="table table-sm table-striped">
+                        <thead>
+                            <tr>
+                                <th>Nome</th>
+                                <th>MAC</th>
+                                <th>Velocità</th>
+                                <th>Stato</th>
+                                <th>LLDP</th>
+                                <th>CDP</th>
+                                <th>PoE</th>
+                                <th>VLAN Native</th>
+                                <th>VLAN Trunk</th>
+                                <th>STP</th>
+                                <th>LACP</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${data.interfaces.map(iface => {
+                                const vlanTrunk = iface.vlan_trunk_allowed ? 
+                                    (typeof iface.vlan_trunk_allowed === 'string' ? JSON.parse(iface.vlan_trunk_allowed) : iface.vlan_trunk_allowed) : [];
+                                const vlanTrunkDisplay = Array.isArray(vlanTrunk) && vlanTrunk.length > 0 ? 
+                                    vlanTrunk.map(v => `<span class="badge bg-secondary">${v}</span>`).join(' ') : '-';
+                                
+                                return `
+                                    <tr>
+                                        <td><code>${iface.name}</code></td>
+                                        <td><small>${iface.mac_address || '-'}</small></td>
+                                        <td>${iface.speed_mbps ? iface.speed_mbps + ' Mbps' : '-'}</td>
+                                        <td>
+                                            <span class="badge bg-${iface.oper_status === 'up' ? 'success' : 'secondary'}">${iface.oper_status || '-'}</span>
+                                        </td>
+                                        <td>${iface.lldp_enabled !== null ? (iface.lldp_enabled ? '<i class="bi bi-check-circle text-success"></i>' : '<i class="bi bi-x-circle text-danger"></i>') : '-'}</td>
+                                        <td>${iface.cdp_enabled !== null ? (iface.cdp_enabled ? '<i class="bi bi-check-circle text-success"></i>' : '<i class="bi bi-x-circle text-danger"></i>') : '-'}</td>
+                                        <td>
+                                            ${iface.poe_enabled ? 
+                                                `<i class="bi bi-lightning-charge text-warning"></i> ${iface.poe_power_watts ? iface.poe_power_watts + 'W' : ''}` : 
+                                                '<i class="bi bi-x-circle text-muted"></i>'}
+                                        </td>
+                                        <td>${iface.vlan_native || '-'}</td>
+                                        <td>${vlanTrunkDisplay}</td>
+                                        <td>${iface.stp_state ? `<span class="badge bg-info">${iface.stp_state}</span>` : '-'}</td>
+                                        <td>${iface.lacp_enabled !== null ? (iface.lacp_enabled ? '<i class="bi bi-check-circle text-success"></i>' : '<i class="bi bi-x-circle text-danger"></i>') : '-'}</td>
+                                    </tr>
+                                `;
+                            }).join('')}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="mt-2 text-muted small">
+                    <i class="bi bi-info-circle"></i> Trovate ${data.count || data.interfaces.length} interfacce con dettagli avanzati
+                </div>
+            `;
+        } else {
+            content.innerHTML = `
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle"></i> Nessuna interfaccia con dettagli avanzati trovata.
+                    <br><small>Esegui "Refresh Info" per raccogliere i dati dal dispositivo.</small>
+                </div>
+            `;
+        }
+    } catch (e) {
+        content.innerHTML = `<div class="alert alert-danger">Errore: ${e.message}</div>`;
+    }
+}
+
+async function loadProxmoxInfo(deviceId) {
+    const content = document.getElementById('proxmoxContent');
+    if (!content) return;
+    
+    content.innerHTML = '<div class="spinner-border spinner-border-sm me-2"></div>Caricamento informazioni Proxmox...';
+    
+    try {
+        // Carica info host
+        const hostResponse = await fetch(`/api/v1/inventory/${customerId}/devices/${deviceId}/proxmox/host`);
+        const hostData = await hostResponse.json();
+        
+        // Carica VM
+        const vmsResponse = await fetch(`/api/v1/inventory/${customerId}/devices/${deviceId}/proxmox/vms`);
+        const vmsData = await vmsResponse.json();
+        
+        // Carica storage
+        const storageResponse = await fetch(`/api/v1/inventory/${customerId}/devices/${deviceId}/proxmox/storage`);
+        const storageData = await storageResponse.json();
+        
+        let proxmoxHtml = '';
+        
+        // Host Info
+        if (hostData.success && hostData.host_info) {
+            const hi = hostData.host_info;
+            proxmoxHtml += `
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <h6 class="mb-0"><i class="bi bi-server"></i> Informazioni Host</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <table class="table table-sm">
+                                    <tr><th width="40%">Node Name:</th><td><strong>${hi.node_name}</strong></td></tr>
+                                    ${hi.cluster_name ? `<tr><th>Cluster:</th><td>${hi.cluster_name}</td></tr>` : ''}
+                                    <tr><th>Proxmox Version:</th><td>${hi.proxmox_version || '-'}</td></tr>
+                                    <tr><th>Kernel:</th><td>${hi.kernel_version || '-'}</td></tr>
+                                    <tr><th>CPU Model:</th><td>${hi.cpu_model || '-'}</td></tr>
+                                    <tr><th>CPU Cores:</th><td>${hi.cpu_total_cores || hi.cpu_cores || '-'} (${hi.cpu_sockets || '-'} sockets)</td></tr>
+                                </table>
+                            </div>
+                            <div class="col-md-6">
+                                <table class="table table-sm">
+                                    <tr><th width="40%">Memory:</th><td>
+                                        ${hi.memory_total_gb ? hi.memory_total_gb.toFixed(1) + ' GB' : '-'}
+                                        ${hi.memory_usage_percent ? ` (${hi.memory_usage_percent.toFixed(1)}% utilizzato)` : ''}
+                                    </td></tr>
+                                    <tr><th>CPU Usage:</th><td>
+                                        ${hi.cpu_usage_percent !== null ? `
+                                            <div class="progress" style="height: 20px;">
+                                                <div class="progress-bar" style="width: ${hi.cpu_usage_percent}%">${hi.cpu_usage_percent.toFixed(1)}%</div>
+                                            </div>
+                                        ` : '-'}
+                                    </td></tr>
+                                    <tr><th>Uptime:</th><td>${hi.uptime_human || '-'}</td></tr>
+                                    <tr><th>Load Average:</th><td>
+                                        ${hi.load_average_1m !== null ? `${hi.load_average_1m.toFixed(2)}, ${hi.load_average_5m.toFixed(2)}, ${hi.load_average_15m.toFixed(2)}` : '-'}
+                                    </td></tr>
+                                    <tr><th>License:</th><td>
+                                        ${hi.license_status ? `<span class="badge bg-${hi.license_status === 'active' ? 'success' : 'warning'}">${hi.license_status}</span>` : '-'}
+                                        ${hi.license_level ? ` (${hi.license_level})` : ''}
+                                    </td></tr>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        } else {
+            proxmoxHtml += `
+                <div class="alert alert-info mb-3">
+                    <i class="bi bi-info-circle"></i> Informazioni host Proxmox non disponibili.
+                    <br><small>Esegui "Refresh Info" per raccogliere i dati dal dispositivo.</small>
+                </div>
+            `;
+        }
+        
+        // VM List
+        if (vmsData.success && vmsData.vms && vmsData.vms.length > 0) {
+            proxmoxHtml += `
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <h6 class="mb-0"><i class="bi bi-box"></i> Virtual Machines (${vmsData.count || vmsData.vms.length})</h6>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-sm table-striped mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>VM ID</th>
+                                        <th>Nome</th>
+                                        <th>Stato</th>
+                                        <th>CPU</th>
+                                        <th>RAM</th>
+                                        <th>Disco</th>
+                                        <th>OS Type</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${vmsData.vms.map(vm => `
+                                        <tr>
+                                            <td><code>${vm.vm_id}</code></td>
+                                            <td><strong>${vm.name}</strong></td>
+                                            <td><span class="badge bg-${vm.status === 'running' ? 'success' : 'secondary'}">${vm.status || '-'}</span></td>
+                                            <td>${vm.cpu_cores || '-'}</td>
+                                            <td>${vm.memory_mb ? (vm.memory_mb / 1024).toFixed(1) + ' GB' : '-'}</td>
+                                            <td>${vm.disk_total_gb ? vm.disk_total_gb.toFixed(1) + ' GB' : '-'}</td>
+                                            <td><small>${vm.os_type || '-'}</small></td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            `;
+        } else {
+            proxmoxHtml += `
+                <div class="alert alert-info mb-3">
+                    <i class="bi bi-info-circle"></i> Nessuna VM trovata.
+                    <br><small>Esegui "Refresh Info" per raccogliere i dati dal dispositivo.</small>
+                </div>
+            `;
+        }
+        
+        // Storage List
+        if (storageData.success && storageData.storage && storageData.storage.length > 0) {
+            proxmoxHtml += `
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0"><i class="bi bi-hdd"></i> Storage (${storageData.count || storageData.storage.length})</h6>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-sm table-striped mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>Nome</th>
+                                        <th>Tipo</th>
+                                        <th>Totale</th>
+                                        <th>Usato</th>
+                                        <th>Disponibile</th>
+                                        <th>Uso %</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${storageData.storage.map(s => {
+                                        const usagePercent = s.usage_percent || (s.total_gb && s.used_gb ? Math.round((s.used_gb / s.total_gb) * 100) : 0);
+                                        const progressColor = usagePercent > 90 ? 'danger' : usagePercent > 75 ? 'warning' : 'success';
+                                        return `
+                                            <tr>
+                                                <td><strong>${s.storage_name}</strong></td>
+                                                <td><span class="badge bg-info">${s.storage_type || '-'}</span></td>
+                                                <td>${s.total_gb ? s.total_gb.toFixed(1) + ' GB' : '-'}</td>
+                                                <td>${s.used_gb ? s.used_gb.toFixed(1) + ' GB' : '-'}</td>
+                                                <td>${s.available_gb ? s.available_gb.toFixed(1) + ' GB' : '-'}</td>
+                                                <td>
+                                                    <div class="progress" style="height: 20px;">
+                                                        <div class="progress-bar bg-${progressColor}" style="width: ${usagePercent}%">${usagePercent}%</div>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        `;
+                                    }).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            `;
+        } else {
+            proxmoxHtml += `
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle"></i> Nessuno storage trovato.
+                    <br><small>Esegui "Refresh Info" per raccogliere i dati dal dispositivo.</small>
+                </div>
+            `;
+        }
+        
+        content.innerHTML = proxmoxHtml;
+        
+    } catch (e) {
+        content.innerHTML = `<div class="alert alert-danger">Errore: ${e.message}</div>`;
+    }
+}
+
+async function refreshAdvancedDeviceInfo(deviceId) {
+    if (!confirm('Aggiornare le informazioni avanzate per questo dispositivo?\\n\\nQuesta operazione può richiedere alcuni secondi.')) {
+        return;
+    }
+    
+    const loadingToast = document.createElement('div');
+    loadingToast.className = 'toast show position-fixed top-0 end-0 m-3';
+    loadingToast.innerHTML = `
+        <div class="toast-header">
+            <strong class="me-auto">Refresh Info</strong>
+            <div class="spinner-border spinner-border-sm me-2"></div>
+        </div>
+        <div class="toast-body">
+            Aggiornamento informazioni avanzate in corso...
+        </div>
+    `;
+    document.body.appendChild(loadingToast);
+    
+    try {
+        const response = await fetch(`/api/v1/inventory/${customerId}/devices/${deviceId}/refresh-advanced-info`, {
+            method: 'POST'
+        });
+        const result = await response.json();
+        
+        if (result.success) {
+            loadingToast.querySelector('.toast-body').innerHTML = '✅ Informazioni avanzate aggiornate con successo!';
+            setTimeout(() => {
+                loadingToast.remove();
+                // Ricarica la tab corrente se aperta
+                const activeTab = document.querySelector('#deviceDetailTabs .nav-link.active');
+                if (activeTab) {
+                    const targetId = activeTab.getAttribute('data-bs-target');
+                    if (targetId === '#neighbors') {
+                        loadDeviceNeighbors(deviceId);
+                    } else if (targetId === '#advanced-interfaces') {
+                        loadDeviceAdvancedInterfaces(deviceId);
+                    } else if (targetId === '#proxmox') {
+                        loadProxmoxInfo(deviceId);
+                    }
+                }
+            }, 2000);
+        } else {
+            throw new Error(result.message || 'Errore sconosciuto');
+        }
+    } catch (e) {
+        loadingToast.querySelector('.toast-body').innerHTML = `❌ Errore: ${e.message}`;
+        setTimeout(() => loadingToast.remove(), 3000);
     }
 }
 </script>

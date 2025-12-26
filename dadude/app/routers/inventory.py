@@ -2043,6 +2043,188 @@ async def identify_inventory_device(
             device.open_ports = result["open_ports"]
             updates_applied.append("open_ports")
 
+        # Salva informazioni avanzate se disponibili
+        # LLDP/CDP neighbors e dettagli interfacce per switch/router
+        if result.get("lldp_neighbors") or result.get("cdp_neighbors") or result.get("interface_details"):
+            try:
+                from ..services.lldp_cdp_collector import get_lldp_cdp_collector
+                from ..models.inventory import LLDPNeighbor, CDPNeighbor, NetworkInterface
+                from datetime import datetime
+                import uuid
+                
+                # Salva LLDP neighbors
+                if result.get("lldp_neighbors"):
+                    # Elimina vecchi neighbor
+                    session.query(LLDPNeighbor).filter(LLDPNeighbor.device_id == device_id).delete()
+                    
+                    # Salva nuovi neighbor
+                    for neighbor in result["lldp_neighbors"]:
+                        lldp_neighbor = LLDPNeighbor(
+                            id=uuid.uuid4().hex[:8],
+                            device_id=device_id,
+                            local_interface=neighbor.get("local_interface", ""),
+                            remote_device_name=neighbor.get("remote_device_name"),
+                            remote_device_description=neighbor.get("remote_device_description"),
+                            remote_port=neighbor.get("remote_port"),
+                            remote_mac=neighbor.get("remote_mac"),
+                            remote_ip=neighbor.get("remote_ip"),
+                            chassis_id=neighbor.get("chassis_id"),
+                            chassis_id_type=neighbor.get("chassis_id_type"),
+                            capabilities=neighbor.get("capabilities"),
+                            last_seen=datetime.now(),
+                        )
+                        session.add(lldp_neighbor)
+                    logger.info(f"Saved {len(result['lldp_neighbors'])} LLDP neighbors for device {device_id}")
+                
+                # Salva CDP neighbors
+                if result.get("cdp_neighbors"):
+                    # Elimina vecchi neighbor
+                    session.query(CDPNeighbor).filter(CDPNeighbor.device_id == device_id).delete()
+                    
+                    # Salva nuovi neighbor
+                    for neighbor in result["cdp_neighbors"]:
+                        cdp_neighbor = CDPNeighbor(
+                            id=uuid.uuid4().hex[:8],
+                            device_id=device_id,
+                            local_interface=neighbor.get("local_interface", ""),
+                            remote_device_id=neighbor.get("remote_device_id"),
+                            remote_device_name=neighbor.get("remote_device_name"),
+                            remote_port=neighbor.get("remote_port"),
+                            remote_ip=neighbor.get("remote_ip"),
+                            remote_version=neighbor.get("remote_version"),
+                            platform=neighbor.get("platform"),
+                            capabilities=neighbor.get("capabilities"),
+                            last_seen=datetime.now(),
+                        )
+                        session.add(cdp_neighbor)
+                    logger.info(f"Saved {len(result['cdp_neighbors'])} CDP neighbors for device {device_id}")
+                
+                # Salva dettagli interfacce avanzati
+                if result.get("interface_details"):
+                    for iface_data in result["interface_details"]:
+                        existing = session.query(NetworkInterface).filter(
+                            NetworkInterface.device_id == device_id,
+                            NetworkInterface.name == iface_data.get("name")
+                        ).first()
+                        
+                        if existing:
+                            # Aggiorna con dati avanzati
+                            existing.lldp_enabled = iface_data.get("lldp_enabled")
+                            existing.cdp_enabled = iface_data.get("cdp_enabled")
+                            existing.poe_enabled = iface_data.get("poe_enabled")
+                            existing.poe_power_watts = iface_data.get("poe_power_watts")
+                            existing.vlan_native = iface_data.get("vlan_native")
+                            existing.vlan_trunk_allowed = iface_data.get("vlan_trunk_allowed")
+                            existing.stp_state = iface_data.get("stp_state")
+                            existing.lacp_enabled = iface_data.get("lacp_enabled")
+                            existing.last_updated = datetime.now()
+                        else:
+                            # Crea nuova interfaccia con dati avanzati
+                            new_iface = NetworkInterface(
+                                id=uuid.uuid4().hex[:8],
+                                device_id=device_id,
+                                name=iface_data.get("name", ""),
+                                description=iface_data.get("description"),
+                                interface_type=iface_data.get("interface_type"),
+                                mac_address=iface_data.get("mac_address"),
+                                ip_addresses=iface_data.get("ip_addresses"),
+                                speed_mbps=iface_data.get("speed_mbps"),
+                                duplex=iface_data.get("duplex"),
+                                mtu=iface_data.get("mtu"),
+                                admin_status=iface_data.get("admin_status"),
+                                oper_status=iface_data.get("oper_status"),
+                                lldp_enabled=iface_data.get("lldp_enabled"),
+                                cdp_enabled=iface_data.get("cdp_enabled"),
+                                poe_enabled=iface_data.get("poe_enabled"),
+                                poe_power_watts=iface_data.get("poe_power_watts"),
+                                vlan_native=iface_data.get("vlan_native"),
+                                vlan_trunk_allowed=iface_data.get("vlan_trunk_allowed"),
+                                stp_state=iface_data.get("stp_state"),
+                                lacp_enabled=iface_data.get("lacp_enabled"),
+                            )
+                            session.add(new_iface)
+                    logger.info(f"Updated {len(result['interface_details'])} interfaces with advanced details for device {device_id}")
+            except Exception as e:
+                logger.error(f"Error saving advanced network info for device {device_id}: {e}", exc_info=True)
+        
+        # Salva informazioni Proxmox se disponibili
+        if result.get("proxmox_host_info") or result.get("proxmox_vms") or result.get("proxmox_storage"):
+            try:
+                from ..models.inventory import ProxmoxHost, ProxmoxVM, ProxmoxStorage
+                from datetime import datetime
+                import uuid
+                
+                host_info = result.get("proxmox_host_info")
+                if host_info:
+                    # Aggiorna o crea ProxmoxHost
+                    existing_host = session.query(ProxmoxHost).filter(
+                        ProxmoxHost.device_id == device_id
+                    ).first()
+                    
+                    if existing_host:
+                        # Aggiorna
+                        for key, value in host_info.items():
+                            if hasattr(existing_host, key):
+                                setattr(existing_host, key, value)
+                        existing_host.last_updated = datetime.now()
+                        host_id = existing_host.id
+                    else:
+                        # Crea nuovo
+                        new_host = ProxmoxHost(
+                            id=uuid.uuid4().hex[:8],
+                            device_id=device_id,
+                            **{k: v for k, v in host_info.items() if hasattr(ProxmoxHost, k)}
+                        )
+                        session.add(new_host)
+                        session.flush()
+                        host_id = new_host.id
+                    
+                    # Salva VM
+                    if result.get("proxmox_vms"):
+                        # Elimina vecchie VM
+                        session.query(ProxmoxVM).filter(ProxmoxVM.host_id == host_id).delete()
+                        
+                        # Salva nuove VM
+                        for vm_data in result["proxmox_vms"]:
+                            vm = ProxmoxVM(
+                                id=uuid.uuid4().hex[:8],
+                                host_id=host_id,
+                                vm_id=vm_data.get("vm_id", 0),
+                                name=vm_data.get("name", ""),
+                                status=vm_data.get("status"),
+                                cpu_cores=vm_data.get("cpu_cores"),
+                                memory_mb=vm_data.get("memory_mb"),
+                                disk_total_gb=vm_data.get("disk_total_gb"),
+                                network_interfaces=vm_data.get("network_interfaces"),
+                                os_type=vm_data.get("os_type"),
+                                template=vm_data.get("template", False),
+                            )
+                            session.add(vm)
+                        logger.info(f"Saved {len(result['proxmox_vms'])} Proxmox VMs for device {device_id}")
+                    
+                    # Salva storage
+                    if result.get("proxmox_storage"):
+                        # Elimina vecchio storage
+                        session.query(ProxmoxStorage).filter(ProxmoxStorage.host_id == host_id).delete()
+                        
+                        # Salva nuovo storage
+                        for storage_data in result["proxmox_storage"]:
+                            storage = ProxmoxStorage(
+                                id=uuid.uuid4().hex[:8],
+                                host_id=host_id,
+                                storage_name=storage_data.get("storage_name", ""),
+                                storage_type=storage_data.get("storage_type"),
+                                content_types=storage_data.get("content_types"),
+                                total_gb=storage_data.get("total_gb"),
+                                used_gb=storage_data.get("used_gb"),
+                                available_gb=storage_data.get("available_gb"),
+                                usage_percent=storage_data.get("usage_percent"),
+                            )
+                            session.add(storage)
+                        logger.info(f"Saved {len(result['proxmox_storage'])} Proxmox storage for device {device_id}")
+            except Exception as e:
+                logger.error(f"Error saving Proxmox info for device {device_id}: {e}", exc_info=True)
+        
         # Estrai dominio da hostname se non già impostato
         if not device.domain and result.get("hostname") and "." in result["hostname"]:
             parts = result["hostname"].split(".", 1)

@@ -2161,7 +2161,10 @@ class DeviceProbeService:
             logger.info(f"Device identification complete for {address}: {result['device_type']} ({result['hostname'] or 'no hostname'})")
         
         # 5. Raccogli informazioni avanzate se dispositivo identificato e credenziali disponibili
-        if result.get("identified_by") and result["identified_by"].startswith("probe_") and credentials_list:
+        # Accetta sia probe_ che agent_ come identificazione valida
+        identified = result.get("identified_by")
+        is_identified = identified and (identified.startswith("probe_") or identified.startswith("agent_"))
+        if is_identified and credentials_list:
             try:
                 device_type = result.get("device_type", "").lower()
                 vendor = (result.get("vendor") or "").lower()

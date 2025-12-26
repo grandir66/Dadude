@@ -1856,23 +1856,21 @@ async def enroll_agent_certificate(
     
     # Trova agent e verifica token
     try:
-        # Accedi direttamente al database per ottenere agent_token
+        # Usa il servizio per cercare l'agent (supporta dude_agent_id, id, name)
+        agent = service.get_agent_by_unique_id(data.agent_id)
+        
+        if not agent:
+            raise HTTPException(status_code=404, detail="Agent not found")
+        
+        # Accedi direttamente al database per ottenere agent_token e active status
         from ..models.database import AgentAssignment as AgentAssignmentDB
         session = service._get_session()
-
-        # Prima cerca per ID database diretto
         agent_db = session.query(AgentAssignmentDB).filter(
-            AgentAssignmentDB.id == data.agent_id
+            AgentAssignmentDB.id == agent.id
         ).first()
-
-        # Se non trovato, cerca per nome
+        
         if not agent_db:
-            agent_db = session.query(AgentAssignmentDB).filter(
-                AgentAssignmentDB.name == data.agent_id
-            ).first()
-
-        if not agent_db:
-            raise HTTPException(status_code=404, detail="Agent not found")
+            raise HTTPException(status_code=404, detail="Agent not found in database")
 
         # Verifica che agent sia approvato
         if not agent_db.active:
