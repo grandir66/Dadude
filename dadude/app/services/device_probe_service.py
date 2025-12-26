@@ -1987,18 +1987,16 @@ class DeviceProbeService:
                     result["identified_by"] = "mac_vendor"
         
         # Estrai community SNMP dalle credenziali per il probe
-        # Le credenziali del cliente hanno priorità, "public" è sempre inclusa come fallback
-        snmp_communities = []
+        snmp_communities = ["public", "private"]  # Default
         if credentials_list:
             for cred in credentials_list:
+                # Supporta sia "type" che "credential_type" per compatibilità
+                cred_type = cred.get("type") or cred.get("credential_type")
                 snmp_comm = cred.get("snmp_community")
-                # Aggiungi community dalle credenziali
+                # Aggiungi community se è di tipo SNMP o se ha una community non-default
                 if snmp_comm and snmp_comm not in snmp_communities:
-                    snmp_communities.append(snmp_comm)
+                    snmp_communities.insert(0, snmp_comm)  # Priorità alle credenziali fornite
                     logger.debug(f"Added SNMP community '{snmp_comm}' from credential")
-        # Aggiungi sempre "public" come fallback standard
-        if "public" not in snmp_communities:
-            snmp_communities.append("public")
         
         # 2. Rileva protocolli (passa le community SNMP per il probe UDP)
         try:
@@ -2196,4 +2194,3 @@ def get_device_probe_service() -> DeviceProbeService:
     if _device_probe_service is None:
         _device_probe_service = DeviceProbeService()
     return _device_probe_service
-
