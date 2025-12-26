@@ -2958,26 +2958,70 @@ async def refresh_advanced_info(customer_id: str, device_id: str):
         if not device:
             raise HTTPException(status_code=404, detail="Device not found")
         
-        # Ottieni credenziali del cliente
+        # Ottieni credenziali: device-assigned, customer, e globali
         from ..models.database import Credential
+        from ..services.encryption_service import get_encryption_service
+        from sqlalchemy import or_
+        
+        encryption = get_encryption_service()
+        credentials_list = []
+        
+        # 1. Credenziale assegnata al device (prioritaria)
+        if device.credential_id:
+            cred = session.query(Credential).filter(
+                Credential.id == device.credential_id
+            ).first()
+            
+            if cred:
+                password = encryption.decrypt(cred.password) if cred.password else None
+                ssh_key = encryption.decrypt(cred.ssh_private_key) if cred.ssh_private_key else None
+                
+                credentials_list.append({
+                    "id": cred.id,
+                    "name": cred.name,
+                    "type": cred.credential_type,
+                    "username": cred.username,
+                    "password": password,
+                    "ssh_port": cred.ssh_port or 22,
+                    "ssh_private_key": ssh_key,
+                    "snmp_community": cred.snmp_community,
+                    "snmp_port": cred.snmp_port or 161,
+                    "snmp_version": cred.snmp_version or '2c',
+                    "wmi_domain": cred.wmi_domain,
+                    "mikrotik_api_port": cred.mikrotik_api_port or 8728,
+                })
+                logger.info(f"Using device-assigned credential '{cred.name}' ({cred.credential_type})")
+        
+        # 2. Credenziali del cliente e globali
         credentials = session.query(Credential).filter(
-            Credential.customer_id == customer_id,
+            or_(
+                Credential.customer_id == customer_id,
+                Credential.is_global == True
+            ),
             Credential.active == True
         ).all()
         
-        credentials_list = []
         for cred in credentials:
+            # Skip se già presente (stessa credenziale assegnata)
+            if any(c.get("id") == cred.id for c in credentials_list):
+                continue
+            
+            password = encryption.decrypt(cred.password) if cred.password else None
+            ssh_key = encryption.decrypt(cred.ssh_private_key) if cred.ssh_private_key else None
+            
             cred_dict = {
                 "id": cred.id,
+                "name": cred.name,
                 "type": cred.credential_type,
                 "username": cred.username,
-                "password": cred.password,
+                "password": password,
+                "ssh_port": cred.ssh_port or 22,
+                "ssh_private_key": ssh_key,
                 "snmp_community": cred.snmp_community,
-                "snmp_port": cred.snmp_port,
-                "snmp_version": cred.snmp_version,
-                "ssh_port": cred.ssh_port,
-                "mikrotik_api_port": cred.mikrotik_api_port,
-                "use_ssl": cred.use_ssl,
+                "snmp_port": cred.snmp_port or 161,
+                "snmp_version": cred.snmp_version or '2c',
+                "wmi_domain": cred.wmi_domain,
+                "mikrotik_api_port": cred.mikrotik_api_port or 8728,
             }
             credentials_list.append(cred_dict)
         
