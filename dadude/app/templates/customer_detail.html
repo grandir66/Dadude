@@ -4743,24 +4743,33 @@ async function viewInventoryDevice(deviceId) {
         const cf = device.custom_fields ? (typeof device.custom_fields === 'string' ? JSON.parse(device.custom_fields) : device.custom_fields) : {};
         
         // Determina se mostrare tab avanzate
-        const deviceType = device.device_type ? String(device.device_type).toLowerCase() : '';
-        const manufacturer = device.manufacturer ? String(device.manufacturer).toLowerCase() : '';
-        const osFamily = device.os_family ? String(device.os_family).toLowerCase() : '';
+        // Converti sempre in stringa per evitare errori con operatori 'in'
+        let deviceType = '';
+        let manufacturer = '';
+        let osFamily = '';
+        
+        try {
+            deviceType = device.device_type ? String(device.device_type).toLowerCase() : '';
+            manufacturer = device.manufacturer ? String(device.manufacturer).toLowerCase() : '';
+            osFamily = device.os_family ? String(device.os_family).toLowerCase() : '';
+        } catch (e) {
+            console.warn('Error converting device fields to string:', e);
+        }
         
         // Verifica se è un dispositivo di rete (switch/router)
         const isNetworkDevice = ['network', 'router', 'switch'].includes(deviceType) || 
-                               (manufacturer && typeof manufacturer === 'string' && (
-                                   manufacturer.includes('mikrotik') || 
-                                   manufacturer.includes('cisco') || 
-                                   manufacturer.includes('hp') || 
-                                   manufacturer.includes('aruba') || 
-                                   manufacturer.includes('ubiquiti')
+                               (manufacturer && typeof manufacturer === 'string' && manufacturer.length > 0 && (
+                                   manufacturer.indexOf('mikrotik') !== -1 || 
+                                   manufacturer.indexOf('cisco') !== -1 || 
+                                   manufacturer.indexOf('hp') !== -1 || 
+                                   manufacturer.indexOf('aruba') !== -1 || 
+                                   manufacturer.indexOf('ubiquiti') !== -1
                                ));
         
         // Verifica se è Proxmox
         const isProxmox = deviceType === 'hypervisor' || 
-                         (manufacturer && typeof manufacturer === 'string' && manufacturer.includes('proxmox')) || 
-                         (osFamily && typeof osFamily === 'string' && osFamily.includes('proxmox'));
+                         (manufacturer && typeof manufacturer === 'string' && manufacturer.length > 0 && manufacturer.indexOf('proxmox') !== -1) || 
+                         (osFamily && typeof osFamily === 'string' && osFamily.length > 0 && osFamily.indexOf('proxmox') !== -1);
         
         // Crea struttura con tab Bootstrap
         let modalContent = `
