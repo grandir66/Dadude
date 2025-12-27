@@ -47,6 +47,52 @@
 - **Auto-approval**: Verificare che DADUDE_DEFAULT_CUSTOMER_ID sia None se vuoto
 - **Token**: Gestire correttamente token encryption/decryption
 
+## Regole CRITICHE per Agent Connection e Stabilità
+
+### ⚠️ CODICE FUNZIONANTE - NON MODIFICARE MAI
+
+**SEZIONI CRITICHE CHE FUNZIONANO - NON TOCCARE:**
+
+1. **WebSocket Connection (`dadude-agent/app/connection/ws_client.py`)**:
+   - ✅ `_create_ssl_context()`: Gestisce SSL/mTLS correttamente
+   - ✅ `_reconnect()`: Auto-reconnect funziona
+   - ✅ **NON modificare** la logica SSL se gli agent si connettono
+   - ✅ **NON modificare** la gestione dei certificati self-signed se funziona
+
+2. **Agent Restart (`dadude-agent/app/commands/handler.py`)**:
+   - ✅ `_update_agent_internal()`: Supporta sia `docker compose` che `docker-compose`
+   - ✅ `_daily_restart()`: Riavvio giornaliero funziona
+   - ✅ **NON modificare** la logica di restart se funziona
+   - ✅ **NON cambiare** i comandi docker compose se funzionano
+
+3. **Server WebSocket Hub (`dadude/app/services/websocket_hub.py`)**:
+   - ✅ Gestione connessioni agent funziona
+   - ✅ Auto-disconnect handling funziona
+   - ✅ **NON modificare** se gli agent si riconnettono correttamente
+
+4. **Agent Auto-Probe (`dadude/app/services/agent_service.py`)**:
+   - ✅ Prova SSH anche senza porta 22 rilevata se ci sono credenziali
+   - ✅ **NON modificare** questa logica se funziona
+
+### Regole per Modifiche Future
+
+- **PRIMA di modificare codice agent/server connection**:
+  1. Verificare che il problema sia reale e non un falso positivo
+  2. Chiedere conferma esplicita all'utente
+  3. Testare su ambiente di sviluppo PRIMA di applicare
+  4. Creare un tag Git stabile PRIMA di modificare
+  5. Documentare la modifica nelle cursorrules
+
+- **Se un agent si disconnette dopo una modifica**:
+  1. **REVERT immediatamente** alle modifiche
+  2. Verificare che il tag stabile funzioni ancora
+  3. Non aggiungere "fix" su "fix" - meglio revert completo
+
+- **Versioning Stabile**:
+  - Usare tag Git per versioni stabili (es: `v2.3.13-stable`)
+  - Gli agent devono poter essere configurati per usare un tag specifico
+  - Non forzare auto-update a `main` se non esplicitamente richiesto
+
 ## Workflow Consigliato
 
 1. **Leggere** il codice esistente e capire come funziona
@@ -63,6 +109,11 @@
 - ❌ NON aggiungere "fix" su "fix" - meglio revert e ripartire
 - ❌ NON modificare codice funzionante "per migliorarlo"
 - ❌ NON aggiungere feature non richieste dall'utente
+- ❌ **MAI modificare codice che funziona** - Se un sistema funziona, NON toccarlo
+- ❌ **MAI modificare la logica di connessione agent** se funziona correttamente
+- ❌ **MAI modificare SSL/mTLS** se gli agent si connettono senza problemi
+- ❌ **MAI modificare docker compose/restart logic** se funziona
+- ❌ **MAI modificare auto-update logic** se funziona - solo se esplicitamente richiesto
 
 ## Cosa Fare
 
@@ -72,6 +123,12 @@
 - ✅ REVERT se qualcosa si rompe
 - ✅ Mantenere il codice semplice e leggibile
 - ✅ Seguire il principio KISS (Keep It Simple, Stupid)
+- ✅ **PRIMA di modificare codice funzionante**: chiedere conferma esplicita all'utente
+- ✅ **PRIMA di modificare logica agent**: verificare che sia davvero necessario
+- ✅ **PRIMA di modificare SSL/WebSocket**: verificare che il problema non sia altrove
+- ✅ **Se l'utente dice "funzionava prima"**: REVERT immediatamente alle modifiche
+- ✅ **Usare tag Git stabili** per versioni funzionanti degli agent
+- ✅ **Documentare** ogni modifica critica (SSL, connessione, restart) nelle cursorrules
 
 ## Organizzazione Struttura Progetto
 
