@@ -496,6 +496,68 @@ async def auto_detect_device(
                         if interfaces:
                             scan_result["interface_details"] = interfaces
                         logger.info(f"Collected advanced network info during auto-detect")
+                    
+                    # MikroTik: raccogli routing e ARP durante auto-detect
+                    if device_type == "mikrotik" or "mikrotik" in vendor:
+                        from ..services.mikrotik_service import get_mikrotik_service
+                        import json
+                        mikrotik_service = get_mikrotik_service()
+                        
+                        working_creds = [c for c in credentials_list if c.get("id") in [ct.get("id") for ct in result.get("credentials_tested", [])]]
+                        if not working_creds:
+                            working_creds = credentials_list
+                        
+                        if working_creds:
+                            cred = working_creds[0]
+                            
+                            # Raccogli routing table
+                            try:
+                                routes_result = mikrotik_service.get_routes(
+                                    data.address,
+                                    cred.get("mikrotik_api_port", 8728),
+                                    cred.get("username", ""),
+                                    cred.get("password", ""),
+                                    use_ssl=cred.get("use_ssl", False)
+                                )
+                                
+                                if routes_result.get("success") and routes_result.get("routes"):
+                                    scan_result["routing_table"] = routes_result.get("routes")
+                                    scan_result["routing_count"] = routes_result.get("count", 0)
+                                    logger.info(f"Collected {routes_result.get('count', 0)} routing entries for MikroTik during auto-detect")
+                            except Exception as e:
+                                logger.debug(f"Error collecting routing table during auto-detect: {e}")
+                            
+                            # Raccogli ARP table completa
+                            try:
+                                api = mikrotik_service._get_connection(
+                                    data.address,
+                                    cred.get("mikrotik_api_port", 8728),
+                                    cred.get("username", ""),
+                                    cred.get("password", ""),
+                                    use_ssl=cred.get("use_ssl", False)
+                                )
+                                
+                                arp_resource = api.get_resource('/ip/arp')
+                                arps = arp_resource.get()
+                                
+                                arp_entries = []
+                                for a in arps:
+                                    ip_str = a.get("address", "")
+                                    mac = a.get("mac-address", "")
+                                    if ip_str and mac and mac != "00:00:00:00:00:00":
+                                        arp_entries.append({
+                                            "ip": ip_str,
+                                            "mac": mac.upper(),
+                                            "interface": a.get("interface", ""),
+                                            "complete": a.get("complete", "") == "true",
+                                        })
+                                
+                                if arp_entries:
+                                    scan_result["arp_table"] = arp_entries
+                                    scan_result["arp_count"] = len(arp_entries)
+                                    logger.info(f"Collected {len(arp_entries)} ARP entries for MikroTik during auto-detect")
+                            except Exception as e:
+                                logger.debug(f"Error collecting ARP table during auto-detect: {e}")
                 except Exception as e:
                     logger.warning(f"Error collecting advanced info during auto-detect: {e}", exc_info=True)
         
