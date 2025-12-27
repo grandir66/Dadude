@@ -809,15 +809,23 @@ async def probe(
                                 if_macs[oid_str] = value
                     
                     # Build interface list
+                    # OID format: 1.3.6.1.2.1.2.2.1.X.ifIndex
+                    # Extract ifIndex (last number) as key for matching
                     for oid, descr in list(if_descriptions.items())[:100]:
+                        # Extract ifIndex from OID (last number)
+                        if_index = oid.split('.')[-1] if '.' in oid else oid
+                        
                         interface = {
                             "name": descr,
+                            "if_index": if_index,
                             "speed_mbps": if_speeds.get(oid, 0),
                             "admin_status": if_admin_statuses.get(oid, ""),
                             "oper_status": if_oper_statuses.get(oid, ""),
                             "mac_address": if_macs.get(oid, "")
                         }
                         interfaces.append(interface)
+                    
+                    logger.debug(f"SNMP probe: Built {len(interfaces)} interfaces from {len(if_descriptions)} descriptions")
                     
                     if interfaces:
                         info["interfaces"] = interfaces
