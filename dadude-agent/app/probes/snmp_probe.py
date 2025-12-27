@@ -415,8 +415,12 @@ async def probe(
                 
                 # Try to walk LLDP table
                 try:
+                    # LLDP OID structure: lldpRemEntry = lldpRemLocalPortNum.timeMark.lldpRemLocalPortNum.lldpRemIndex
+                    # OID format: 1.0.8802.1.1.2.1.4.1.1.X.timeMark.localPortNum.remoteIndex
+                    # We need to match by timeMark.localPortNum.remoteIndex
+                    
                     # Get local port numbers first
-                    local_ports = {}
+                    local_ports = {}  # Key: "timeMark.localPortNum.remoteIndex", Value: port number
                     async for (errorIndication, errorStatus, errorIndex, varBinds) in next_cmd(
                         dispatcher,
                         CommunityData(community, mpModel=1 if version == "2c" else 0),
@@ -425,18 +429,22 @@ async def probe(
                         lexicographicMode=False
                     ):
                         if errorIndication or errorStatus:
+                            logger.debug(f"SNMP probe: LLDP local_port walk error: {errorIndication or errorStatus}")
                             break
                         for varBind in varBinds:
                             oid_str = str(varBind[0])
                             value = str(varBind[1])
-                            if value and "No Such" not in value:
-                                # Extract index from OID (last few numbers)
-                                index_parts = oid_str.split('.')[-2:]  # Get last 2 parts for timeMark and localPortNum
-                                if len(index_parts) >= 2:
-                                    local_ports[oid_str] = value
+                            if value and "No Such" not in value and value != "":
+                                # Extract index: last 3 parts (timeMark.localPortNum.remoteIndex)
+                                oid_parts = oid_str.split('.')
+                                if len(oid_parts) >= 3:
+                                    index_key = '.'.join(oid_parts[-3:])
+                                    local_ports[index_key] = value
+                    
+                    logger.debug(f"SNMP probe: Collected {len(local_ports)} LLDP local ports")
                     
                     # Get system names
-                    sys_names = {}
+                    sys_names = {}  # Key: "timeMark.localPortNum.remoteIndex", Value: system name
                     async for (errorIndication, errorStatus, errorIndex, varBinds) in next_cmd(
                         dispatcher,
                         CommunityData(community, mpModel=1 if version == "2c" else 0),
@@ -445,22 +453,32 @@ async def probe(
                         lexicographicMode=False
                     ):
                         if errorIndication or errorStatus:
+                            logger.debug(f"SNMP probe: LLDP sys_name walk error: {errorIndication or errorStatus}")
                             break
                         for varBind in varBinds:
                             oid_str = str(varBind[0])
                             value = str(varBind[1])
                             if value and "No Such" not in value and value != "":
-                                sys_names[oid_str] = value
+                                # Extract index: last 3 parts (timeMark.localPortNum.remoteIndex)
+                                oid_parts = oid_str.split('.')
+                                if len(oid_parts) >= 3:
+                                    index_key = '.'.join(oid_parts[-3:])
+                                    sys_names[index_key] = value
                     
-                    # Match by OID index to build neighbor list
-                    for oid, port in list(local_ports.items())[:50]:  # Limit to 50 neighbors
-                        neighbor = {
-                            "local_interface": port,
-                            "remote_device_name": sys_names.get(oid, ""),
-                            "discovered_by": "lldp"
-                        }
-                        if neighbor["remote_device_name"]:
+                    logger.debug(f"SNMP probe: Collected {len(sys_names)} LLDP system names")
+                    
+                    # Match by index key to build neighbor list
+                    for index_key, port in list(local_ports.items())[:50]:  # Limit to 50 neighbors
+                        sys_name = sys_names.get(index_key, "")
+                        if sys_name:  # Only add if we have a system name
+                            neighbor = {
+                                "local_interface": port,
+                                "remote_device_name": sys_name,
+                                "discovered_by": "lldp"
+                            }
                             lldp_neighbors.append(neighbor)
+                    
+                    logger.debug(f"SNMP probe: Built {len(lldp_neighbors)} LLDP neighbors from {len(local_ports)} ports and {len(sys_names)} names")
                     
                     if lldp_neighbors:
                         info["lldp_neighbors"] = lldp_neighbors
