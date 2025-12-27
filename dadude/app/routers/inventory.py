@@ -1354,6 +1354,23 @@ async def auto_detect_device(
                         except Exception as e:
                             logger.error(f"Error saving LinuxDetails: {e}", exc_info=True)
                     
+                    # Salva storage_info se disponibile (Synology/QNAP)
+                    if scan_result.get("storage_info"):
+                        try:
+                            storage_info = scan_result.get("storage_info")
+                            if not device.custom_fields:
+                                device.custom_fields = {}
+                            if isinstance(device.custom_fields, str):
+                                try:
+                                    device.custom_fields = json.loads(device.custom_fields)
+                                except:
+                                    device.custom_fields = {}
+                            device.custom_fields["storage_info"] = storage_info
+                            flag_modified(device, "custom_fields")
+                            logger.info(f"Saved storage_info to custom_fields for device {data.device_id}: volumes={len(storage_info.get('volumes', []))}, disks={len(storage_info.get('disks', []))}, raid={storage_info.get('raid') is not None}")
+                        except Exception as e:
+                            logger.error(f"Error saving storage_info: {e}", exc_info=True)
+                    
                     # Salva MikroTikDetails se disponibili
                     # I dati vengono mergeati direttamente in scan_result, non in extra_info
                     # MikroTik può essere identificato come probe_mikrotik_api o probe_ssh

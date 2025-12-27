@@ -3,6 +3,7 @@ DaDude Agent - SSH Probe
 Scansione dispositivi Linux/Unix/MikroTik via SSH
 """
 import asyncio
+import re
 from typing import Dict, Any, Optional
 from concurrent.futures import ThreadPoolExecutor
 from loguru import logger
@@ -721,13 +722,395 @@ async def probe(
             
             # Synology
             syno_out = exec_cmd("cat /etc/synoinfo.conf 2>/dev/null")
+            is_synology = False
             if syno_out and 'synology' in syno_out.lower():
-                info["device_type"] = "nas"
+                is_synology = True
+                info["device_type"] = "storage"
+                info["category"] = "storage"
                 info["manufacturer"] = "Synology"
                 info["os_name"] = "DSM"
+                info["os_family"] = "Linux"
                 for line in syno_out.split('\n'):
                     if 'upnpmodelname' in line.lower():
                         info["model"] = line.split('=')[-1].strip().strip('"')
+                    elif 'productversion' in line.lower():
+                        info["os_version"] = line.split('=')[-1].strip().strip('"')
+                    elif 'unique' in line.lower() and 'serial' in line.lower():
+                        serial_val = line.split('=')[-1].strip().strip('"')
+                        if serial_val and not info.get("serial_number"):
+                            info["serial_number"] = serial_val
+                
+                # ===== RACCOLTA INFORMAZIONI STORAGE SYNOLOGY =====
+                storage_info = {}
+                
+                # Volumi - df -h per tutti i volumi
+                df_out = exec_cmd("df -h 2>/dev/null | grep -E '^/dev|volume'")
+                volumes = []
+                if df_out:
+                    for line in df_out.split('\n'):
+                        parts = line.split()
+                        if len(parts) >= 6:
+                            try:
+                                mount_point = parts[5]
+                                # Filtra solo volumi Synology (volume1, volume2, etc.)
+                                if '/volume' in mount_point or mount_point == '/':
+                                    size_str = parts[1]
+                                    used_str = parts[2]
+                                    avail_str = parts[3]
+                                    usage_str = parts[4].replace('%', '')
+                                    
+                                    # Converti dimensioni in GB
+                                    def to_gb(size_str):
+                                        if 'T' in size_str:
+                                            return float(size_str.replace('T', '')) * 1024
+                                        elif 'G' in size_str:
+                                            return float(size_str.replace('G', ''))
+                                        elif 'M' in size_str:
+                                            return float(size_str.replace('M', '')) / 1024
+                                        return 0.0
+                                    
+                                    total_gb = to_gb(size_str)
+                                    used_gb = to_gb(used_str)
+                                    free_gb = to_gb(avail_str)
+                                    usage_percent = float(usage_str) if usage_str.replace('.', '').isdigit() else 0.0
+                                    
+                                    volumes.append({
+                                        "name": mount_point.split('/')[-1] or "root",
+                                        "mount_point": mount_point,
+                                        "total_gb": round(total_gb, 2),
+                                        "used_gb": round(used_gb, 2),
+                                        "free_gb": round(free_gb, 2),
+                                        "filesystem": parts[0],
+                                        "usage_percent": round(usage_percent, 1)
+                                    })
+                            except Exception as e:
+                                logger.debug(f"Error parsing df output: {e}")
+                                pass
+                
+                if volumes:
+                    storage_info["volumes"] = volumes
+                
+                # RAID - /proc/mdstat
+                mdstat_out = exec_cmd("cat /proc/mdstat 2>/dev/null")
+                if mdstat_out and 'md' in mdstat_out:
+                    raid_info = {}
+                    lines = mdstat_out.split('\n')
+                    raid_devices = []
+                    raid_level = None
+                    raid_status = "unknown"
+                    degraded = False
+                    
+                    for line in lines:
+                        if line.startswith('md'):
+                            parts = line.split()
+                            if len(parts) >= 4:
+                                raid_devices.append(parts[0])
+                                if 'raid' in line.lower():
+                                    for part in parts:
+                                        if part.startswith('raid'):
+                                            raid_level = part.upper()
+                                        elif part in ['active', 'inactive', 'degraded']:
+                                            raid_status = part
+                                            if part == 'degraded':
+                                                degraded = True
+                    
+                    if raid_devices:
+                        raid_info = {
+                            "level": raid_level or "unknown",
+                            "status": raid_status,
+                            "devices": raid_devices,
+                            "degraded": degraded
+                        }
+                        storage_info["raid"] = raid_info
+                
+                # Dischi - lsblk e informazioni SMART
+                lsblk_out = exec_cmd("lsblk -o NAME,SIZE,TYPE,MOUNTPOINT,MODEL,SERIAL 2>/dev/null")
+                disks = []
+                if lsblk_out:
+                    current_disk = {}
+                    for line in lsblk_out.split('\n')[1:]:  # Skip header
+                        parts = line.split()
+                        if len(parts) >= 3:
+                            name = parts[0]
+                            size_str = parts[1]
+                            disk_type = parts[2]
+                            
+                            # Solo dischi fisici (disk) o partizioni principali
+                            if disk_type == 'disk' or (disk_type == 'part' and not current_disk):
+                                # Converti dimensione in GB
+                                size_gb = 0.0
+                                if 'T' in size_str:
+                                    size_gb = float(size_str.replace('T', '')) * 1024
+                                elif 'G' in size_str:
+                                    size_gb = float(size_str.replace('G', ''))
+                                elif 'M' in size_str:
+                                    size_gb = float(size_str.replace('M', '')) / 1024
+                                
+                                model = parts[4] if len(parts) > 4 else ""
+                                serial = parts[5] if len(parts) > 5 else ""
+                                
+                                # Prova a ottenere temperatura e salute via smartctl
+                                temp = None
+                                health = "unknown"
+                                if name.startswith('sd'):
+                                    smart_out = exec_cmd(f"smartctl -a /dev/{name} 2>/dev/null | head -50", timeout=5)
+                                    if smart_out:
+                                        for smart_line in smart_out.split('\n'):
+                                            if 'Temperature' in smart_line or 'Temperature_Celsius' in smart_line:
+                                                temp_match = re.search(r'(\d+)\s*C', smart_line)
+                                                if temp_match:
+                                                    temp = int(temp_match.group(1))
+                                            if 'SMART overall-health' in smart_line:
+                                                if 'PASSED' in smart_line:
+                                                    health = "good"
+                                                elif 'FAILED' in smart_line:
+                                                    health = "bad"
+                                
+                                disks.append({
+                                    "name": name,
+                                    "size_gb": round(size_gb, 2),
+                                    "model": model,
+                                    "serial": serial,
+                                    "health": health,
+                                    "temperature": temp
+                                })
+                                
+                                # Limita a 20 dischi per performance
+                                if len(disks) >= 20:
+                                    break
+                
+                if disks:
+                    storage_info["disks"] = disks
+                
+                # Temperatura sistema
+                temp_info = {}
+                # CPU temperature
+                cpu_temp_out = exec_cmd("cat /sys/class/hwmon/hwmon*/temp*_input 2>/dev/null | head -1")
+                if cpu_temp_out and cpu_temp_out.strip().isdigit():
+                    temp_info["cpu"] = int(int(cpu_temp_out.strip()) / 1000)  # Converti da millidegrees
+                
+                # System temperature (se disponibile)
+                sys_temp_out = exec_cmd("cat /sys/class/hwmon/hwmon*/temp*_input 2>/dev/null | head -2 | tail -1")
+                if sys_temp_out and sys_temp_out.strip().isdigit():
+                    temp_info["system"] = int(int(sys_temp_out.strip()) / 1000)
+                
+                # Temperature dischi (se non già raccolte)
+                if disks and not any(d.get("temperature") for d in disks):
+                    disk_temps = []
+                    for disk in disks[:10]:  # Limita a 10 per performance
+                        if disk["name"].startswith('sd'):
+                            temp_out = exec_cmd(f"smartctl -a /dev/{disk['name']} 2>/dev/null | grep -i temperature | head -1", timeout=3)
+                            if temp_out:
+                                temp_match = re.search(r'(\d+)\s*C', temp_out)
+                                if temp_match:
+                                    disk_temps.append(int(temp_match.group(1)))
+                    if disk_temps:
+                        temp_info["disks"] = disk_temps
+                
+                if temp_info:
+                    storage_info["temperature"] = temp_info
+                
+                # Salva storage_info se raccolto
+                if storage_info:
+                    info["storage_info"] = storage_info
+                    logger.info(f"SSH probe: Collected storage info for Synology: {len(volumes)} volumes, {len(disks)} disks")
+            
+            # QNAP Detection
+            qnap_conf = exec_cmd("cat /etc/config/uLinux.conf 2>/dev/null")
+            uname_out = exec_cmd("uname -a 2>/dev/null")
+            is_qnap = False
+            if (qnap_conf and ('qnap' in qnap_conf.lower() or 'qts' in qnap_conf.lower())) or \
+               (uname_out and 'qnap' in uname_out.lower()):
+                is_qnap = True
+                info["device_type"] = "storage"
+                info["category"] = "storage"
+                info["manufacturer"] = "QNAP"
+                info["os_name"] = "QTS"
+                info["os_family"] = "Linux"
+                
+                # Modello QNAP
+                model_out = exec_cmd("/sbin/getcfg System 'Model Name' 2>/dev/null")
+                if model_out:
+                    info["model"] = model_out.strip()
+                
+                # Versione QTS
+                version_out = exec_cmd("/sbin/getcfg System 'Version' 2>/dev/null")
+                if version_out:
+                    info["os_version"] = version_out.strip()
+                
+                # ===== RACCOLTA INFORMAZIONI STORAGE QNAP =====
+                storage_info = {}
+                
+                # Volumi - df -h per tutti i volumi
+                df_out = exec_cmd("df -h 2>/dev/null | grep -E '^/dev|share'")
+                volumes = []
+                if df_out:
+                    for line in df_out.split('\n'):
+                        parts = line.split()
+                        if len(parts) >= 6:
+                            try:
+                                mount_point = parts[5]
+                                # Filtra volumi QNAP (share, volume, etc.)
+                                if '/share' in mount_point or '/mnt' in mount_point or mount_point == '/':
+                                    size_str = parts[1]
+                                    used_str = parts[2]
+                                    avail_str = parts[3]
+                                    usage_str = parts[4].replace('%', '')
+                                    
+                                    # Converti dimensioni in GB
+                                    def to_gb(size_str):
+                                        if 'T' in size_str:
+                                            return float(size_str.replace('T', '')) * 1024
+                                        elif 'G' in size_str:
+                                            return float(size_str.replace('G', ''))
+                                        elif 'M' in size_str:
+                                            return float(size_str.replace('M', '')) / 1024
+                                        return 0.0
+                                    
+                                    total_gb = to_gb(size_str)
+                                    used_gb = to_gb(used_str)
+                                    free_gb = to_gb(avail_str)
+                                    usage_percent = float(usage_str) if usage_str.replace('.', '').isdigit() else 0.0
+                                    
+                                    volumes.append({
+                                        "name": mount_point.split('/')[-1] or "root",
+                                        "mount_point": mount_point,
+                                        "total_gb": round(total_gb, 2),
+                                        "used_gb": round(used_gb, 2),
+                                        "free_gb": round(free_gb, 2),
+                                        "filesystem": parts[0],
+                                        "usage_percent": round(usage_percent, 1)
+                                    })
+                            except Exception as e:
+                                logger.debug(f"Error parsing df output: {e}")
+                                pass
+                
+                if volumes:
+                    storage_info["volumes"] = volumes
+                
+                # RAID - /proc/mdstat
+                mdstat_out = exec_cmd("cat /proc/mdstat 2>/dev/null")
+                if mdstat_out and 'md' in mdstat_out:
+                    raid_info = {}
+                    lines = mdstat_out.split('\n')
+                    raid_devices = []
+                    raid_level = None
+                    raid_status = "unknown"
+                    degraded = False
+                    
+                    for line in lines:
+                        if line.startswith('md'):
+                            parts = line.split()
+                            if len(parts) >= 4:
+                                raid_devices.append(parts[0])
+                                if 'raid' in line.lower():
+                                    for part in parts:
+                                        if part.startswith('raid'):
+                                            raid_level = part.upper()
+                                        elif part in ['active', 'inactive', 'degraded']:
+                                            raid_status = part
+                                            if part == 'degraded':
+                                                degraded = True
+                    
+                    if raid_devices:
+                        raid_info = {
+                            "level": raid_level or "unknown",
+                            "status": raid_status,
+                            "devices": raid_devices,
+                            "degraded": degraded
+                        }
+                        storage_info["raid"] = raid_info
+                
+                # Dischi - lsblk e informazioni SMART
+                lsblk_out = exec_cmd("lsblk -o NAME,SIZE,TYPE,MOUNTPOINT,MODEL,SERIAL 2>/dev/null")
+                disks = []
+                if lsblk_out:
+                    for line in lsblk_out.split('\n')[1:]:  # Skip header
+                        parts = line.split()
+                        if len(parts) >= 3:
+                            name = parts[0]
+                            size_str = parts[1]
+                            disk_type = parts[2]
+                            
+                            # Solo dischi fisici (disk) o partizioni principali
+                            if disk_type == 'disk' or (disk_type == 'part' and len(disks) == 0):
+                                # Converti dimensione in GB
+                                size_gb = 0.0
+                                if 'T' in size_str:
+                                    size_gb = float(size_str.replace('T', '')) * 1024
+                                elif 'G' in size_str:
+                                    size_gb = float(size_str.replace('G', ''))
+                                elif 'M' in size_str:
+                                    size_gb = float(size_str.replace('M', '')) / 1024
+                                
+                                model = parts[4] if len(parts) > 4 else ""
+                                serial = parts[5] if len(parts) > 5 else ""
+                                
+                                # Prova a ottenere temperatura e salute via smartctl
+                                temp = None
+                                health = "unknown"
+                                if name.startswith('sd'):
+                                    smart_out = exec_cmd(f"smartctl -a /dev/{name} 2>/dev/null | head -50", timeout=5)
+                                    if smart_out:
+                                        for smart_line in smart_out.split('\n'):
+                                            if 'Temperature' in smart_line or 'Temperature_Celsius' in smart_line:
+                                                temp_match = re.search(r'(\d+)\s*C', smart_line)
+                                                if temp_match:
+                                                    temp = int(temp_match.group(1))
+                                            if 'SMART overall-health' in smart_line:
+                                                if 'PASSED' in smart_line:
+                                                    health = "good"
+                                                elif 'FAILED' in smart_line:
+                                                    health = "bad"
+                                
+                                disks.append({
+                                    "name": name,
+                                    "size_gb": round(size_gb, 2),
+                                    "model": model,
+                                    "serial": serial,
+                                    "health": health,
+                                    "temperature": temp
+                                })
+                                
+                                # Limita a 20 dischi per performance
+                                if len(disks) >= 20:
+                                    break
+                
+                if disks:
+                    storage_info["disks"] = disks
+                
+                # Temperatura sistema
+                temp_info = {}
+                # CPU temperature
+                cpu_temp_out = exec_cmd("cat /sys/class/hwmon/hwmon*/temp*_input 2>/dev/null | head -1")
+                if cpu_temp_out and cpu_temp_out.strip().isdigit():
+                    temp_info["cpu"] = int(int(cpu_temp_out.strip()) / 1000)  # Converti da millidegrees
+                
+                # System temperature (se disponibile)
+                sys_temp_out = exec_cmd("cat /sys/class/hwmon/hwmon*/temp*_input 2>/dev/null | head -2 | tail -1")
+                if sys_temp_out and sys_temp_out.strip().isdigit():
+                    temp_info["system"] = int(int(sys_temp_out.strip()) / 1000)
+                
+                # Temperature dischi (se non già raccolte)
+                if disks and not any(d.get("temperature") for d in disks):
+                    disk_temps = []
+                    for disk in disks[:10]:  # Limita a 10 per performance
+                        if disk["name"].startswith('sd'):
+                            temp_out = exec_cmd(f"smartctl -a /dev/{disk['name']} 2>/dev/null | grep -i temperature | head -1", timeout=3)
+                            if temp_out:
+                                temp_match = re.search(r'(\d+)\s*C', temp_out)
+                                if temp_match:
+                                    disk_temps.append(int(temp_match.group(1)))
+                    if disk_temps:
+                        temp_info["disks"] = disk_temps
+                
+                if temp_info:
+                    storage_info["temperature"] = temp_info
+                
+                # Salva storage_info se raccolto
+                if storage_info:
+                    info["storage_info"] = storage_info
+                    logger.info(f"SSH probe: Collected storage info for QNAP: {len(volumes)} volumes, {len(disks)} disks")
             
             # Proxmox VE Detection (più robusta - Proxmox è basato su Debian)
             pve_ver = exec_cmd("pveversion 2>/dev/null")

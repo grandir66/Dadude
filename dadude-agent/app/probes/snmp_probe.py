@@ -121,6 +121,28 @@ async def probe(
             "cpu_fan": "1.3.6.1.4.1.6574.1.4.1.0",
             "disk_count": "1.3.6.1.4.1.6574.2.1.1.2.0",
         },
+        # Synology Storage OIDs (6574)
+        "synology_storage": {
+            # Volumi
+            "volume_count": "1.3.6.1.4.1.6574.2.1.1.1",  # Numero volumi (table)
+            "volume_name": "1.3.6.1.4.1.6574.2.1.1.2",   # Nome volumi (table)
+            "volume_status": "1.3.6.1.4.1.6574.2.1.1.5",  # Stato volumi (table)
+            "volume_total": "1.3.6.1.4.1.6574.2.1.1.6",  # Dimensione totale volumi (table)
+            "volume_used": "1.3.6.1.4.1.6574.2.1.1.7",   # Spazio utilizzato volumi (table)
+            "volume_free": "1.3.6.1.4.1.6574.2.1.1.8",   # Spazio libero volumi (table)
+            # Dischi
+            "disk_index": "1.3.6.1.4.1.6574.2.1.1.1",    # Indice dischi (table)
+            "disk_name": "1.3.6.1.4.1.6574.2.1.1.2",     # Nome dischi (table)
+            "disk_status": "1.3.6.1.4.1.6574.2.1.1.3",   # Stato dischi (table)
+            "disk_model": "1.3.6.1.4.1.6574.2.1.1.5",    # Modello dischi (table)
+            "disk_temperature": "1.3.6.1.4.1.6574.2.1.1.6", # Temperatura dischi (table)
+            "disk_smart_status": "1.3.6.1.4.1.6574.2.1.1.7", # SMART status dischi (table)
+            # RAID
+            "raid_index": "1.3.6.1.4.1.6574.3.1.1.1",    # Indice RAID (table)
+            "raid_name": "1.3.6.1.4.1.6574.3.1.1.2",     # Nome RAID (table)
+            "raid_status": "1.3.6.1.4.1.6574.3.1.1.3",   # Stato RAID (table)
+            "raid_level": "1.3.6.1.4.1.6574.3.1.1.4",    # Livello RAID (table)
+        },
         # QNAP (24681)
         "qnap": {
             "model": "1.3.6.1.4.1.24681.1.2.12.0",
@@ -128,6 +150,27 @@ async def probe(
             "version": "1.3.6.1.4.1.24681.1.2.14.0",
             "cpu_temp": "1.3.6.1.4.1.24681.1.2.5.0",
             "sys_temp": "1.3.6.1.4.1.24681.1.2.6.0",
+        },
+        # QNAP Storage OIDs (24681)
+        "qnap_storage": {
+            # Volumi
+            "volume_index": "1.3.6.1.4.1.24681.1.2.17.1.4.1",  # Indice volumi (table)
+            "volume_name": "1.3.6.1.4.1.24681.1.2.17.1.4.2",  # Nome volumi (table)
+            "volume_status": "1.3.6.1.4.1.24681.1.2.17.1.4.3", # Stato volumi (table)
+            "volume_total": "1.3.6.1.4.1.24681.1.2.17.1.4.4",  # Dimensione totale volumi (table)
+            "volume_used": "1.3.6.1.4.1.24681.1.2.17.1.4.5",  # Spazio utilizzato volumi (table)
+            "volume_free": "1.3.6.1.4.1.24681.1.2.17.1.4.6",  # Spazio libero volumi (table)
+            # Dischi
+            "disk_index": "1.3.6.1.4.1.24681.1.2.11.1.1",     # Indice dischi (table)
+            "disk_name": "1.3.6.1.4.1.24681.1.2.11.1.2",     # Nome dischi (table)
+            "disk_status": "1.3.6.1.4.1.24681.1.2.11.1.3",   # Stato dischi (table)
+            "disk_model": "1.3.6.1.4.1.24681.1.2.11.1.4",    # Modello dischi (table)
+            "disk_temperature": "1.3.6.1.4.1.24681.1.2.11.1.5", # Temperatura dischi (table)
+            # RAID
+            "raid_index": "1.3.6.1.4.1.24681.1.2.12.1.1",    # Indice RAID (table)
+            "raid_name": "1.3.6.1.4.1.24681.1.2.12.1.2",    # Nome RAID (table)
+            "raid_status": "1.3.6.1.4.1.24681.1.2.12.1.3",  # Stato RAID (table)
+            "raid_level": "1.3.6.1.4.1.24681.1.2.12.1.4",    # Livello RAID (table)
         },
         # APC (318)
         "apc": {
@@ -343,6 +386,491 @@ async def probe(
         
         info["device_type"] = device_type
         info["category"] = category
+        
+        # ==========================================
+        # STORAGE INFO COLLECTION (Synology/QNAP)
+        # ==========================================
+        is_storage_device = device_type == "storage" or device_type == "nas" or vendor in ["Synology", "QNAP"]
+        
+        if is_storage_device and vendor == "Synology":
+            logger.info(f"SNMP probe: Collecting storage info for Synology device {target}")
+            storage_info = {}
+            
+            try:
+                # Volumi Synology
+                volumes = []
+                volume_names = {}
+                volume_statuses = {}
+                volume_totals = {}
+                volume_useds = {}
+                volume_frees = {}
+                
+                # Walk volume table
+                try:
+                    async for (errorIndication, errorStatus, errorIndex, varBinds) in next_cmd(
+                        dispatcher,
+                        CommunityData(community, mpModel=1 if version == "2c" else 0),
+                        transport,
+                        ObjectType(ObjectIdentity(oids_vendor_specific["synology_storage"]["volume_name"])),
+                        lexicographicMode=False
+                    ):
+                        if errorIndication or errorStatus:
+                            break
+                        for varBind in varBinds:
+                            oid_str = str(varBind[0])
+                            value = str(varBind[1])
+                            if value and "No Such" not in value:
+                                index = oid_str.split('.')[-1]
+                                volume_names[index] = value
+                except Exception as e:
+                    logger.debug(f"SNMP probe: Synology volume name walk failed: {e}")
+                
+                # Walk volume status, total, used, free
+                for oid_type in ["volume_status", "volume_total", "volume_used", "volume_free"]:
+                    oid = oids_vendor_specific["synology_storage"][oid_type]
+                    try:
+                        async for (errorIndication, errorStatus, errorIndex, varBinds) in next_cmd(
+                            dispatcher,
+                            CommunityData(community, mpModel=1 if version == "2c" else 0),
+                            transport,
+                            ObjectType(ObjectIdentity(oid)),
+                            lexicographicMode=False
+                        ):
+                            if errorIndication or errorStatus:
+                                break
+                            for varBind in varBinds:
+                                oid_str = str(varBind[0])
+                                value = str(varBind[1])
+                                if value and "No Such" not in value:
+                                    index = oid_str.split('.')[-1]
+                                    if oid_type == "volume_status":
+                                        volume_statuses[index] = value
+                                    elif oid_type == "volume_total":
+                                        try:
+                                            volume_totals[index] = int(value) / (1024 * 1024 * 1024)  # Converti bytes to GB
+                                        except:
+                                            pass
+                                    elif oid_type == "volume_used":
+                                        try:
+                                            volume_useds[index] = int(value) / (1024 * 1024 * 1024)
+                                        except:
+                                            pass
+                                    elif oid_type == "volume_free":
+                                        try:
+                                            volume_frees[index] = int(value) / (1024 * 1024 * 1024)
+                                        except:
+                                            pass
+                    except Exception as e:
+                        logger.debug(f"SNMP probe: Synology {oid_type} walk failed: {e}")
+                
+                # Build volumes list
+                for index in volume_names.keys():
+                    total_gb = volume_totals.get(index, 0)
+                    used_gb = volume_useds.get(index, 0)
+                    free_gb = volume_frees.get(index, 0)
+                    usage_percent = (used_gb / total_gb * 100) if total_gb > 0 else 0
+                    
+                    volumes.append({
+                        "name": volume_names.get(index, f"volume{index}"),
+                        "mount_point": f"/volume{index}",
+                        "total_gb": round(total_gb, 2),
+                        "used_gb": round(used_gb, 2),
+                        "free_gb": round(free_gb, 2),
+                        "filesystem": "ext4",  # Default per Synology
+                        "usage_percent": round(usage_percent, 1),
+                        "status": volume_statuses.get(index, "unknown")
+                    })
+                
+                if volumes:
+                    storage_info["volumes"] = volumes
+                
+                # Dischi Synology
+                disks = []
+                disk_names = {}
+                disk_statuses = {}
+                disk_models = {}
+                disk_temperatures = {}
+                
+                # Walk disk table
+                try:
+                    async for (errorIndication, errorStatus, errorIndex, varBinds) in next_cmd(
+                        dispatcher,
+                        CommunityData(community, mpModel=1 if version == "2c" else 0),
+                        transport,
+                        ObjectType(ObjectIdentity(oids_vendor_specific["synology_storage"]["disk_name"])),
+                        lexicographicMode=False
+                    ):
+                        if errorIndication or errorStatus:
+                            break
+                        for varBind in varBinds:
+                            oid_str = str(varBind[0])
+                            value = str(varBind[1])
+                            if value and "No Such" not in value:
+                                index = oid_str.split('.')[-1]
+                                disk_names[index] = value
+                except Exception as e:
+                    logger.debug(f"SNMP probe: Synology disk name walk failed: {e}")
+                
+                # Walk disk status, model, temperature
+                for oid_type in ["disk_status", "disk_model", "disk_temperature"]:
+                    oid = oids_vendor_specific["synology_storage"][oid_type]
+                    try:
+                        async for (errorIndication, errorStatus, errorIndex, varBinds) in next_cmd(
+                            dispatcher,
+                            CommunityData(community, mpModel=1 if version == "2c" else 0),
+                            transport,
+                            ObjectType(ObjectIdentity(oid)),
+                            lexicographicMode=False
+                        ):
+                            if errorIndication or errorStatus:
+                                break
+                            for varBind in varBinds:
+                                oid_str = str(varBind[0])
+                                value = str(varBind[1])
+                                if value and "No Such" not in value:
+                                    index = oid_str.split('.')[-1]
+                                    if oid_type == "disk_status":
+                                        disk_statuses[index] = value
+                                    elif oid_type == "disk_model":
+                                        disk_models[index] = value
+                                    elif oid_type == "disk_temperature":
+                                        try:
+                                            disk_temperatures[index] = int(value)
+                                        except:
+                                            pass
+                    except Exception as e:
+                        logger.debug(f"SNMP probe: Synology {oid_type} walk failed: {e}")
+                
+                # Build disks list
+                for index in disk_names.keys():
+                    health = "good" if disk_statuses.get(index, "").lower() in ["normal", "healthy"] else "warning"
+                    disks.append({
+                        "name": disk_names.get(index, f"disk{index}"),
+                        "model": disk_models.get(index, ""),
+                        "health": health,
+                        "temperature": disk_temperatures.get(index)
+                    })
+                
+                if disks:
+                    storage_info["disks"] = disks
+                
+                # RAID Synology
+                raid_names = {}
+                raid_statuses = {}
+                raid_levels = {}
+                
+                # Walk RAID table
+                try:
+                    async for (errorIndication, errorStatus, errorIndex, varBinds) in next_cmd(
+                        dispatcher,
+                        CommunityData(community, mpModel=1 if version == "2c" else 0),
+                        transport,
+                        ObjectType(ObjectIdentity(oids_vendor_specific["synology_storage"]["raid_name"])),
+                        lexicographicMode=False
+                    ):
+                        if errorIndication or errorStatus:
+                            break
+                        for varBind in varBinds:
+                            oid_str = str(varBind[0])
+                            value = str(varBind[1])
+                            if value and "No Such" not in value:
+                                index = oid_str.split('.')[-1]
+                                raid_names[index] = value
+                    
+                    # Walk RAID status and level
+                    for oid_type in ["raid_status", "raid_level"]:
+                        oid = oids_vendor_specific["synology_storage"][oid_type]
+                        async for (errorIndication, errorStatus, errorIndex, varBinds) in next_cmd(
+                            dispatcher,
+                            CommunityData(community, mpModel=1 if version == "2c" else 0),
+                            transport,
+                            ObjectType(ObjectIdentity(oid)),
+                            lexicographicMode=False
+                        ):
+                            if errorIndication or errorStatus:
+                                break
+                            for varBind in varBinds:
+                                oid_str = str(varBind[0])
+                                value = str(varBind[1])
+                                if value and "No Such" not in value:
+                                    index = oid_str.split('.')[-1]
+                                    if oid_type == "raid_status":
+                                        raid_statuses[index] = value
+                                    elif oid_type == "raid_level":
+                                        raid_levels[index] = value
+                except Exception as e:
+                    logger.debug(f"SNMP probe: Synology RAID walk failed: {e}")
+                
+                # Build RAID info
+                if raid_names:
+                    raid_devices = list(raid_names.values())
+                    raid_status = raid_statuses.get(list(raid_names.keys())[0], "unknown")
+                    raid_level = raid_levels.get(list(raid_names.keys())[0], "unknown")
+                    degraded = "degraded" in raid_status.lower() or "error" in raid_status.lower()
+                    
+                    storage_info["raid"] = {
+                        "level": raid_level,
+                        "status": raid_status,
+                        "devices": raid_devices,
+                        "degraded": degraded
+                    }
+                
+                # Temperatura sistema (già raccolta sopra)
+                if info.get("temperature"):
+                    storage_info["temperature"] = {
+                        "system": int(info["temperature"]) if str(info["temperature"]).isdigit() else None
+                    }
+                
+                if storage_info:
+                    info["storage_info"] = storage_info
+                    logger.info(f"SNMP probe: Collected storage info for Synology: {len(volumes)} volumes, {len(disks)} disks")
+            except Exception as e:
+                logger.warning(f"SNMP probe: Error collecting Synology storage info: {e}", exc_info=True)
+        
+        elif is_storage_device and vendor == "QNAP":
+            logger.info(f"SNMP probe: Collecting storage info for QNAP device {target}")
+            storage_info = {}
+            
+            try:
+                # Volumi QNAP
+                volumes = []
+                volume_names = {}
+                volume_statuses = {}
+                volume_totals = {}
+                volume_useds = {}
+                volume_frees = {}
+                
+                # Walk volume table
+                try:
+                    async for (errorIndication, errorStatus, errorIndex, varBinds) in next_cmd(
+                        dispatcher,
+                        CommunityData(community, mpModel=1 if version == "2c" else 0),
+                        transport,
+                        ObjectType(ObjectIdentity(oids_vendor_specific["qnap_storage"]["volume_name"])),
+                        lexicographicMode=False
+                    ):
+                        if errorIndication or errorStatus:
+                            break
+                        for varBind in varBinds:
+                            oid_str = str(varBind[0])
+                            value = str(varBind[1])
+                            if value and "No Such" not in value:
+                                index = oid_str.split('.')[-1]
+                                volume_names[index] = value
+                except Exception as e:
+                    logger.debug(f"SNMP probe: QNAP volume name walk failed: {e}")
+                
+                # Walk volume status, total, used, free
+                for oid_type in ["volume_status", "volume_total", "volume_used", "volume_free"]:
+                    oid = oids_vendor_specific["qnap_storage"][oid_type]
+                    try:
+                        async for (errorIndication, errorStatus, errorIndex, varBinds) in next_cmd(
+                            dispatcher,
+                            CommunityData(community, mpModel=1 if version == "2c" else 0),
+                            transport,
+                            ObjectType(ObjectIdentity(oid)),
+                            lexicographicMode=False
+                        ):
+                            if errorIndication or errorStatus:
+                                break
+                            for varBind in varBinds:
+                                oid_str = str(varBind[0])
+                                value = str(varBind[1])
+                                if value and "No Such" not in value:
+                                    index = oid_str.split('.')[-1]
+                                    if oid_type == "volume_status":
+                                        volume_statuses[index] = value
+                                    elif oid_type == "volume_total":
+                                        try:
+                                            volume_totals[index] = int(value) / (1024 * 1024 * 1024)  # Converti bytes to GB
+                                        except:
+                                            pass
+                                    elif oid_type == "volume_used":
+                                        try:
+                                            volume_useds[index] = int(value) / (1024 * 1024 * 1024)
+                                        except:
+                                            pass
+                                    elif oid_type == "volume_free":
+                                        try:
+                                            volume_frees[index] = int(value) / (1024 * 1024 * 1024)
+                                        except:
+                                            pass
+                    except Exception as e:
+                        logger.debug(f"SNMP probe: QNAP {oid_type} walk failed: {e}")
+                
+                # Build volumes list
+                for index in volume_names.keys():
+                    total_gb = volume_totals.get(index, 0)
+                    used_gb = volume_useds.get(index, 0)
+                    free_gb = volume_frees.get(index, 0)
+                    usage_percent = (used_gb / total_gb * 100) if total_gb > 0 else 0
+                    
+                    volumes.append({
+                        "name": volume_names.get(index, f"volume{index}"),
+                        "mount_point": f"/share/{volume_names.get(index, f'volume{index}')}",
+                        "total_gb": round(total_gb, 2),
+                        "used_gb": round(used_gb, 2),
+                        "free_gb": round(free_gb, 2),
+                        "filesystem": "ext4",
+                        "usage_percent": round(usage_percent, 1),
+                        "status": volume_statuses.get(index, "unknown")
+                    })
+                
+                if volumes:
+                    storage_info["volumes"] = volumes
+                
+                # Dischi QNAP
+                disks = []
+                disk_names = {}
+                disk_statuses = {}
+                disk_models = {}
+                disk_temperatures = {}
+                
+                # Walk disk table
+                try:
+                    async for (errorIndication, errorStatus, errorIndex, varBinds) in next_cmd(
+                        dispatcher,
+                        CommunityData(community, mpModel=1 if version == "2c" else 0),
+                        transport,
+                        ObjectType(ObjectIdentity(oids_vendor_specific["qnap_storage"]["disk_name"])),
+                        lexicographicMode=False
+                    ):
+                        if errorIndication or errorStatus:
+                            break
+                        for varBind in varBinds:
+                            oid_str = str(varBind[0])
+                            value = str(varBind[1])
+                            if value and "No Such" not in value:
+                                index = oid_str.split('.')[-1]
+                                disk_names[index] = value
+                except Exception as e:
+                    logger.debug(f"SNMP probe: QNAP disk name walk failed: {e}")
+                
+                # Walk disk status, model, temperature
+                for oid_type in ["disk_status", "disk_model", "disk_temperature"]:
+                    oid = oids_vendor_specific["qnap_storage"][oid_type]
+                    try:
+                        async for (errorIndication, errorStatus, errorIndex, varBinds) in next_cmd(
+                            dispatcher,
+                            CommunityData(community, mpModel=1 if version == "2c" else 0),
+                            transport,
+                            ObjectType(ObjectIdentity(oid)),
+                            lexicographicMode=False
+                        ):
+                            if errorIndication or errorStatus:
+                                break
+                            for varBind in varBinds:
+                                oid_str = str(varBind[0])
+                                value = str(varBind[1])
+                                if value and "No Such" not in value:
+                                    index = oid_str.split('.')[-1]
+                                    if oid_type == "disk_status":
+                                        disk_statuses[index] = value
+                                    elif oid_type == "disk_model":
+                                        disk_models[index] = value
+                                    elif oid_type == "disk_temperature":
+                                        try:
+                                            disk_temperatures[index] = int(value)
+                                        except:
+                                            pass
+                    except Exception as e:
+                        logger.debug(f"SNMP probe: QNAP {oid_type} walk failed: {e}")
+                
+                # Build disks list
+                for index in disk_names.keys():
+                    health = "good" if disk_statuses.get(index, "").lower() in ["normal", "healthy", "ready"] else "warning"
+                    disks.append({
+                        "name": disk_names.get(index, f"disk{index}"),
+                        "model": disk_models.get(index, ""),
+                        "health": health,
+                        "temperature": disk_temperatures.get(index)
+                    })
+                
+                if disks:
+                    storage_info["disks"] = disks
+                
+                # RAID QNAP
+                raid_names = {}
+                raid_statuses = {}
+                raid_levels = {}
+                
+                # Walk RAID table
+                try:
+                    async for (errorIndication, errorStatus, errorIndex, varBinds) in next_cmd(
+                        dispatcher,
+                        CommunityData(community, mpModel=1 if version == "2c" else 0),
+                        transport,
+                        ObjectType(ObjectIdentity(oids_vendor_specific["qnap_storage"]["raid_name"])),
+                        lexicographicMode=False
+                    ):
+                        if errorIndication or errorStatus:
+                            break
+                        for varBind in varBinds:
+                            oid_str = str(varBind[0])
+                            value = str(varBind[1])
+                            if value and "No Such" not in value:
+                                index = oid_str.split('.')[-1]
+                                raid_names[index] = value
+                    
+                    # Walk RAID status and level
+                    for oid_type in ["raid_status", "raid_level"]:
+                        oid = oids_vendor_specific["qnap_storage"][oid_type]
+                        async for (errorIndication, errorStatus, errorIndex, varBinds) in next_cmd(
+                            dispatcher,
+                            CommunityData(community, mpModel=1 if version == "2c" else 0),
+                            transport,
+                            ObjectType(ObjectIdentity(oid)),
+                            lexicographicMode=False
+                        ):
+                            if errorIndication or errorStatus:
+                                break
+                            for varBind in varBinds:
+                                oid_str = str(varBind[0])
+                                value = str(varBind[1])
+                                if value and "No Such" not in value:
+                                    index = oid_str.split('.')[-1]
+                                    if oid_type == "raid_status":
+                                        raid_statuses[index] = value
+                                    elif oid_type == "raid_level":
+                                        raid_levels[index] = value
+                except Exception as e:
+                    logger.debug(f"SNMP probe: QNAP RAID walk failed: {e}")
+                
+                # Build RAID info
+                if raid_names:
+                    raid_devices = list(raid_names.values())
+                    raid_status = raid_statuses.get(list(raid_names.keys())[0], "unknown")
+                    raid_level = raid_levels.get(list(raid_names.keys())[0], "unknown")
+                    degraded = "degraded" in raid_status.lower() or "error" in raid_status.lower()
+                    
+                    storage_info["raid"] = {
+                        "level": raid_level,
+                        "status": raid_status,
+                        "devices": raid_devices,
+                        "degraded": degraded
+                    }
+                
+                # Temperatura sistema
+                temp_info = {}
+                if info.get("cpu_temp"):
+                    try:
+                        temp_info["cpu"] = int(info["cpu_temp"])
+                    except:
+                        pass
+                if info.get("sys_temp"):
+                    try:
+                        temp_info["system"] = int(info["sys_temp"])
+                    except:
+                        pass
+                
+                if temp_info:
+                    storage_info["temperature"] = temp_info
+                
+                if storage_info:
+                    info["storage_info"] = storage_info
+                    logger.info(f"SNMP probe: Collected storage info for QNAP: {len(volumes)} volumes, {len(disks)} disks")
+            except Exception as e:
+                logger.warning(f"SNMP probe: Error collecting QNAP storage info: {e}", exc_info=True)
         
         # ==========================================
         # EXTRACT NORMALIZED FIELDS

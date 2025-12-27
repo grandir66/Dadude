@@ -4745,6 +4745,9 @@ async function viewInventoryDevice(deviceId) {
             }
         }
         
+        // Parse storage_info da custom_fields
+        const storageInfo = cf.storage_info || {};
+        
         // Determina se mostrare tab avanzate
         // Converti sempre in stringa per evitare errori con operatori 'in'
         let deviceType = '';
