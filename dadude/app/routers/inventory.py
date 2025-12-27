@@ -3467,6 +3467,14 @@ async def refresh_advanced_info(customer_id: str, device_id: str):
                                 setattr(existing_host, key, value)
                         existing_host.last_updated = datetime.now()
                         host_id = existing_host.id
+                        # Flush per salvare l'host anche se ci sono errori dopo
+                        try:
+                            session.flush()
+                            logger.info(f"Host info updated and flushed for device {device_id}")
+                        except Exception as host_error:
+                            logger.error(f"Error flushing host info: {host_error}", exc_info=True)
+                            session.rollback()
+                            raise
                     else:
                         # Crea nuovo
                         new_host = ProxmoxHost(
@@ -3477,6 +3485,7 @@ async def refresh_advanced_info(customer_id: str, device_id: str):
                         session.add(new_host)
                         session.flush()
                         host_id = new_host.id
+                        logger.info(f"Host info created and flushed for device {device_id}")
                     
                     # Raccogli VM
                     node_name = host_info.get("node_name")
@@ -3551,8 +3560,20 @@ async def refresh_advanced_info(customer_id: str, device_id: str):
                                 logger.info(f"Saved {len(vms)} Proxmox VMs for device {device_id}")
                             except Exception as flush_error:
                                 logger.error(f"Error flushing VMs to database: {flush_error}", exc_info=True)
-                                session.rollback()
-                                raise
+                                # Non fare rollback completo, solo delle VM aggiunte in questa transazione
+                                # L'host è già stato salvato con flush precedente
+                                try:
+                                    session.rollback()
+                                    # Ricarica l'host dopo rollback
+                                    existing_host = session.query(ProxmoxHost).filter(
+                                        ProxmoxHost.device_id == device_id
+                                    ).first()
+                                    if existing_host:
+                                        host_id = existing_host.id
+                                except:
+                                    pass
+                                # Non fare raise, continua con lo storage
+                                logger.warning(f"VM save failed, continuing with storage collection")
                         else:
                             logger.warning(f"No VMs collected for device {device_id}")
                         
