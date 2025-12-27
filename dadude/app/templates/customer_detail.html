@@ -4570,16 +4570,6 @@ async function viewInventoryDevice(deviceId) {
             alert('Dispositivo non trovato');
             return;
         }
-        
-        // Debug: verifica cosa viene recuperato dall'API
-        console.log('Device retrieved from API:', {
-            id: device.id,
-            name: device.name,
-            device_type: device.device_type,
-            custom_fields_type: typeof device.custom_fields,
-            custom_fields_is_null: device.custom_fields === null,
-            custom_fields_keys: device.custom_fields ? (typeof device.custom_fields === 'object' ? Object.keys(device.custom_fields) : 'string') : 'none'
-        });
 
         // Crea contenuto modal
         let detailsHtml = `
@@ -4749,17 +4739,6 @@ async function viewInventoryDevice(deviceId) {
                 cf = device.custom_fields;
             }
         }
-        
-        // Debug: verifica cosa viene parsato
-        console.log('Parsed custom_fields:', {
-            keys: Object.keys(cf),
-            running_services: cf.running_services ? `array with ${cf.running_services.length} items` : 'not present',
-            cron_jobs: cf.cron_jobs ? `array with ${cf.cron_jobs.length} items` : 'not present',
-            neighbors: cf.neighbors ? `array with ${cf.neighbors.length} items` : 'not present',
-            will_show_services: !!(cf.running_services && cf.running_services.length > 0),
-            will_show_cron: !!(cf.cron_jobs && cf.cron_jobs.length > 0),
-            will_show_neighbors: !!(cf.neighbors && cf.neighbors.length > 0)
-        });
         
         // Determina se mostrare tab avanzate
         // Converti sempre in stringa per evitare errori con operatori 'in'
