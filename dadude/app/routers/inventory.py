@@ -245,13 +245,11 @@ async def auto_detect_device(
         open_count = len([p for p in open_ports if p.get("open")])
         logger.info(f"Auto-detect: Found {open_count} open ports on {data.address}")
         
-        if not open_ports or open_count == 0:
-            result["error"] = "No open ports found"
-            return result
-        
-        # 2. Determina credenziali da provare
+        # 2. Determina credenziali da provare PRIMA di controllare le porte
+        # Se c'è una credenziale assegnata al device, proviamo comunque anche senza porte aperte
         credentials_list = []
         device_record = None
+        has_assigned_credential = False
         
         # 2a. Prima controlla se c'è una credenziale assegnata al device specifico
         if data.device_id and data.use_assigned_credential:
@@ -296,11 +294,19 @@ async def auto_detect_device(
                             "source": "device_assigned",
                         })
                         logger.info(f"Auto-detect: Using device-assigned credential '{cred.name}' ({cred.credential_type})")
+                        has_assigned_credential = True
             finally:
                 session.close()
         
-        # 2b. Poi aggiungi credenziali di default se richiesto
-        if data.use_default_credentials:
+        # Se non ci sono porte aperte E non c'è una credenziale assegnata, ritorna errore
+        if (not open_ports or open_count == 0) and not has_assigned_credential:
+            result["error"] = "No open ports found"
+            if not credentials_list:
+                result["error"] += " and no assigned credential"
+            return result
+        
+        # 2b. Poi aggiungi credenziali di default se richiesto (solo se ci sono porte aperte o se non abbiamo credenziali assegnate)
+        if data.use_default_credentials and (open_count > 0 or not has_assigned_credential):
             # Ottieni credenziali di default in base alle porte aperte
             creds = customer_service.get_credentials_for_auto_detect(
                 customer_id=customer_id,
