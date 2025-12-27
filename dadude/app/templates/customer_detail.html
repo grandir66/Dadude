@@ -5077,9 +5077,6 @@ async function viewInventoryDevice(deviceId) {
                             <button class="btn btn-outline-primary" onclick="loadDeviceNeighbors('${deviceId}')">
                                 <i class="bi bi-arrow-clockwise"></i> Aggiorna
                             </button>
-                            <button class="btn btn-outline-success" onclick="refreshAdvancedDeviceInfo('${deviceId}')">
-                                <i class="bi bi-download"></i> Refresh Info
-                            </button>
                         </div>
                     </div>
                     <ul class="nav nav-pills mb-3" id="neighborTabs" role="tablist">
@@ -5111,9 +5108,6 @@ async function viewInventoryDevice(deviceId) {
                 <div class="tab-pane fade" id="advanced-interfaces" role="tabpanel">
                     <div class="d-flex justify-content-between align-items-center mb-3">
                         <h6 class="text-muted mb-0">Interfacce Avanzate</h6>
-                        <button class="btn btn-outline-success btn-sm" onclick="refreshAdvancedDeviceInfo('${deviceId}')">
-                            <i class="bi bi-download"></i> Refresh Info
-                        </button>
                     </div>
                     <div id="advancedInterfacesContent" class="text-center py-4 text-muted">
                         <div class="spinner-border spinner-border-sm me-2"></div>
@@ -5125,9 +5119,6 @@ async function viewInventoryDevice(deviceId) {
                 <div class="tab-pane fade" id="proxmox" role="tabpanel">
                     <div class="d-flex justify-content-between align-items-center mb-3">
                         <h6 class="text-muted mb-0">Informazioni Proxmox</h6>
-                        <button class="btn btn-outline-success btn-sm" onclick="refreshAdvancedDeviceInfo('${deviceId}')">
-                            <i class="bi bi-download"></i> Refresh Info
-                        </button>
                     </div>
                     <div id="proxmoxContent" class="text-center py-4 text-muted">
                         <div class="spinner-border spinner-border-sm me-2"></div>
@@ -5482,7 +5473,7 @@ async function loadLLDPNeighbors(deviceId) {
             content.innerHTML = `
                 <div class="alert alert-info">
                     <i class="bi bi-info-circle"></i> Nessun neighbor LLDP trovato.
-                    <br><small>Esegui "Refresh Info" per raccogliere i dati dal dispositivo.</small>
+                    <br><small>I dati vengono raccolti automaticamente durante l'autodetect.</small>
                 </div>
             `;
         }
@@ -5619,7 +5610,7 @@ async function loadDeviceAdvancedInterfaces(deviceId) {
             content.innerHTML = `
                 <div class="alert alert-info">
                     <i class="bi bi-info-circle"></i> Nessuna interfaccia con dettagli avanzati trovata.
-                    <br><small>Esegui "Refresh Info" per raccogliere i dati dal dispositivo.</small>
+                    <br><small>I dati vengono raccolti automaticamente durante l'autodetect.</small>
                 </div>
             `;
         }
@@ -5747,7 +5738,7 @@ async function loadProxmoxInfo(deviceId) {
             proxmoxHtml += `
                 <div class="alert alert-info mb-3">
                     <i class="bi bi-info-circle"></i> Informazioni host Proxmox non disponibili.
-                    <br><small>Esegui "Refresh Info" per raccogliere i dati dal dispositivo.</small>
+                    <br><small>I dati vengono raccolti automaticamente durante l'autodetect.</small>
                 </div>
             `;
         }
@@ -5858,7 +5849,7 @@ async function loadProxmoxInfo(deviceId) {
             proxmoxHtml += `
                 <div class="alert alert-info mb-3">
                     <i class="bi bi-info-circle"></i> Nessuna VM trovata.
-                    <br><small>Esegui "Refresh Info" per raccogliere i dati dal dispositivo.</small>
+                    <br><small>I dati vengono raccolti automaticamente durante l'autodetect.</small>
                 </div>
             `;
         }
@@ -5912,7 +5903,7 @@ async function loadProxmoxInfo(deviceId) {
             proxmoxHtml += `
                 <div class="alert alert-info">
                     <i class="bi bi-info-circle"></i> Nessuno storage trovato.
-                    <br><small>Esegui "Refresh Info" per raccogliere i dati dal dispositivo.</small>
+                    <br><small>I dati vengono raccolti automaticamente durante l'autodetect.</small>
                 </div>
             `;
         }

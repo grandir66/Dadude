@@ -824,41 +824,61 @@ async def auto_detect_device(
                                     # Elimina vecchie VM
                                     session.query(ProxmoxVM).filter(ProxmoxVM.host_id == host_id).delete()
                                     
-                                    # Salva nuove VM
+                                    # Salva nuove VM con conversione safe_int/safe_float
+                                    def safe_int(value):
+                                        if value is None:
+                                            return None
+                                        try:
+                                            return int(value)
+                                        except (ValueError, TypeError):
+                                            return None
+                                    
+                                    def safe_float(value):
+                                        if value is None:
+                                            return None
+                                        try:
+                                            return float(value)
+                                        except (ValueError, TypeError):
+                                            return None
+                                    
                                     for vm_data in scan_result["proxmox_vms"]:
-                                        vm = ProxmoxVM(
-                                            id=uuid.uuid4().hex[:8],
-                                            host_id=host_id,
-                                            vm_id=vm_data.get("vm_id", vm_data.get("vmid", 0)),
-                                            vm_type=vm_data.get("type"),  # qemu, lxc
-                                            name=vm_data.get("name", ""),
-                                            status=vm_data.get("status"),
-                                            cpu_cores=vm_data.get("cpu_cores"),
-                                            cpu_sockets=vm_data.get("cpu_sockets"),
-                                            cpu_total=vm_data.get("cpu_total"),
-                                            memory_mb=vm_data.get("memory_mb", vm_data.get("memory_total_mb")),
-                                            disk_total_gb=vm_data.get("disk_total_gb"),
-                                            bios=vm_data.get("bios"),
-                                            machine=vm_data.get("machine"),
-                                            agent_installed=vm_data.get("agent_installed"),
-                                            network_interfaces=vm_data.get("network_interfaces"),
-                                            num_networks=vm_data.get("num_networks"),
-                                            networks=vm_data.get("networks"),
-                                            ip_addresses=vm_data.get("ip_addresses"),
-                                            num_disks=vm_data.get("num_disks"),
-                                            disks=vm_data.get("disks"),
-                                            disks_details=vm_data.get("disks_details"),
-                                            os_type=vm_data.get("os_type", vm_data.get("guest_os")),
-                                            template=vm_data.get("template", False),
-                                            uptime=vm_data.get("uptime"),
-                                            cpu_usage=vm_data.get("cpu_usage"),
-                                            mem_used=vm_data.get("mem_used"),
-                                            netin=vm_data.get("netin"),
-                                            netout=vm_data.get("netout"),
-                                            diskread=vm_data.get("diskread"),
-                                            diskwrite=vm_data.get("diskwrite"),
-                                        )
-                                        session.add(vm)
+                                        try:
+                                            vm = ProxmoxVM(
+                                                id=uuid.uuid4().hex[:8],
+                                                host_id=host_id,
+                                                vm_id=safe_int(vm_data.get("vm_id", vm_data.get("vmid", 0))),
+                                                vm_type=vm_data.get("type"),  # qemu, lxc
+                                                name=vm_data.get("name", ""),
+                                                status=vm_data.get("status"),
+                                                cpu_cores=safe_int(vm_data.get("cpu_cores")),
+                                                cpu_sockets=safe_int(vm_data.get("cpu_sockets")),
+                                                cpu_total=safe_int(vm_data.get("cpu_total")),
+                                                memory_mb=safe_int(vm_data.get("memory_mb", vm_data.get("memory_total_mb"))),
+                                                disk_total_gb=safe_float(vm_data.get("disk_total_gb")),
+                                                bios=vm_data.get("bios"),
+                                                machine=vm_data.get("machine"),
+                                                agent_installed=vm_data.get("agent_installed"),
+                                                network_interfaces=vm_data.get("network_interfaces"),
+                                                num_networks=safe_int(vm_data.get("num_networks")),
+                                                networks=vm_data.get("networks"),
+                                                ip_addresses=vm_data.get("ip_addresses"),
+                                                num_disks=safe_int(vm_data.get("num_disks")),
+                                                disks=vm_data.get("disks"),
+                                                disks_details=vm_data.get("disks_details"),
+                                                os_type=vm_data.get("os_type", vm_data.get("guest_os")),
+                                                template=vm_data.get("template", False),
+                                                uptime=safe_int(vm_data.get("uptime")),
+                                                cpu_usage=safe_float(vm_data.get("cpu_usage")),
+                                                mem_used=safe_int(vm_data.get("mem_used")),
+                                                netin=safe_int(vm_data.get("netin")),
+                                                netout=safe_int(vm_data.get("netout")),
+                                                diskread=safe_int(vm_data.get("diskread")),
+                                                diskwrite=safe_int(vm_data.get("diskwrite")),
+                                            )
+                                            session.add(vm)
+                                        except Exception as vm_error:
+                                            logger.error("Error saving VM %s: %s", vm_data.get('vm_id', 'unknown'), str(vm_error), exc_info=True)
+                                            continue
                                     logger.info(f"Auto-detect: Saved {len(scan_result['proxmox_vms'])} Proxmox VMs for device {data.device_id}")
                                 
                                 # Salva storage
@@ -1894,7 +1914,47 @@ async def update_inventory_device(device_id: str, updates: dict):
             logger.warning(f"Preserving existing credential_id {existing_credential_id} for device {device_id} (was about to be lost)")
             device.credential_id = existing_credential_id
         
+        # Verifica se credential_id è stato modificato
+        credential_changed = 'credential_id' in updates and updates['credential_id'] is not None and updates['credential_id'] != existing_credential_id
+        
         session.commit()
+        
+        # Se è stata assegnata/modificata una credenziale e il device ha un IP, esegui autodetect automatico in background
+        if credential_changed and device.primary_ip:
+            logger.info(f"Credential changed for device {device_id}, triggering auto-detect in background")
+            try:
+                import asyncio
+                from .inventory import AutoDetectRequest
+                
+                # Esegui autodetect in background (non bloccare la risposta)
+                async def run_autodetect():
+                    try:
+                        # Chiama direttamente la funzione nello stesso file
+                        await auto_detect_device(
+                            AutoDetectRequest(
+                                address=device.primary_ip,
+                                mac_address=device.primary_mac,
+                                device_id=device_id,
+                                use_assigned_credential=True,
+                                use_default_credentials=False,
+                                use_agent=True,
+                                save_results=True
+                            ),
+                            customer_id=device.customer_id
+                        )
+                        logger.info(f"Auto-detect completed for device {device_id} after credential change")
+                    except Exception as e:
+                        logger.error(f"Error in background auto-detect for device {device_id}: {e}", exc_info=True)
+                
+                # Avvia task in background
+                try:
+                    loop = asyncio.get_event_loop()
+                    loop.create_task(run_autodetect())
+                except RuntimeError:
+                    # Se non c'è event loop, creane uno nuovo
+                    asyncio.run(run_autodetect())
+            except Exception as auto_detect_error:
+                logger.warning(f"Failed to trigger auto-detect after credential change: {auto_detect_error}")
         
         return {
             "success": True,
