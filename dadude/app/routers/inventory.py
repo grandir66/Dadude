@@ -3628,11 +3628,19 @@ async def refresh_advanced_info(customer_id: str, device_id: str):
                 logger.error(f"Error collecting Proxmox info for device {device_id}: {e}", exc_info=True)
                 import traceback
                 logger.error(f"Traceback: {traceback.format_exc()}")
+                # Non fare rollback qui, potrebbe cancellare altri dati già salvati
+                # Il commit finale salverà tutto quello che è stato flushato
         
         if not is_network_device and not is_proxmox:
             logger.info(f"Device {device_id} (type={device_type}, vendor={vendor}) does not match network or Proxmox criteria, skipping advanced info collection")
         
-        session.commit()
+        try:
+            session.commit()
+            logger.info(f"Successfully committed all changes for device {device_id}")
+        except Exception as commit_error:
+            logger.error(f"Error committing changes for device {device_id}: {commit_error}", exc_info=True)
+            session.rollback()
+            raise
         
         return {
             "success": True,
