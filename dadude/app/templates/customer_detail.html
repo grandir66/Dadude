@@ -4835,6 +4835,31 @@ async function viewInventoryDevice(deviceId) {
             <div class="tab-content" id="deviceDetailTabContent">
                 <div class="tab-pane fade show active" id="general" role="tabpanel">
                     ${detailsHtml}
+                    ${cf.running_services && cf.running_services.length > 0 ? `
+                    <hr>
+                    <h6 class="text-muted mb-3"><i class="bi bi-gear-fill"></i> Servizi Attivi (${cf.running_services_count || cf.running_services.length})</h6>
+                    <div class="mb-2">
+                        ${cf.important_services ? '<strong>Servizi Importanti:</strong> ' + cf.important_services.map(s => '<span class="badge bg-primary me-1">' + s + '</span>').join('') : ''}
+                    </div>
+                    <details class="mb-2">
+                        <summary class="text-muted" style="cursor: pointer;">Mostra tutti i servizi (${cf.running_services.length})</summary>
+                        <div class="mt-2" style="max-height: 200px; overflow-y: auto;">
+                            ${cf.running_services.map(s => '<span class="badge bg-secondary me-1 mb-1">' + s + '</span>').join('')}
+                        </div>
+                    </details>
+                    ` : ''}
+                    ${cf.cron_jobs && cf.cron_jobs.length > 0 ? `
+                    <hr>
+                    <h6 class="text-muted mb-3"><i class="bi bi-clock-history"></i> Cron Jobs (${cf.cron_jobs_count || cf.cron_jobs.length})</h6>
+                    <div class="table-responsive" style="max-height: 200px; overflow-y: auto;">
+                        <table class="table table-sm table-striped">
+                            <thead><tr><th>Sorgente</th><th>Job</th></tr></thead>
+                            <tbody>
+                                ${cf.cron_jobs.map(cj => '<tr><td><small>' + cj.source + '</small></td><td><code style="font-size: 0.75em;">' + (cj.job || '-') + '</code></td></tr>').join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                    ` : ''}
                     ${cf.neighbors && cf.neighbors.length > 0 ? `
                     <hr>
                     <h6 class="text-muted mb-3"><i class="bi bi-diagram-3-fill"></i> Network Neighbors - LLDP/CDP/MNDP (${cf.neighbors_count || cf.neighbors.length})</h6>
@@ -5044,38 +5069,6 @@ async function viewInventoryDevice(deviceId) {
                 `;
             }
             
-            // Linux: Servizi attivi
-            if (cf.running_services && cf.running_services.length > 0) {
-                detailsHtml += `
-                    <hr>
-                    <h6 class="text-muted mb-3"><i class="bi bi-gear-fill"></i> Servizi Attivi (${cf.running_services_count || cf.running_services.length})</h6>
-                    <div class="mb-2">
-                        ${cf.important_services ? '<strong>Servizi Importanti:</strong> ' + cf.important_services.map(s => '<span class="badge bg-primary me-1">' + s + '</span>').join('') : ''}
-                    </div>
-                    <details class="mb-2">
-                        <summary class="text-muted" style="cursor: pointer;">Mostra tutti i servizi (${cf.running_services.length})</summary>
-                        <div class="mt-2" style="max-height: 200px; overflow-y: auto;">
-                            ${cf.running_services.map(s => '<span class="badge bg-secondary me-1 mb-1">' + s + '</span>').join('')}
-                        </div>
-                    </details>
-                `;
-            }
-            
-            // Linux: Cron Jobs
-            if (cf.cron_jobs && cf.cron_jobs.length > 0) {
-                detailsHtml += `
-                    <hr>
-                    <h6 class="text-muted mb-3"><i class="bi bi-clock-history"></i> Cron Jobs (${cf.cron_jobs_count || cf.cron_jobs.length})</h6>
-                    <div class="table-responsive" style="max-height: 200px; overflow-y: auto;">
-                        <table class="table table-sm table-striped">
-                            <thead><tr><th>Sorgente</th><th>Job</th></tr></thead>
-                            <tbody>
-                                ${cf.cron_jobs.map(cj => '<tr><td><small>' + cj.source + '</small></td><td><code style="font-size: 0.75em;">' + (cj.job || '-') + '</code></td></tr>').join('')}
-                            </tbody>
-                        </table>
-                    </div>
-                `;
-            }
             
             // Linux: Network / IP Addresses
             if (cf.ip_addresses && cf.ip_addresses.length > 0) {
