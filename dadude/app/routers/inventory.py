@@ -814,6 +814,7 @@ async def auto_detect_device(
                             from ..models.inventory import WindowsDetails
                             # I dati WMI sono mergeati direttamente in scan_result
                             extra_info = scan_result
+                            logger.info(f"Saving WindowsDetails for device {data.device_id}, scan_result keys: {list(scan_result.keys())[:20]}")
                             
                             # Estrai dati Windows da extra_info o da scan_result direttamente
                             windows_data = {}
@@ -957,6 +958,7 @@ async def auto_detect_device(
                             from ..models.inventory import MikroTikDetails
                             # I dati MikroTik sono mergeati direttamente in scan_result
                             extra_info = scan_result
+                            logger.info(f"Saving MikroTikDetails for device {data.device_id}, identified_by={scan_result.get('identified_by')}, scan_result keys: {list(scan_result.keys())[:20]}")
                             
                             mikrotik_data = {}
                             
