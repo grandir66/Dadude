@@ -843,41 +843,43 @@ async def auto_detect_device(
                                     
                                     for vm_data in scan_result["proxmox_vms"]:
                                         try:
+                                            # Rimuovi 'vmid' se presente per evitare errori
+                                            vm_data_clean = {k: v for k, v in vm_data.items() if k != 'vmid'}
                                             vm = ProxmoxVM(
                                                 id=uuid.uuid4().hex[:8],
                                                 host_id=host_id,
-                                                vm_id=safe_int(vm_data.get("vm_id", vm_data.get("vmid", 0))),
-                                                vm_type=vm_data.get("type"),  # qemu, lxc
-                                                name=vm_data.get("name", ""),
-                                                status=vm_data.get("status"),
-                                                cpu_cores=safe_int(vm_data.get("cpu_cores")),
-                                                cpu_sockets=safe_int(vm_data.get("cpu_sockets")),
-                                                cpu_total=safe_int(vm_data.get("cpu_total")),
-                                                memory_mb=safe_int(vm_data.get("memory_mb", vm_data.get("memory_total_mb"))),
-                                                disk_total_gb=safe_float(vm_data.get("disk_total_gb")),
-                                                bios=vm_data.get("bios"),
-                                                machine=vm_data.get("machine"),
-                                                agent_installed=vm_data.get("agent_installed"),
-                                                network_interfaces=vm_data.get("network_interfaces"),
-                                                num_networks=safe_int(vm_data.get("num_networks")),
-                                                networks=vm_data.get("networks"),
-                                                ip_addresses=vm_data.get("ip_addresses"),
-                                                num_disks=safe_int(vm_data.get("num_disks")),
-                                                disks=vm_data.get("disks"),
-                                                disks_details=vm_data.get("disks_details"),
-                                                os_type=vm_data.get("os_type", vm_data.get("guest_os")),
-                                                template=vm_data.get("template", False),
-                                                uptime=safe_int(vm_data.get("uptime")),
-                                                cpu_usage=safe_float(vm_data.get("cpu_usage")),
-                                                mem_used=safe_int(vm_data.get("mem_used")),
-                                                netin=safe_int(vm_data.get("netin")),
-                                                netout=safe_int(vm_data.get("netout")),
-                                                diskread=safe_int(vm_data.get("diskread")),
-                                                diskwrite=safe_int(vm_data.get("diskwrite")),
+                                                vm_id=safe_int(vm_data_clean.get("vm_id", vm_data.get("vmid", 0))),
+                                                vm_type=vm_data_clean.get("type"),  # qemu, lxc
+                                                name=vm_data_clean.get("name", ""),
+                                                status=vm_data_clean.get("status"),
+                                                cpu_cores=safe_int(vm_data_clean.get("cpu_cores")),
+                                                cpu_sockets=safe_int(vm_data_clean.get("cpu_sockets")),
+                                                cpu_total=safe_int(vm_data_clean.get("cpu_total")),
+                                                memory_mb=safe_int(vm_data_clean.get("memory_mb", vm_data_clean.get("memory_total_mb"))),
+                                                disk_total_gb=safe_float(vm_data_clean.get("disk_total_gb")),
+                                                bios=vm_data_clean.get("bios"),
+                                                machine=vm_data_clean.get("machine"),
+                                                agent_installed=vm_data_clean.get("agent_installed"),
+                                                network_interfaces=vm_data_clean.get("network_interfaces"),
+                                                num_networks=safe_int(vm_data_clean.get("num_networks")),
+                                                networks=vm_data_clean.get("networks"),
+                                                ip_addresses=vm_data_clean.get("ip_addresses"),
+                                                num_disks=safe_int(vm_data_clean.get("num_disks")),
+                                                disks=vm_data_clean.get("disks"),
+                                                disks_details=vm_data_clean.get("disks_details"),
+                                                os_type=vm_data_clean.get("os_type", vm_data_clean.get("guest_os")),
+                                                template=vm_data_clean.get("template", False),
+                                                uptime=safe_int(vm_data_clean.get("uptime")),
+                                                cpu_usage=safe_float(vm_data_clean.get("cpu_usage")),
+                                                mem_used=safe_int(vm_data_clean.get("mem_used")),
+                                                netin=safe_int(vm_data_clean.get("netin")),
+                                                netout=safe_int(vm_data_clean.get("netout")),
+                                                diskread=safe_int(vm_data_clean.get("diskread")),
+                                                diskwrite=safe_int(vm_data_clean.get("diskwrite")),
                                             )
                                             session.add(vm)
                                         except Exception as vm_error:
-                                            logger.error("Error saving VM %s: %s", vm_data.get('vm_id', 'unknown'), str(vm_error), exc_info=True)
+                                            logger.error("Error saving VM %s: %s", vm_data_clean.get('vm_id', 'unknown'), str(vm_error), exc_info=True)
                                             continue
                                     
                                     try:
