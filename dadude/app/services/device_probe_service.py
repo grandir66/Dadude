@@ -1791,9 +1791,27 @@ class DeviceProbeService:
             # Virtualization / Hypervisors
             8006: "proxmox-ve",     # Proxmox VE Web UI
             8007: "proxmox-backup", # Proxmox Backup Server
+            902: "vmware-soap",     # VMware ESXi SOAP API
+            903: "vmware-vnc",      # VMware VNC
+            2179: "hyper-v",        # Hyper-V
+            2375: "docker",         # Docker daemon (non sicuro)
+            2376: "docker-tls",     # Docker daemon TLS
+            6443: "kubernetes-api", # Kubernetes API
+            10250: "kubelet",        # Kubelet API
 
             # DNS
             53: "dns",         # DNS (server DNS dedicati, AD, appliance)
+
+            # Remote Desktop / Citrix
+            1494: "citrix-ica",     # Citrix ICA
+            2598: "citrix-ica-alt", # Citrix ICA alternate
+            3390: "rdp-alt",        # RDP alternate
+            2222: "ssh-alt",        # SSH alternate
+
+            # Web Services (altri)
+            8888: "http-alt",       # HTTP alternate (common)
+            9000: "sonarqube",     # SonarQube / other web apps
+            9090: "prometheus",     # Prometheus / other web apps
 
             # Other Services
             123: "ntp",

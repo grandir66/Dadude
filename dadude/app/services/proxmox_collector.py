@@ -168,22 +168,26 @@ class ProxmoxCollector:
         
         for cred in credentials:
             # Prova API
+            api_success = False
             try:
                 vms = await self._collect_vms_api(device_address, node_name, cred)
                 if vms:
+                    api_success = True
                     break
             except Exception as e:
-                logger.debug(f"Proxmox API VM collection failed: {e}")
-                continue
+                logger.warning(f"Proxmox API VM collection failed for {device_address}: {e}")
+                # Continua a provare SSH anche se API fallisce
             
-            # Fallback a SSH
-            try:
-                vms = await self._collect_vms_ssh(device_address, node_name, cred)
-                if vms:
-                    break
-            except Exception as e:
-                logger.debug(f"Proxmox SSH VM collection failed: {e}")
-                continue
+            # Fallback a SSH se API non ha funzionato
+            if not api_success:
+                try:
+                    logger.info(f"Trying SSH fallback for VM collection on {device_address}")
+                    vms = await self._collect_vms_ssh(device_address, node_name, cred)
+                    if vms:
+                        break
+                except Exception as e:
+                    logger.warning(f"Proxmox SSH VM collection failed for {device_address}: {e}")
+                    continue
         
         logger.info(f"Proxmox VMs collected for {device_address}: {len(vms)} found")
         return vms
@@ -208,13 +212,27 @@ class ProxmoxCollector:
         storage_list = []
         
         for cred in credentials:
+            # Prova API
+            api_success = False
             try:
                 storage_list = await self._collect_storage_api(device_address, node_name, cred)
                 if storage_list:
+                    api_success = True
                     break
             except Exception as e:
-                logger.debug(f"Proxmox storage collection failed: {e}")
-                continue
+                logger.warning(f"Proxmox API storage collection failed for {device_address}: {e}")
+                # Continua a provare SSH anche se API fallisce
+            
+            # Fallback a SSH se API non ha funzionato
+            if not api_success:
+                try:
+                    logger.info(f"Trying SSH fallback for storage collection on {device_address}")
+                    storage_list = await self._collect_storage_ssh(device_address, node_name, cred)
+                    if storage_list:
+                        break
+                except Exception as e:
+                    logger.warning(f"Proxmox SSH storage collection failed for {device_address}: {e}")
+                    continue
         
         logger.info(f"Proxmox storage collected for {device_address}: {len(storage_list)} found")
         return storage_list
@@ -473,7 +491,7 @@ class ProxmoxCollector:
             cookie_jar = CookieJar()
             opener = urllib.request.build_opener(
                 urllib.request.HTTPCookieProcessor(cookie_jar),
-                urllib.request.HTTPHandler()
+                urllib.request.HTTPSHandler(context=ssl_context)
             )
             
             request = urllib.request.Request(auth_url, data=data, method='POST')
@@ -490,7 +508,7 @@ class ProxmoxCollector:
                 resp = opener.open(req, timeout=10)
                 return json.loads(resp.read().decode('utf-8'))['data']
             
-            # Ottieni VM
+            # Ottieni VM QEMU
             node_vms = api_get(f'nodes/{node_name}/qemu')
             vms = []
             
@@ -502,6 +520,7 @@ class ProxmoxCollector:
                     'vm_id': vmid,
                     'name': vm.get('name', f'VM-{vmid}'),
                     'status': status,
+                    'type': 'qemu',
                     'cpu_cores': vm.get('maxcpu', 0),
                     'memory_mb': int(vm.get('maxmem', 0) / (1024 * 1024)) if vm.get('maxmem') else 0,
                     'disk_total_gb': bytes_to_gib(vm.get('maxdisk', 0)),
@@ -527,6 +546,46 @@ class ProxmoxCollector:
                     pass
                 
                 vms.append(vm_data)
+            
+            # Ottieni container LXC
+            try:
+                node_lxcs = api_get(f'nodes/{node_name}/lxc')
+                for lxc in node_lxcs:
+                    vmid = lxc.get('vmid', 0)
+                    status = lxc.get('status', 'unknown')
+                    
+                    lxc_data = {
+                        'vm_id': vmid,
+                        'name': lxc.get('name', f'LXC-{vmid}'),
+                        'status': status,
+                        'type': 'lxc',
+                        'cpu_cores': lxc.get('maxcpu', 0),
+                        'memory_mb': int(lxc.get('maxmem', 0) / (1024 * 1024)) if lxc.get('maxmem') else 0,
+                        'disk_total_gb': bytes_to_gib(lxc.get('maxdisk', 0)),
+                        'template': lxc.get('template', False),
+                    }
+                    
+                    # Configurazione LXC
+                    try:
+                        config = api_get(f'nodes/{node_name}/lxc/{vmid}/config')
+                        if config:
+                            lxc_data['cpu_cores'] = int(config.get('cores', 1))
+                            lxc_data['os_type'] = config.get('ostype', '')
+                            
+                            # Network interfaces
+                            networks = []
+                            for key in config:
+                                if key.startswith('net'):
+                                    net_info = config[key]
+                                    if isinstance(net_info, str):
+                                        networks.append(net_info)
+                            lxc_data['network_interfaces'] = networks
+                    except:
+                        pass
+                    
+                    vms.append(lxc_data)
+            except Exception as e:
+                logger.debug(f"Failed to collect LXC containers: {e}")
             
             return vms
             
@@ -562,9 +621,77 @@ class ProxmoxCollector:
         credentials: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
         """Implementazione sincrona per raccolta storage"""
-        # Implementazione simile a _get_host_info_api_sync
-        # Per brevità, restituiamo lista vuota e implementiamo dopo
-        return []
+        try:
+            port = credentials.get("proxmox_port", 8006)
+            username = credentials.get("username", "root@pam")
+            password = credentials.get("password", "")
+            
+            base_url = f"https://{address}:{port}/api2/json"
+            ssl_context = ssl._create_unverified_context()
+            auth_url = f"{base_url}/access/ticket"
+            
+            data = urllib.parse.urlencode({
+                'username': username,
+                'password': password
+            }).encode('utf-8')
+            
+            cookie_jar = CookieJar()
+            opener = urllib.request.build_opener(
+                urllib.request.HTTPCookieProcessor(cookie_jar),
+                urllib.request.HTTPSHandler(context=ssl_context)
+            )
+            
+            request = urllib.request.Request(auth_url, data=data, method='POST')
+            response = opener.open(request, timeout=10)
+            result = json.loads(response.read().decode('utf-8'))['data']
+            ticket = result['ticket']
+            csrf_token = result['CSRFPreventionToken']
+            
+            def api_get(endpoint):
+                url = f"{base_url}/{endpoint}"
+                req = urllib.request.Request(url)
+                req.add_header('Cookie', f'PVEAuthCookie={ticket}')
+                req.add_header('CSRFPreventionToken', csrf_token)
+                resp = opener.open(req, timeout=10)
+                return json.loads(resp.read().decode('utf-8'))['data']
+            
+            # Ottieni lista storage
+            storage_list = api_get(f'nodes/{node_name}/storage')
+            storage_info_list = []
+            
+            for storage in storage_list:
+                storage_info = {
+                    'storage': storage.get('storage'),
+                    'type': storage.get('type'),
+                    'content': storage.get('content', []),
+                    'enabled': storage.get('enabled', 1),
+                    'shared': storage.get('shared', 0),
+                }
+                
+                # Ottieni dettagli storage
+                try:
+                    storage_status = api_get(f'nodes/{node_name}/storage/{storage_info["storage"]}/status')
+                    if storage_status:
+                        storage_info['total'] = storage_status.get('total')
+                        storage_info['used'] = storage_status.get('used')
+                        storage_info['available'] = storage_status.get('avail')
+                        storage_info['total_gb'] = bytes_to_gib(storage_status.get('total'))
+                        storage_info['used_gb'] = bytes_to_gib(storage_status.get('used'))
+                        storage_info['available_gb'] = bytes_to_gib(storage_status.get('avail'))
+                        if storage_info['total'] and storage_info['used']:
+                            storage_info['usage_percent'] = safe_round(
+                                (storage_info['used'] / storage_info['total']) * 100, 2
+                            )
+                except Exception as e:
+                    logger.debug(f"Failed to get storage status for {storage_info['storage']}: {e}")
+                
+                storage_info_list.append(storage_info)
+            
+            return storage_info_list
+            
+        except Exception as e:
+            logger.error(f"Error in storage API sync collection: {e}")
+            return []
     
     async def _collect_backups_api(
         self,
@@ -732,11 +859,68 @@ class ProxmoxCollector:
             proxmox_version = version_data.get('version', '')
             manager_version = version_data.get('release', '')
             
+            # Ottieni info cluster
+            cluster_name = None
+            try:
+                cluster_cmd = f'pvesh get /cluster/config --output-format json'
+                cluster_json = exec_cmd(cluster_cmd)
+                if cluster_json:
+                    cluster_data = json.loads(cluster_json)
+                    cluster_name = cluster_data.get('cluster', {}).get('name') if isinstance(cluster_data.get('cluster'), dict) else None
+            except:
+                pass
+            
+            # Ottieni subscription/license info
+            license_status = None
+            license_message = None
+            license_level = None
+            subscription_type = None
+            try:
+                sub_cmd = f'pvesh get /nodes/{hostname}/subscription --output-format json'
+                sub_json = exec_cmd(sub_cmd)
+                if sub_json:
+                    sub_data = json.loads(sub_json)
+                    license_status = sub_data.get('status')
+                    license_message = sub_data.get('message')
+                    license_level = sub_data.get('level')
+                    subscription_type = sub_data.get('type')
+            except:
+                pass
+            
+            # Ottieni network interfaces dettagliate
+            network_interfaces = []
+            try:
+                network_cmd = f'pvesh get /nodes/{hostname}/network --output-format json'
+                network_json = exec_cmd(network_cmd)
+                if network_json:
+                    network_data = json.loads(network_json)
+                    if isinstance(network_data, list):
+                        network_interfaces = network_data
+            except:
+                pass
+            
+            # Ottieni lista storage (solo base, dettagli vengono raccolti separatamente)
+            storage_list = []
+            try:
+                storage_cmd = f'pvesh get /nodes/{hostname}/storage --output-format json'
+                storage_json = exec_cmd(storage_cmd)
+                if storage_json:
+                    storage_data = json.loads(storage_json)
+                    if isinstance(storage_data, list):
+                        for storage in storage_data:
+                            storage_list.append({
+                                'storage': storage.get('storage'),
+                                'type': storage.get('type'),
+                                'content': storage.get('content', []),
+                            })
+            except:
+                pass
+            
             client.close()
             
             host_info = {
                 'node_name': hostname,
-                'cluster_name': None,  # Da ottenere separatamente se necessario
+                'cluster_name': cluster_name,
                 'proxmox_version': proxmox_version,
                 'kernel_version': kernel_version,
                 'cpu_model': cpu_model,
@@ -754,6 +938,12 @@ class ProxmoxCollector:
                 'load_average_5m': load_5m,
                 'load_average_15m': load_15m,
                 'cpu_usage_percent': cpu_usage,
+                'license_status': license_status,
+                'license_message': license_message,
+                'license_level': license_level,
+                'subscription_type': subscription_type,
+                'network_interfaces': network_interfaces,
+                'storage_list': storage_list,
             }
             
             logger.info(f"Successfully collected Proxmox host info via SSH for {address}: node={hostname}")
@@ -769,9 +959,274 @@ class ProxmoxCollector:
         node_name: str,
         credentials: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
-        """Raccoglie VM via SSH"""
-        # Implementazione semplificata
-        return []
+        """Raccoglie VM e container via SSH usando pvesh"""
+        import paramiko
+        
+        username = credentials.get('username')
+        password = credentials.get('password')
+        ssh_port = credentials.get('ssh_port', 22)
+        ssh_key = credentials.get('ssh_private_key')
+        
+        if not username or not password:
+            logger.warning(f"SSH credentials incomplete for {address}: missing username or password")
+            return []
+        
+        try:
+            # Connetti via SSH
+            client = paramiko.SSHClient()
+            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            
+            # Usa chiave privata se disponibile
+            pkey = None
+            if ssh_key:
+                try:
+                    from io import StringIO
+                    pkey = paramiko.RSAKey.from_private_key(StringIO(ssh_key))
+                except Exception as e:
+                    logger.debug(f"Failed to load SSH key, using password: {e}")
+            
+            logger.info(f"Connecting to Proxmox {address}:{ssh_port} via SSH for VM collection (user: {username})")
+            client.connect(
+                address,
+                port=ssh_port,
+                username=username,
+                password=password,
+                pkey=pkey,
+                timeout=30
+            )
+            
+            def exec_cmd(cmd: str) -> Optional[str]:
+                """Esegue comando SSH"""
+                try:
+                    stdin, stdout, stderr = client.exec_command(cmd, timeout=30)
+                    exit_status = stdout.channel.recv_exit_status()
+                    if exit_status == 0:
+                        return stdout.read().decode('utf-8').strip()
+                    else:
+                        error = stderr.read().decode('utf-8').strip()
+                        logger.debug(f"Command failed: {cmd[:50]}... (exit: {exit_status}, error: {error})")
+                        return None
+                except Exception as e:
+                    logger.debug(f"Error executing command {cmd[:50]}...: {e}")
+                    return None
+            
+            vms = []
+            
+            # Raccogli VM QEMU
+            qemu_cmd = f'pvesh get /nodes/{node_name}/qemu --output-format json'
+            qemu_json = exec_cmd(qemu_cmd)
+            
+            if qemu_json:
+                try:
+                    import json
+                    qemu_list = json.loads(qemu_json)
+                    for vm in qemu_list:
+                        vmid = vm.get('vmid', 0)
+                        status = vm.get('status', 'unknown')
+                        
+                        vm_data = {
+                            'vm_id': vmid,
+                            'name': vm.get('name', f'VM-{vmid}'),
+                            'status': status,
+                            'type': 'qemu',
+                            'cpu_cores': vm.get('maxcpu', 0),
+                            'memory_mb': int(vm.get('maxmem', 0) / (1024 * 1024)) if vm.get('maxmem') else 0,
+                            'disk_total_gb': bytes_to_gib(vm.get('maxdisk', 0)),
+                            'template': vm.get('template', False),
+                        }
+                        
+                        # Ottieni configurazione VM
+                        config_cmd = f'pvesh get /nodes/{node_name}/qemu/{vmid}/config --output-format json'
+                        config_json = exec_cmd(config_cmd)
+                        if config_json:
+                            try:
+                                config = json.loads(config_json)
+                                vm_data['cpu_cores'] = int(config.get('cores', vm_data['cpu_cores']))
+                                vm_data['os_type'] = config.get('ostype', '')
+                                
+                                # Network interfaces
+                                networks = []
+                                for key in config:
+                                    if key.startswith('net'):
+                                        net_info = config[key]
+                                        if isinstance(net_info, str):
+                                            networks.append(net_info)
+                                vm_data['network_interfaces'] = networks
+                            except Exception as e:
+                                logger.debug(f"Failed to parse VM config for {vmid}: {e}")
+                        
+                        vms.append(vm_data)
+                except Exception as e:
+                    logger.warning(f"Failed to parse QEMU VM list: {e}")
+            
+            # Raccogli container LXC
+            lxc_cmd = f'pvesh get /nodes/{node_name}/lxc --output-format json'
+            lxc_json = exec_cmd(lxc_cmd)
+            
+            if lxc_json:
+                try:
+                    import json
+                    lxc_list = json.loads(lxc_json)
+                    for lxc in lxc_list:
+                        vmid = lxc.get('vmid', 0)
+                        status = lxc.get('status', 'unknown')
+                        
+                        lxc_data = {
+                            'vm_id': vmid,
+                            'name': lxc.get('name', f'LXC-{vmid}'),
+                            'status': status,
+                            'type': 'lxc',
+                            'cpu_cores': lxc.get('maxcpu', 0),
+                            'memory_mb': int(lxc.get('maxmem', 0) / (1024 * 1024)) if lxc.get('maxmem') else 0,
+                            'disk_total_gb': bytes_to_gib(lxc.get('maxdisk', 0)),
+                            'template': lxc.get('template', False),
+                        }
+                        
+                        # Ottieni configurazione LXC
+                        config_cmd = f'pvesh get /nodes/{node_name}/lxc/{vmid}/config --output-format json'
+                        config_json = exec_cmd(config_cmd)
+                        if config_json:
+                            try:
+                                config = json.loads(config_json)
+                                lxc_data['cpu_cores'] = int(config.get('cores', lxc_data['cpu_cores']))
+                                lxc_data['os_type'] = config.get('ostype', '')
+                                
+                                # Network interfaces
+                                networks = []
+                                for key in config:
+                                    if key.startswith('net'):
+                                        net_info = config[key]
+                                        if isinstance(net_info, str):
+                                            networks.append(net_info)
+                                lxc_data['network_interfaces'] = networks
+                            except Exception as e:
+                                logger.debug(f"Failed to parse LXC config for {vmid}: {e}")
+                        
+                        vms.append(lxc_data)
+                except Exception as e:
+                    logger.warning(f"Failed to parse LXC container list: {e}")
+            
+            client.close()
+            logger.info(f"Successfully collected {len(vms)} VMs/containers via SSH for {address}")
+            return vms
+            
+        except Exception as e:
+            logger.error(f"Error collecting VMs via SSH for {address}: {e}", exc_info=True)
+            return []
+    
+    async def _collect_storage_ssh(
+        self,
+        address: str,
+        node_name: str,
+        credentials: Dict[str, Any]
+    ) -> List[Dict[str, Any]]:
+        """Raccoglie storage via SSH usando pvesh"""
+        import paramiko
+        
+        username = credentials.get('username')
+        password = credentials.get('password')
+        ssh_port = credentials.get('ssh_port', 22)
+        ssh_key = credentials.get('ssh_private_key')
+        
+        if not username or not password:
+            logger.warning(f"SSH credentials incomplete for {address}: missing username or password")
+            return []
+        
+        try:
+            # Connetti via SSH
+            client = paramiko.SSHClient()
+            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            
+            # Usa chiave privata se disponibile
+            pkey = None
+            if ssh_key:
+                try:
+                    from io import StringIO
+                    pkey = paramiko.RSAKey.from_private_key(StringIO(ssh_key))
+                except Exception as e:
+                    logger.debug(f"Failed to load SSH key, using password: {e}")
+            
+            logger.info(f"Connecting to Proxmox {address}:{ssh_port} via SSH for storage collection (user: {username})")
+            client.connect(
+                address,
+                port=ssh_port,
+                username=username,
+                password=password,
+                pkey=pkey,
+                timeout=30
+            )
+            
+            def exec_cmd(cmd: str) -> Optional[str]:
+                """Esegue comando SSH"""
+                try:
+                    stdin, stdout, stderr = client.exec_command(cmd, timeout=30)
+                    exit_status = stdout.channel.recv_exit_status()
+                    if exit_status == 0:
+                        return stdout.read().decode('utf-8').strip()
+                    else:
+                        error = stderr.read().decode('utf-8').strip()
+                        logger.debug(f"Command failed: {cmd[:50]}... (exit: {exit_status}, error: {error})")
+                        return None
+                except Exception as e:
+                    logger.debug(f"Error executing command {cmd[:50]}...: {e}")
+                    return None
+            
+            storage_list = []
+            
+            # Raccogli lista storage
+            storage_cmd = f'pvesh get /nodes/{node_name}/storage --output-format json'
+            storage_json = exec_cmd(storage_cmd)
+            
+            if not storage_json:
+                logger.warning(f"Failed to get storage list via pvesh for {address}")
+                client.close()
+                return []
+            
+            import json
+            storage_data_list = json.loads(storage_json)
+            
+            for storage in storage_data_list:
+                storage_name = storage.get('storage')
+                if not storage_name:
+                    continue
+                
+                storage_info = {
+                    'storage': storage_name,
+                    'type': storage.get('type'),
+                    'content': storage.get('content', []),
+                    'enabled': storage.get('enabled', 1),
+                    'shared': storage.get('shared', 0),
+                }
+                
+                # Ottieni dettagli storage status
+                status_cmd = f'pvesh get /nodes/{node_name}/storage/{storage_name}/status --output-format json'
+                status_json = exec_cmd(status_cmd)
+                
+                if status_json:
+                    try:
+                        status_data = json.loads(status_json)
+                        storage_info['total'] = status_data.get('total')
+                        storage_info['used'] = status_data.get('used')
+                        storage_info['available'] = status_data.get('avail')
+                        storage_info['total_gb'] = bytes_to_gib(status_data.get('total'))
+                        storage_info['used_gb'] = bytes_to_gib(status_data.get('used'))
+                        storage_info['available_gb'] = bytes_to_gib(status_data.get('avail'))
+                        if storage_info['total'] and storage_info['used']:
+                            storage_info['usage_percent'] = safe_round(
+                                (storage_info['used'] / storage_info['total']) * 100, 2
+                            )
+                    except Exception as e:
+                        logger.debug(f"Failed to parse storage status for {storage_name}: {e}")
+                
+                storage_list.append(storage_info)
+            
+            client.close()
+            logger.info(f"Successfully collected {len(storage_list)} storage entries via SSH for {address}")
+            return storage_list
+            
+        except Exception as e:
+            logger.error(f"Error collecting storage via SSH for {address}: {e}", exc_info=True)
+            return []
 
 
 # Singleton instance

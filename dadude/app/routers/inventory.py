@@ -234,20 +234,17 @@ async def auto_detect_device(
                 }
                 logger.info(f"Auto-detect: Using agent {agent_info['name']} ({agent_info['agent_type']})")
         
-        # 1. Scansiona le porte
-        logger.info(f"Auto-detect: Scanning ports on {data.address}...")
+        # 1. Scansiona le porte - SEMPRE scan completo durante autodetect
+        logger.info(f"Auto-detect: Performing FULL port scan on {data.address}...")
         
-        if agent_info and agent_info.get("agent_type") == "docker":
-            # Usa agent Docker per port scan
-            port_result = await agent_service.scan_ports(agent_info, data.address)
-            open_ports = port_result.get("open_ports", [])
-        else:
-            # Scansione diretta (o via MikroTik per porte limitate)
-            open_ports = await probe_service.scan_services(data.address)
+        # Durante autodetect, sempre usa scan completo con tutte le porte comuni
+        # Non limitare a DEFAULT_PORTS anche se viene usato un agent
+        # Questo garantisce che tutte le porte importanti vengano scansionate
+        open_ports = await probe_service.scan_services(data.address)
         
         result["open_ports"] = open_ports
         open_count = len([p for p in open_ports if p.get("open")])
-        logger.info(f"Auto-detect: Found {open_count} open ports on {data.address}")
+        logger.info(f"Auto-detect: Found {open_count} open ports on {data.address} (full scan completed)")
         
         # 2. Determina credenziali da provare PRIMA di controllare le porte
         # Se c'è una credenziale assegnata al device, proviamo comunque anche senza porte aperte
@@ -726,9 +723,36 @@ async def auto_detect_device(
                     if result["credentials_tested"]:
                         device.credential_used = result["credentials_tested"][0].get("type")
                     
-                    # Porte aperte
+                    # Porte aperte - preserva quelle esistenti e aggiungi/aggiorna solo quelle nuove
                     if open_ports:
-                        device.open_ports = json.dumps(open_ports) if isinstance(open_ports, list) else open_ports
+                        # Carica porte esistenti se presenti
+                        existing_ports = []
+                        if device.open_ports:
+                            try:
+                                if isinstance(device.open_ports, str):
+                                    existing_ports = json.loads(device.open_ports)
+                                elif isinstance(device.open_ports, list):
+                                    existing_ports = device.open_ports
+                            except:
+                                existing_ports = []
+                        
+                        # Crea un dict per merge: porta -> info porta
+                        ports_dict = {}
+                        for port in existing_ports:
+                            port_num = port.get("port") if isinstance(port, dict) else port
+                            if port_num:
+                                ports_dict[port_num] = port if isinstance(port, dict) else {"port": port, "open": True}
+                        
+                        # Aggiungi/aggiorna con nuove porte
+                        for port in open_ports:
+                            port_num = port.get("port") if isinstance(port, dict) else port
+                            if port_num:
+                                ports_dict[port_num] = port if isinstance(port, dict) else {"port": port, "open": True}
+                        
+                        # Converti di nuovo in lista
+                        merged_ports = list(ports_dict.values())
+                        device.open_ports = json.dumps(merged_ports) if isinstance(merged_ports, list) else merged_ports
+                        logger.debug(f"Preserved {len(existing_ports)} existing ports, merged with {len(open_ports)} new ports, total: {len(merged_ports)}")
                     
                     # Salva dati extra nel campo custom_fields
                     extra_fields = {}
