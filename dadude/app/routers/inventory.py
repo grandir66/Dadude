@@ -1244,6 +1244,94 @@ async def auto_detect_device(
                         except Exception as e:
                             logger.error(f"Error saving MikroTikDetails: {e}", exc_info=True)
                     
+                    # Salva LLDP neighbors se raccolti durante auto-detect
+                    if scan_result.get("lldp_neighbors"):
+                        try:
+                            from ..models.inventory import LLDPNeighbor
+                            
+                            # Elimina vecchi neighbor per questo device
+                            session.query(LLDPNeighbor).filter(LLDPNeighbor.device_id == data.device_id).delete()
+                            
+                            for neighbor_data in scan_result.get("lldp_neighbors", []):
+                                lldp = LLDPNeighbor(
+                                    id=uuid.uuid4().hex[:8],
+                                    device_id=data.device_id,
+                                    local_interface=neighbor_data.get("local_interface", ""),
+                                    remote_device_name=neighbor_data.get("remote_device_name", ""),
+                                    remote_interface=neighbor_data.get("remote_interface", ""),
+                                    remote_mac=neighbor_data.get("remote_mac", ""),
+                                    remote_ip=neighbor_data.get("remote_ip", ""),
+                                    chassis_id=neighbor_data.get("chassis_id", ""),
+                                    chassis_id_type=neighbor_data.get("chassis_id_type", ""),
+                                )
+                                session.add(lldp)
+                            
+                            logger.info(f"Saved {len(scan_result.get('lldp_neighbors', []))} LLDP neighbors for device {data.device_id}")
+                        except Exception as e:
+                            logger.error(f"Error saving LLDP neighbors: {e}", exc_info=True)
+                    
+                    # Salva CDP neighbors se raccolti durante auto-detect
+                    if scan_result.get("cdp_neighbors"):
+                        try:
+                            from ..models.inventory import CDPNeighbor
+                            
+                            # Elimina vecchi neighbor per questo device
+                            session.query(CDPNeighbor).filter(CDPNeighbor.device_id == data.device_id).delete()
+                            
+                            for neighbor_data in scan_result.get("cdp_neighbors", []):
+                                cdp = CDPNeighbor(
+                                    id=uuid.uuid4().hex[:8],
+                                    device_id=data.device_id,
+                                    local_interface=neighbor_data.get("local_interface", ""),
+                                    remote_device_name=neighbor_data.get("remote_device_name", ""),
+                                    remote_interface=neighbor_data.get("remote_interface", ""),
+                                    remote_mac=neighbor_data.get("remote_mac", ""),
+                                    remote_ip=neighbor_data.get("remote_ip", ""),
+                                    remote_platform=neighbor_data.get("remote_platform", ""),
+                                    capabilities=neighbor_data.get("capabilities", {}),
+                                )
+                                session.add(cdp)
+                            
+                            logger.info(f"Saved {len(scan_result.get('cdp_neighbors', []))} CDP neighbors for device {data.device_id}")
+                        except Exception as e:
+                            logger.error(f"Error saving CDP neighbors: {e}", exc_info=True)
+                    
+                    # Salva interfacce se raccolte durante auto-detect
+                    if scan_result.get("interface_details"):
+                        try:
+                            from ..models.inventory import NetworkInterface
+                            
+                            for iface_data in scan_result.get("interface_details", []):
+                                # Aggiorna o crea interfaccia
+                                existing = session.query(NetworkInterface).filter(
+                                    NetworkInterface.device_id == data.device_id,
+                                    NetworkInterface.name == iface_data.get("name")
+                                ).first()
+                                
+                                if existing:
+                                    for key, value in iface_data.items():
+                                        if hasattr(existing, key) and value is not None:
+                                            setattr(existing, key, value)
+                                    existing.last_updated = datetime.now()
+                                else:
+                                    new_iface = NetworkInterface(
+                                        id=uuid.uuid4().hex[:8],
+                                        device_id=data.device_id,
+                                        name=iface_data.get("name", ""),
+                                        description=iface_data.get("description"),
+                                        interface_type=iface_data.get("interface_type"),
+                                        mac_address=iface_data.get("mac_address"),
+                                        ip_addresses=iface_data.get("ip_addresses"),
+                                        speed_mbps=iface_data.get("speed_mbps"),
+                                        admin_status=iface_data.get("admin_status"),
+                                        oper_status=iface_data.get("oper_status"),
+                                    )
+                                    session.add(new_iface)
+                            
+                            logger.info(f"Saved {len(scan_result.get('interface_details', []))} interfaces for device {data.device_id}")
+                        except Exception as e:
+                            logger.error(f"Error saving interfaces: {e}", exc_info=True)
+                    
                     # Salva informazioni Proxmox se disponibili (raccolte durante autodetect)
                     if scan_result.get("proxmox_host_info") or scan_result.get("proxmox_vms") or scan_result.get("proxmox_storage"):
                         try:
