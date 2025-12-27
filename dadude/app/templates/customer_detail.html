@@ -4835,6 +4835,42 @@ async function viewInventoryDevice(deviceId) {
             <div class="tab-content" id="deviceDetailTabContent">
                 <div class="tab-pane fade show active" id="general" role="tabpanel">
                     ${detailsHtml}
+                    ${cf.neighbors && cf.neighbors.length > 0 ? `
+                    <hr>
+                    <h6 class="text-muted mb-3"><i class="bi bi-diagram-3-fill"></i> Network Neighbors - LLDP/CDP/MNDP (${cf.neighbors_count || cf.neighbors.length})</h6>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Interfaccia Locale</th>
+                                    <th>Dispositivo Remoto</th>
+                                    <th>IP Remoto</th>
+                                    <th>MAC</th>
+                                    <th>Piattaforma</th>
+                                    <th>Scoperto via</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${cf.neighbors.map(n => `
+                                    <tr>
+                                        <td><code>${n.local_interface || '-'}</code></td>
+                                        <td>
+                                            <strong>${n.remote_device_name || n.identity || '-'}</strong>
+                                            ${n.board ? '<br><small class="text-muted">' + n.board + '</small>' : ''}
+                                        </td>
+                                        <td><code>${n.remote_ip || n.address || '-'}</code></td>
+                                        <td><small>${n.remote_mac || n['mac-address'] || '-'}</small></td>
+                                        <td>
+                                            ${n.platform || '-'}
+                                            ${n.version ? '<br><small class="text-muted">' + n.version.substring(0, 30) + '</small>' : ''}
+                                        </td>
+                                        <td><span class="badge bg-info">${n.discovered_by || '-'}</span></td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                    ` : ''}
         `;
         
         // Server Roles (Windows)
@@ -5138,45 +5174,6 @@ async function viewInventoryDevice(deviceId) {
                 `;
             }
             
-            // MikroTik/Network: Neighbors (LLDP/CDP/MNDP)
-            if (cf.neighbors && cf.neighbors.length > 0) {
-                detailsHtml += `
-                    <hr>
-                    <h6 class="text-muted mb-3"><i class="bi bi-diagram-3-fill"></i> Network Neighbors - LLDP/CDP/MNDP (${cf.neighbors_count || cf.neighbors.length})</h6>
-                    <div class="table-responsive">
-                        <table class="table table-sm table-striped">
-                            <thead>
-                                <tr>
-                                    <th>Interfaccia Locale</th>
-                                    <th>Dispositivo Remoto</th>
-                                    <th>IP Remoto</th>
-                                    <th>MAC</th>
-                                    <th>Piattaforma</th>
-                                    <th>Scoperto via</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${cf.neighbors.map(n => `
-                                    <tr>
-                                        <td><code>${n.local_interface || '-'}</code></td>
-                                        <td>
-                                            <strong>${n.remote_device_name || n.identity || '-'}</strong>
-                                            ${n.board ? '<br><small class="text-muted">' + n.board + '</small>' : ''}
-                                        </td>
-                                        <td><code>${n.remote_ip || n.address || '-'}</code></td>
-                                        <td><small>${n.remote_mac || n['mac-address'] || '-'}</small></td>
-                                        <td>
-                                            ${n.platform || '-'}
-                                            ${n.version ? '<br><small class="text-muted">' + n.version.substring(0, 30) + '</small>' : ''}
-                                        </td>
-                                        <td><span class="badge bg-info">${n.discovered_by || '-'}</span></td>
-                                    </tr>
-                                `).join('')}
-                            </tbody>
-                        </table>
-                    </div>
-                `;
-            }
         }
 
         // Note e descrizione
