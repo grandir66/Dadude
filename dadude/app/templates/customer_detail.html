@@ -5851,10 +5851,16 @@ async function loadProxmoxInfo(deviceId) {
         
         // VM List
         if (vmsData.success && vmsData.vms && vmsData.vms.length > 0) {
+            const vmsWithIp = vmsData.vms.filter(vm => vm.ip_addresses && vm.ip_addresses.trim() !== '').length;
             proxmoxHtml += `
                 <div class="card mb-3">
-                    <div class="card-header">
+                    <div class="card-header d-flex justify-content-between align-items-center">
                         <h6 class="mb-0"><i class="bi bi-box"></i> Virtual Machines (${vmsData.count || vmsData.vms.length})</h6>
+                        ${vmsWithIp > 0 ? `
+                            <button class="btn btn-sm btn-primary" onclick="createVmInventoryDevices('${deviceId}')" title="Crea dispositivi inventario per VM con IP">
+                                <i class="bi bi-plus-circle"></i> Crea Dispositivi Inventario (${vmsWithIp} VM con IP)
+                            </button>
+                        ` : ''}
                     </div>
                     <div class="card-body p-0">
                         <div class="table-responsive">
@@ -6068,6 +6074,39 @@ async function refreshAdvancedDeviceInfo(deviceId) {
     } catch (e) {
         loadingToast.querySelector('.toast-body').innerHTML = `❌ Errore: ${e.message}`;
         setTimeout(() => loadingToast.remove(), 3000);
+    }
+}
+
+async function createVmInventoryDevices(deviceId) {
+    if (!confirm('Creare dispositivi inventario per tutte le VM Proxmox che hanno IP?\n\nLe VM verranno aggiunte all\'inventario come dispositivi separati.')) {
+        return;
+    }
+    
+    const btn = event.target.closest('button');
+    const originalHtml = btn.innerHTML;
+    
+    try {
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Creazione...';
+        btn.disabled = true;
+        
+        const response = await fetch(`/api/v1/inventory/${customerId}/devices/${deviceId}/proxmox/create-vm-devices`, {
+            method: 'POST'
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            alert(`✅ Creati ${result.created} dispositivi inventario per VM Proxmox${result.skipped > 0 ? `\n${result.skipped} VM già presenti nell'inventario` : ''}`);
+            loadInventory(); // Ricarica la tabella inventario
+            loadProxmoxInfo(deviceId); // Ricarica le info Proxmox per aggiornare il conteggio
+        } else {
+            alert('Errore: ' + (result.message || 'Creazione fallita'));
+        }
+    } catch (e) {
+        alert('Errore: ' + e.message);
+    } finally {
+        btn.innerHTML = originalHtml;
+        btn.disabled = false;
     }
 }
 </script>

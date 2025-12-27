@@ -3363,6 +3363,149 @@ async def get_proxmox_host_info(customer_id: str, device_id: str):
         session.close()
 
 
+@router.post("/{customer_id}/devices/{device_id}/proxmox/create-vm-devices")
+async def create_inventory_devices_for_vms(customer_id: str, device_id: str):
+    """Crea dispositivi InventoryDevice per tutte le VM Proxmox che hanno IP ma non sono ancora nell'inventario"""
+    from ..models.database import init_db, get_session
+    from ..models.inventory import InventoryDevice, ProxmoxHost, ProxmoxVM
+    from ..config import get_settings
+    from datetime import datetime
+    import uuid
+    
+    settings = get_settings()
+    db_url = settings.database_url
+    engine = init_db(db_url)
+    session = get_session(engine)
+    
+    try:
+        device = session.query(InventoryDevice).filter(
+            InventoryDevice.id == device_id,
+            InventoryDevice.customer_id == customer_id
+        ).first()
+        
+        if not device:
+            raise HTTPException(status_code=404, detail="Device not found")
+        
+        host_info = session.query(ProxmoxHost).filter(
+            ProxmoxHost.device_id == device_id
+        ).first()
+        
+        if not host_info:
+            return {
+                "success": False,
+                "message": "Proxmox host info not available"
+            }
+        
+        vms = session.query(ProxmoxVM).filter(
+            ProxmoxVM.host_id == host_info.id,
+            ProxmoxVM.ip_addresses.isnot(None)
+        ).all()
+        
+        created_count = 0
+        skipped_count = 0
+        
+        def safe_int(value):
+            if value is None:
+                return None
+            try:
+                return int(value)
+            except (ValueError, TypeError):
+                return None
+        
+        def safe_float(value):
+            if value is None:
+                return None
+            try:
+                return float(value)
+            except (ValueError, TypeError):
+                return None
+        
+        for vm in vms:
+            try:
+                ip_addresses_str = vm.ip_addresses
+                if not ip_addresses_str:
+                    continue
+                
+                # Estrai il primo IP valido
+                primary_ip = None
+                ips = [ip.strip() for ip in ip_addresses_str.split(';') if ip.strip()]
+                for ip in ips:
+                    if not ip.startswith(('127.', '::1', 'fe80:', '169.254.')):
+                        primary_ip = ip
+                        break
+                
+                if not primary_ip:
+                    continue
+                
+                # Verifica se esiste già un dispositivo con questo IP
+                existing = session.query(InventoryDevice).filter(
+                    InventoryDevice.customer_id == customer_id,
+                    InventoryDevice.primary_ip == primary_ip
+                ).first()
+                
+                if existing:
+                    skipped_count += 1
+                    continue
+                
+                vm_name = vm.name or f"VM-{vm.vm_id}"
+                vm_type = vm.vm_type or "qemu"
+                
+                # Determina device_type e category
+                device_type = "linux" if vm_type == "lxc" else "server"
+                category = "vm" if vm_type == "qemu" else "container"
+                
+                # Determina OS family dal os_type
+                os_family = None
+                os_type = (vm.os_type or "").lower()
+                if "windows" in os_type or "win" in os_type:
+                    os_family = "Windows"
+                    device_type = "windows"
+                elif "linux" in os_type or "debian" in os_type or "ubuntu" in os_type:
+                    os_family = "Linux"
+                elif "bsd" in os_type:
+                    os_family = "BSD"
+                
+                new_vm_device = InventoryDevice(
+                    customer_id=customer_id,
+                    name=f"{vm_name} (VM)",
+                    hostname=vm_name,
+                    device_type=device_type,
+                    category=category,
+                    primary_ip=primary_ip,
+                    manufacturer="Proxmox",
+                    os_family=os_family,
+                    cpu_cores=safe_int(vm.cpu_cores),
+                    ram_total_gb=safe_float(vm.memory_mb) / 1024.0 if vm.memory_mb else None,
+                    identified_by="proxmox_vm",
+                    status=vm.status or "unknown",
+                    description=f"Proxmox {vm_type.upper()} VM su host {device.name if device else 'Unknown'}",
+                    last_seen=datetime.now(),
+                )
+                session.add(new_vm_device)
+                created_count += 1
+                logger.info(f"Created inventory device for VM {vm_name} ({primary_ip})")
+            except Exception as e:
+                logger.error(f"Error creating inventory device for VM {vm.name}: {e}", exc_info=True)
+                continue
+        
+        session.commit()
+        
+        return {
+            "success": True,
+            "created": created_count,
+            "skipped": skipped_count,
+            "message": f"Creati {created_count} dispositivi inventario per VM Proxmox"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating VM inventory devices: {e}")
+        session.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        session.close()
+
+
 @router.get("/{customer_id}/devices/{device_id}/proxmox/vms")
 async def get_proxmox_vms(customer_id: str, device_id: str):
     """Ottiene lista VM Proxmox per un host"""
