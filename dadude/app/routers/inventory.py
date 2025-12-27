@@ -829,19 +829,15 @@ async def auto_detect_device(
                                         vm = ProxmoxVM(
                                             id=uuid.uuid4().hex[:8],
                                             host_id=host_id,
-                                            vmid=vm_data.get("vmid", vm_data.get("vm_id", 0)),
+                                            vm_id=vm_data.get("vm_id", vm_data.get("vmid", 0)),  # Campo corretto: vm_id
                                             name=vm_data.get("name", ""),
                                             status=vm_data.get("status"),
-                                            vm_type=vm_data.get("type"),
                                             cpu_cores=vm_data.get("cpu_cores"),
-                                            cpu_sockets=vm_data.get("cpu_sockets"),
-                                            memory_total_mb=vm_data.get("memory_total_mb", vm_data.get("memory_mb")),
+                                            memory_mb=vm_data.get("memory_mb", vm_data.get("memory_total_mb")),  # Campo corretto: memory_mb
                                             disk_total_gb=vm_data.get("disk_total_gb"),
-                                            ip_addresses=vm_data.get("ip_addresses"),
-                                            mac_address=vm_data.get("mac_address"),
-                                            guest_os=vm_data.get("guest_os", vm_data.get("os_type")),
-                                            agent_installed=vm_data.get("agent_installed"),
-                                            uptime_seconds=vm_data.get("uptime_seconds"),
+                                            network_interfaces=vm_data.get("network_interfaces"),  # Campo corretto: network_interfaces
+                                            os_type=vm_data.get("os_type", vm_data.get("guest_os")),  # Campo corretto: os_type
+                                            template=vm_data.get("template", False),
                                         )
                                         session.add(vm)
                                     logger.info(f"Auto-detect: Saved {len(scan_result['proxmox_vms'])} Proxmox VMs for device {data.device_id}")
@@ -853,17 +849,23 @@ async def auto_detect_device(
                                     
                                     # Salva nuovo storage
                                     for storage_data in scan_result["proxmox_storage"]:
+                                        # Calcola usage_percent se disponibile
+                                        usage_percent = None
+                                        total_gb = storage_data.get("total_gb")
+                                        used_gb = storage_data.get("used_gb")
+                                        if total_gb and used_gb and total_gb > 0:
+                                            usage_percent = round((used_gb / total_gb) * 100, 2)
+                                        
                                         storage = ProxmoxStorage(
                                             id=uuid.uuid4().hex[:8],
                                             host_id=host_id,
                                             storage_name=storage_data.get("storage"),
                                             storage_type=storage_data.get("type"),
-                                            total_gb=storage_data.get("total_gb"),
-                                            used_gb=storage_data.get("used_gb"),
-                                            free_gb=storage_data.get("free_gb", storage_data.get("available_gb")),
+                                            total_gb=total_gb,
+                                            used_gb=used_gb,
+                                            available_gb=storage_data.get("available_gb", storage_data.get("free_gb")),  # Campo corretto: available_gb
+                                            usage_percent=usage_percent,
                                             content_types=storage_data.get("content", []),
-                                            active=storage_data.get("enabled", 1),
-                                            shared=storage_data.get("shared", 0),
                                         )
                                         session.add(storage)
                                     logger.info(f"Auto-detect: Saved {len(scan_result['proxmox_storage'])} Proxmox storage for device {data.device_id}")
@@ -2395,19 +2397,15 @@ async def identify_inventory_device(
                             vm = ProxmoxVM(
                                 id=uuid.uuid4().hex[:8],
                                 host_id=host_id,
-                                vmid=vm_data.get("vmid", vm_data.get("vm_id", 0)),
+                                vm_id=vm_data.get("vm_id", vm_data.get("vmid", 0)),  # Campo corretto: vm_id
                                 name=vm_data.get("name", ""),
                                 status=vm_data.get("status"),
-                                vm_type=vm_data.get("vm_type"),
                                 cpu_cores=vm_data.get("cpu_cores"),
-                                cpu_sockets=vm_data.get("cpu_sockets"),
-                                memory_total_mb=vm_data.get("memory_total_mb", vm_data.get("memory_mb")),
+                                memory_mb=vm_data.get("memory_mb", vm_data.get("memory_total_mb")),  # Campo corretto: memory_mb
                                 disk_total_gb=vm_data.get("disk_total_gb"),
-                                ip_addresses=vm_data.get("ip_addresses"),
-                                mac_address=vm_data.get("mac_address"),
-                                guest_os=vm_data.get("guest_os", vm_data.get("os_type")),
-                                agent_installed=vm_data.get("agent_installed"),
-                                uptime_seconds=vm_data.get("uptime_seconds"),
+                                network_interfaces=vm_data.get("network_interfaces"),  # Campo corretto: network_interfaces
+                                os_type=vm_data.get("os_type", vm_data.get("guest_os")),  # Campo corretto: os_type
+                                template=vm_data.get("template", False),
                             )
                             session.add(vm)
                         logger.info(f"Saved {len(result['proxmox_vms'])} Proxmox VMs for device {device_id}")
@@ -2419,17 +2417,23 @@ async def identify_inventory_device(
                         
                         # Salva nuovo storage
                         for storage_data in result["proxmox_storage"]:
+                            # Calcola usage_percent se disponibile
+                            usage_percent = None
+                            total_gb = storage_data.get("total_gb")
+                            used_gb = storage_data.get("used_gb")
+                            if total_gb and used_gb and total_gb > 0:
+                                usage_percent = round((used_gb / total_gb) * 100, 2)
+                            
                             storage = ProxmoxStorage(
                                 id=uuid.uuid4().hex[:8],
                                 host_id=host_id,
-                                storage_name=storage_data.get("storage_name", ""),
-                                storage_type=storage_data.get("storage_type"),
-                                total_gb=storage_data.get("total_gb"),
-                                used_gb=storage_data.get("used_gb"),
-                                free_gb=storage_data.get("free_gb", storage_data.get("available_gb")),
-                                content_types=storage_data.get("content_types"),
-                                active=storage_data.get("active"),
-                                shared=storage_data.get("shared"),
+                                storage_name=storage_data.get("storage", storage_data.get("storage_name", "")),
+                                storage_type=storage_data.get("type", storage_data.get("storage_type")),
+                                total_gb=total_gb,
+                                used_gb=used_gb,
+                                available_gb=storage_data.get("available_gb", storage_data.get("free_gb")),  # Campo corretto: available_gb
+                                usage_percent=usage_percent,
+                                content_types=storage_data.get("content", storage_data.get("content_types", [])),
                             )
                             session.add(storage)
                         logger.info(f"Saved {len(result['proxmox_storage'])} Proxmox storage for device {device_id}")
