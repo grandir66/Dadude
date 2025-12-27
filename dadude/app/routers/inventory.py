@@ -864,11 +864,9 @@ async def auto_detect_device(
                     if firmware:
                         device.firmware_version = firmware
                     
-                    # Category e device_type
-                    if scan_result.get("category"):
-                        device.category = scan_result["category"]
-                    if scan_result.get("device_type"):
-                        device.device_type = scan_result["device_type"]
+                    # NON sovrascrivere device_type con "unknown" - già gestito sopra con logica corretta
+                    # if scan_result.get("device_type") and scan_result["device_type"] != "unknown":
+                    #     device.device_type = scan_result["device_type"]
                     
                     # Domain
                     if scan_result.get("domain"):
@@ -1182,6 +1180,18 @@ async def auto_detect_device(
                             if scan_result.get("shell_users"):
                                 linux_data["logged_users"] = scan_result.get("shell_users")
                             
+                            # Load average
+                            if scan_result.get("load_average"):
+                                linux_data["load_average"] = scan_result.get("load_average")
+                            
+                            # Packages installed count
+                            if scan_result.get("packages_installed"):
+                                linux_data["packages_installed"] = scan_result.get("packages_installed")
+                            
+                            # Docker containers running
+                            if scan_result.get("docker_containers_running"):
+                                linux_data["containers_running"] = scan_result.get("docker_containers_running")
+                            
                             logger.info(f"Linux data collected: {list(linux_data.keys())}")
                             
                             # Crea o aggiorna LinuxDetails
@@ -1203,6 +1213,73 @@ async def auto_detect_device(
                                     logger.info(f"Created LinuxDetails for device {data.device_id} with fields: {list(linux_data.keys())}")
                                 else:
                                     logger.warning(f"No Linux data to save for device {data.device_id}, available keys: {list(scan_result.keys())[:30]}")
+                            
+                            # Salva dati estesi Linux in custom_fields
+                            extended_linux_data = {}
+                            
+                            # Servizi attivi
+                            if scan_result.get("running_services"):
+                                extended_linux_data["running_services"] = scan_result.get("running_services")
+                                extended_linux_data["running_services_count"] = scan_result.get("running_services_count", len(scan_result.get("running_services", [])))
+                            if scan_result.get("important_services"):
+                                extended_linux_data["important_services"] = scan_result.get("important_services")
+                            
+                            # Cron jobs
+                            if scan_result.get("cron_jobs"):
+                                extended_linux_data["cron_jobs"] = scan_result.get("cron_jobs")
+                                extended_linux_data["cron_jobs_count"] = scan_result.get("cron_jobs_count", len(scan_result.get("cron_jobs", [])))
+                            
+                            # Hardware inventory
+                            if scan_result.get("hardware_inventory"):
+                                extended_linux_data["hardware_inventory"] = scan_result.get("hardware_inventory")
+                            if scan_result.get("bios_vendor"):
+                                extended_linux_data["bios_vendor"] = scan_result.get("bios_vendor")
+                            if scan_result.get("bios_version"):
+                                extended_linux_data["bios_version"] = scan_result.get("bios_version")
+                            if scan_result.get("bios_date"):
+                                extended_linux_data["bios_date"] = scan_result.get("bios_date")
+                            
+                            # Block devices / Dischi
+                            if scan_result.get("block_devices"):
+                                extended_linux_data["block_devices"] = scan_result.get("block_devices")
+                            if scan_result.get("disks"):
+                                extended_linux_data["disks"] = scan_result.get("disks")
+                            
+                            # Network
+                            if scan_result.get("ip_addresses"):
+                                extended_linux_data["ip_addresses"] = scan_result.get("ip_addresses")
+                            if scan_result.get("network_interfaces"):
+                                extended_linux_data["network_interfaces"] = scan_result.get("network_interfaces")
+                            if scan_result.get("routes"):
+                                extended_linux_data["routes"] = scan_result.get("routes")
+                            if scan_result.get("default_gateway"):
+                                extended_linux_data["default_gateway"] = scan_result.get("default_gateway")
+                            if scan_result.get("dns_servers"):
+                                extended_linux_data["dns_servers"] = scan_result.get("dns_servers")
+                            if scan_result.get("listening_ports"):
+                                extended_linux_data["listening_ports"] = scan_result.get("listening_ports")
+                            
+                            # MAC addresses
+                            if scan_result.get("mac_addresses"):
+                                extended_linux_data["mac_addresses"] = scan_result.get("mac_addresses")
+                            
+                            # Timezone
+                            if scan_result.get("timezone"):
+                                extended_linux_data["timezone"] = scan_result.get("timezone")
+                            
+                            # Salva in custom_fields se ci sono dati estesi
+                            if extended_linux_data:
+                                if not device.custom_fields:
+                                    device.custom_fields = {}
+                                if isinstance(device.custom_fields, str):
+                                    try:
+                                        device.custom_fields = json.loads(device.custom_fields)
+                                    except:
+                                        device.custom_fields = {}
+                                
+                                device.custom_fields.update(extended_linux_data)
+                                flag_modified(device, "custom_fields")
+                                logger.info(f"Saved extended Linux data to custom_fields for device {data.device_id}: {list(extended_linux_data.keys())}")
                         except Exception as e:
                             logger.error(f"Error saving LinuxDetails: {e}", exc_info=True)
                     
@@ -2179,14 +2256,17 @@ async def get_inventory_device(device_id: str):
                 "platform": md.platform,
                 "identity": md.identity,
                 "license_level": md.license_level,
+                "cpu_model": md.cpu_model,
+                "cpu_count": md.cpu_count,
                 "cpu_load": md.cpu_load,
                 "cpu_frequency": md.cpu_frequency,
                 "memory_total_mb": md.memory_total_mb,
                 "memory_free_mb": md.memory_free_mb,
-                "disk_total_mb": md.disk_total_mb,
-                "disk_free_mb": md.disk_free_mb,
+                "hdd_total_mb": md.hdd_total_mb,
+                "hdd_free_mb": md.hdd_free_mb,
                 "uptime": md.uptime,
                 "dude_agent_enabled": md.dude_agent_enabled,
+                "dude_agent_status": md.dude_agent_status,
             }
         
         # Se il device è Proxmox/hypervisor con credenziali ma senza dati avanzati completi, avvia autodetect in background

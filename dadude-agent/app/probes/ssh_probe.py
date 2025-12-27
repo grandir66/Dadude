@@ -342,17 +342,153 @@ async def probe(
             if vm_count.isdigit() and int(vm_count) > 0:
                 info["vms"] = int(vm_count)
             
-            # Important services
-            services_out = exec_cmd("systemctl list-units --type=service --state=running --no-pager --no-legend 2>/dev/null | head -30 | awk '{print $1}'")
+            # ===== SERVIZI ATTIVI (tutti) =====
+            services_out = exec_cmd("systemctl list-units --type=service --state=running --no-pager --no-legend 2>/dev/null | awk '{print $1}'", timeout=10)
             if services_out:
-                services = [s.replace('.service', '') for s in services_out.split('\n') if s]
-                # Filtra solo servizi interessanti
-                important = ["nginx", "apache", "httpd", "mysql", "mariadb", "postgresql", "redis", 
-                           "mongodb", "docker", "sshd", "postfix", "dovecot", "named", "bind", 
-                           "haproxy", "squid", "samba", "nfs", "pve", "ceph"]
-                filtered = [s for s in services if any(imp in s.lower() for imp in important)]
-                if filtered:
-                    info["important_services"] = filtered
+                all_services = [s.replace('.service', '') for s in services_out.split('\n') if s]
+                if all_services:
+                    info["running_services"] = all_services[:100]  # Limita a 100 servizi
+                    info["running_services_count"] = len(all_services)
+                    
+                    # Filtra servizi importanti/critici separatamente
+                    important = ["nginx", "apache", "httpd", "mysql", "mariadb", "postgresql", "redis", 
+                               "mongodb", "docker", "sshd", "postfix", "dovecot", "named", "bind", 
+                               "haproxy", "squid", "samba", "nfs", "pve", "ceph", "grafana", "prometheus",
+                               "zabbix", "nagios", "elasticsearch", "kibana", "logstash", "influxdb"]
+                    filtered = [s for s in all_services if any(imp in s.lower() for imp in important)]
+                    if filtered:
+                        info["important_services"] = filtered
+            
+            # ===== CRON JOBS =====
+            cron_jobs = []
+            
+            # User crontab
+            user_cron = exec_cmd("crontab -l 2>/dev/null | grep -v '^#' | grep -v '^$'")
+            if user_cron and "no crontab" not in user_cron.lower():
+                for line in user_cron.split('\n'):
+                    if line.strip():
+                        cron_jobs.append({"source": "user_crontab", "job": line.strip()})
+            
+            # Root crontab
+            root_cron = exec_cmd("sudo crontab -l 2>/dev/null | grep -v '^#' | grep -v '^$' || true")
+            if root_cron and "no crontab" not in root_cron.lower():
+                for line in root_cron.split('\n'):
+                    if line.strip():
+                        cron_jobs.append({"source": "root_crontab", "job": line.strip()})
+            
+            # System cron.d
+            cron_d = exec_cmd("ls /etc/cron.d/ 2>/dev/null")
+            if cron_d:
+                for f in cron_d.split('\n'):
+                    if f and not f.startswith('.'):
+                        cron_jobs.append({"source": f"/etc/cron.d/{f}", "job": "file"})
+            
+            if cron_jobs:
+                info["cron_jobs"] = cron_jobs[:50]  # Limita a 50
+                info["cron_jobs_count"] = len(cron_jobs)
+            
+            # ===== HARDWARE DETTAGLIATO (lshw/dmidecode) =====
+            # Prova lshw (più completo)
+            lshw_out = exec_cmd("sudo lshw -short -quiet 2>/dev/null | head -50", timeout=15)
+            if lshw_out and "WARNING" not in lshw_out:
+                info["hardware_inventory"] = lshw_out
+            else:
+                # Fallback a dmidecode
+                dmi_out = exec_cmd("sudo dmidecode -t system 2>/dev/null | grep -E '(Manufacturer|Product|Serial|UUID)' | head -10")
+                if dmi_out:
+                    info["hardware_inventory"] = dmi_out
+            
+            # BIOS info
+            bios_vendor = exec_cmd("cat /sys/class/dmi/id/bios_vendor 2>/dev/null")
+            bios_version = exec_cmd("cat /sys/class/dmi/id/bios_version 2>/dev/null")
+            bios_date = exec_cmd("cat /sys/class/dmi/id/bios_date 2>/dev/null")
+            if bios_vendor:
+                info["bios_vendor"] = bios_vendor
+            if bios_version:
+                info["bios_version"] = bios_version
+            if bios_date:
+                info["bios_date"] = bios_date
+            
+            # ===== DISCHI DETTAGLIATI (lsblk) =====
+            lsblk_out = exec_cmd("lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT,MODEL -J 2>/dev/null", timeout=10)
+            if lsblk_out and lsblk_out.startswith('{'):
+                try:
+                    import json
+                    lsblk_data = json.loads(lsblk_out)
+                    if "blockdevices" in lsblk_data:
+                        info["block_devices"] = lsblk_data["blockdevices"]
+                except:
+                    pass
+            
+            # Fallback a lsblk semplice
+            if not info.get("block_devices"):
+                lsblk_simple = exec_cmd("lsblk -d -o NAME,SIZE,TYPE,MODEL 2>/dev/null | tail -n +2")
+                if lsblk_simple:
+                    block_devs = []
+                    for line in lsblk_simple.split('\n'):
+                        parts = line.split()
+                        if len(parts) >= 3:
+                            block_devs.append({
+                                "name": parts[0],
+                                "size": parts[1],
+                                "type": parts[2],
+                                "model": ' '.join(parts[3:]) if len(parts) > 3 else None
+                            })
+                    if block_devs:
+                        info["block_devices"] = block_devs
+            
+            # ===== NETWORK COMPLETO =====
+            # IP addresses dettagliati
+            ip_addr_out = exec_cmd("ip -o addr show 2>/dev/null", timeout=5)
+            if ip_addr_out:
+                ip_addresses = []
+                for line in ip_addr_out.split('\n'):
+                    parts = line.split()
+                    if len(parts) >= 4 and parts[2] == 'inet':
+                        ip_addresses.append({
+                            "interface": parts[1],
+                            "address": parts[3].split('/')[0],
+                            "prefix": parts[3].split('/')[1] if '/' in parts[3] else None,
+                            "scope": parts[-1] if 'scope' in line else None
+                        })
+                    elif len(parts) >= 4 and parts[2] == 'inet6':
+                        ip_addresses.append({
+                            "interface": parts[1],
+                            "address": parts[3].split('/')[0],
+                            "prefix": parts[3].split('/')[1] if '/' in parts[3] else None,
+                            "type": "ipv6"
+                        })
+                if ip_addresses:
+                    info["ip_addresses"] = ip_addresses
+            
+            # Routing table
+            routes_out = exec_cmd("ip route show 2>/dev/null | head -20")
+            if routes_out:
+                routes = []
+                for line in routes_out.split('\n'):
+                    if line.strip():
+                        routes.append(line.strip())
+                if routes:
+                    info["routes"] = routes
+            
+            # Default gateway
+            gateway = exec_cmd("ip route | grep default | awk '{print $3}'")
+            if gateway:
+                info["default_gateway"] = gateway.split('\n')[0]
+            
+            # DNS servers
+            dns_out = exec_cmd("cat /etc/resolv.conf 2>/dev/null | grep nameserver | awk '{print $2}'")
+            if dns_out:
+                dns_servers = [d for d in dns_out.split('\n') if d]
+                if dns_servers:
+                    info["dns_servers"] = dns_servers
+            
+            # Listening ports
+            listening_out = exec_cmd("ss -tlnp 2>/dev/null | tail -n +2 | awk '{print $4}' | rev | cut -d: -f1 | rev | sort -u")
+            if listening_out:
+                ports = [p for p in listening_out.split('\n') if p and p.isdigit()]
+                if ports:
+                    info["listening_ports"] = [int(p) for p in ports][:50]
             
             # Timezone
             tz = exec_cmd("timedatectl show --property=Timezone --value 2>/dev/null || cat /etc/timezone 2>/dev/null")
@@ -375,6 +511,16 @@ async def probe(
             virt = exec_cmd("systemd-detect-virt 2>/dev/null")
             if virt and virt != "none":
                 info["virtualization"] = virt
+            
+            # ===== LOAD AVERAGE =====
+            load_avg = exec_cmd("cat /proc/loadavg | awk '{print $1, $2, $3}'")
+            if load_avg:
+                info["load_average"] = load_avg
+            
+            # ===== INSTALLED PACKAGES COUNT =====
+            pkg_count = exec_cmd("dpkg -l 2>/dev/null | wc -l || rpm -qa 2>/dev/null | wc -l")
+            if pkg_count and pkg_count.isdigit():
+                info["packages_installed"] = int(pkg_count)
         
         client.close()
         
