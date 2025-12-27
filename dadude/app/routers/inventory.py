@@ -915,7 +915,9 @@ async def auto_detect_device(
                                         logger.error("Error flushing storage to database: %s", str(flush_error), exc_info=True)
                                         raise
                         except Exception as e:
-                            logger.error("Error saving Proxmox info during auto-detect for device %s: %s", data.device_id, str(e), exc_info=True)
+                            import traceback
+                            error_trace = traceback.format_exc()
+                            logger.error("Error saving Proxmox info during auto-detect for device %s: %s\n%s", data.device_id, str(e), error_trace)
                     
                     session.commit()
                     logger.info(f"Auto-detect: Saved results to device {data.device_id} - hostname={device.hostname}, os={device.os_family}, cpu={device.cpu_model}")
