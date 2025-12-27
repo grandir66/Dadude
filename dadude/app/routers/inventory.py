@@ -804,7 +804,189 @@ async def auto_detect_device(
                     
                     # Timestamp
                     from datetime import datetime
+                    import uuid
                     device.last_scan = datetime.utcnow()
+                    
+                    # Salva WindowsDetails se disponibili (dati WMI)
+                    if device.device_type == "windows" and (scan_result.get("extra_info") or scan_result.get("identified_by", "").startswith("probe_wmi")):
+                        try:
+                            from ..models.inventory import WindowsDetails
+                            extra_info = scan_result.get("extra_info") or {}
+                            
+                            # Estrai dati Windows da extra_info o da scan_result direttamente
+                            windows_data = {}
+                            
+                            # Dati OS
+                            if scan_result.get("os_version") or extra_info.get("version"):
+                                windows_data["edition"] = extra_info.get("name", "").split("(")[0].strip() if extra_info.get("name") else None
+                            
+                            # Domain info
+                            if extra_info.get("domain"):
+                                windows_data["domain_name"] = extra_info.get("domain")
+                                # Determina domain role
+                                if extra_info.get("is_domain_controller"):
+                                    windows_data["domain_role"] = "DC"
+                                elif extra_info.get("server_roles") and any("Active Directory" in r or "Domain Controller" in r for r in extra_info.get("server_roles", [])):
+                                    windows_data["domain_role"] = "DC"
+                                else:
+                                    windows_data["domain_role"] = "Workstation" if device.category == "workstation" else "Member Server"
+                            
+                            # BIOS
+                            if extra_info.get("bios_version") or extra_info.get("bios_serial"):
+                                windows_data["bios_version"] = extra_info.get("bios_version")
+                            
+                            # Updates e reboot
+                            if extra_info.get("last_boot"):
+                                try:
+                                    from datetime import datetime
+                                    # WMI restituisce formato WMI datetime
+                                    boot_str = str(extra_info.get("last_boot"))
+                                    if boot_str:
+                                        windows_data["last_reboot"] = datetime.now()  # Placeholder, parsing WMI datetime è complesso
+                                except:
+                                    pass
+                            
+                            # Antivirus
+                            if extra_info.get("antivirus_name") or extra_info.get("antivirus_status"):
+                                windows_data["antivirus_name"] = extra_info.get("antivirus_name")
+                                windows_data["antivirus_status"] = extra_info.get("antivirus_status")
+                            
+                            # Users
+                            if extra_info.get("local_admins"):
+                                windows_data["local_admins"] = extra_info.get("local_admins")
+                            if extra_info.get("logged_users"):
+                                windows_data["logged_users"] = extra_info.get("logged_users")
+                            
+                            # Software installato
+                            if extra_info.get("installed_software"):
+                                from ..models.inventory import InstalledSoftware
+                                # Elimina vecchio software
+                                session.query(InstalledSoftware).filter(InstalledSoftware.device_id == data.device_id).delete()
+                                
+                                # Salva nuovo software
+                                for sw in extra_info.get("installed_software", [])[:50]:  # Limita a 50 per evitare troppi dati
+                                    try:
+                                        sw_obj = InstalledSoftware(
+                                            id=uuid.uuid4().hex[:8],
+                                            device_id=data.device_id,
+                                            name=sw.get("name", ""),
+                                            version=sw.get("version"),
+                                            vendor=sw.get("vendor"),
+                                        )
+                                        session.add(sw_obj)
+                                    except Exception as sw_error:
+                                        logger.debug(f"Error saving software {sw.get('name')}: {sw_error}")
+                                        continue
+                            
+                            # Crea o aggiorna WindowsDetails
+                            existing_wd = session.query(WindowsDetails).filter(WindowsDetails.device_id == data.device_id).first()
+                            if existing_wd:
+                                for key, value in windows_data.items():
+                                    if hasattr(existing_wd, key) and value is not None:
+                                        setattr(existing_wd, key, value)
+                                existing_wd.last_updated = datetime.now()
+                            else:
+                                if windows_data:
+                                    wd = WindowsDetails(
+                                        id=uuid.uuid4().hex[:8],
+                                        device_id=data.device_id,
+                                        **{k: v for k, v in windows_data.items() if hasattr(WindowsDetails, k)}
+                                    )
+                                    session.add(wd)
+                                    logger.info(f"Created WindowsDetails for device {data.device_id}")
+                        except Exception as e:
+                            logger.error(f"Error saving WindowsDetails: {e}", exc_info=True)
+                    
+                    # Salva LinuxDetails se disponibili (dati SSH)
+                    if device.device_type == "linux" and (scan_result.get("extra_info") or scan_result.get("identified_by", "").startswith("probe_ssh")):
+                        try:
+                            from ..models.inventory import LinuxDetails
+                            extra_info = scan_result.get("extra_info") or {}
+                            
+                            linux_data = {}
+                            
+                            # Distro
+                            if extra_info.get("os_family"):
+                                linux_data["distro_name"] = extra_info.get("os_family")
+                            if extra_info.get("os_version"):
+                                linux_data["distro_version"] = extra_info.get("os_version")
+                            
+                            # Kernel
+                            if extra_info.get("kernel"):
+                                linux_data["kernel_version"] = extra_info.get("kernel")
+                            if extra_info.get("arch"):
+                                linux_data["kernel_arch"] = extra_info.get("arch")
+                            
+                            # Uptime
+                            if extra_info.get("uptime"):
+                                linux_data["uptime_days"] = None  # Parsing uptime è complesso, lasciamo None per ora
+                            
+                            # Docker
+                            if extra_info.get("docker_installed"):
+                                linux_data["docker_installed"] = True
+                                linux_data["docker_version"] = extra_info.get("docker_version")
+                            
+                            # Crea o aggiorna LinuxDetails
+                            existing_ld = session.query(LinuxDetails).filter(LinuxDetails.device_id == data.device_id).first()
+                            if existing_ld:
+                                for key, value in linux_data.items():
+                                    if hasattr(existing_ld, key) and value is not None:
+                                        setattr(existing_ld, key, value)
+                                existing_ld.last_updated = datetime.now()
+                            else:
+                                if linux_data:
+                                    ld = LinuxDetails(
+                                        id=uuid.uuid4().hex[:8],
+                                        device_id=data.device_id,
+                                        **{k: v for k, v in linux_data.items() if hasattr(LinuxDetails, k)}
+                                    )
+                                    session.add(ld)
+                                    logger.info(f"Created LinuxDetails for device {data.device_id}")
+                        except Exception as e:
+                            logger.error(f"Error saving LinuxDetails: {e}", exc_info=True)
+                    
+                    # Salva MikroTikDetails se disponibili
+                    if device.device_type == "mikrotik" and (scan_result.get("extra_info") or scan_result.get("identified_by", "").startswith("probe_")):
+                        try:
+                            from ..models.inventory import MikroTikDetails
+                            extra_info = scan_result.get("extra_info") or {}
+                            
+                            mikrotik_data = {}
+                            
+                            # RouterOS version
+                            if extra_info.get("os_version") or scan_result.get("os_version"):
+                                mikrotik_data["routeros_version"] = extra_info.get("os_version") or scan_result.get("os_version")
+                            
+                            # Hardware
+                            if extra_info.get("model") or scan_result.get("model"):
+                                mikrotik_data["board_name"] = extra_info.get("model") or scan_result.get("model")
+                            if extra_info.get("arch"):
+                                mikrotik_data["platform"] = extra_info.get("arch")
+                            if extra_info.get("cpu_model"):
+                                mikrotik_data["cpu_model"] = extra_info.get("cpu_model")
+                            if extra_info.get("cpu_cores"):
+                                mikrotik_data["cpu_count"] = extra_info.get("cpu_cores")
+                            if extra_info.get("memory_total_mb"):
+                                mikrotik_data["memory_total_mb"] = extra_info.get("memory_total_mb")
+                            
+                            # Crea o aggiorna MikroTikDetails
+                            existing_md = session.query(MikroTikDetails).filter(MikroTikDetails.device_id == data.device_id).first()
+                            if existing_md:
+                                for key, value in mikrotik_data.items():
+                                    if hasattr(existing_md, key) and value is not None:
+                                        setattr(existing_md, key, value)
+                                existing_md.last_updated = datetime.now()
+                            else:
+                                if mikrotik_data:
+                                    md = MikroTikDetails(
+                                        id=uuid.uuid4().hex[:8],
+                                        device_id=data.device_id,
+                                        **{k: v for k, v in mikrotik_data.items() if hasattr(MikroTikDetails, k)}
+                                    )
+                                    session.add(md)
+                                    logger.info(f"Created MikroTikDetails for device {data.device_id}")
+                        except Exception as e:
+                            logger.error(f"Error saving MikroTikDetails: {e}", exc_info=True)
                     
                     # Salva informazioni Proxmox se disponibili (raccolte durante autodetect)
                     if scan_result.get("proxmox_host_info") or scan_result.get("proxmox_vms") or scan_result.get("proxmox_storage"):
@@ -3884,6 +4066,80 @@ async def refresh_advanced_info(customer_id: str, device_id: str):
                 logger.info(f"Updated {len(interfaces)} interfaces for device {device_id}")
             except Exception as e:
                 logger.error(f"Error collecting interface details: {e}")
+        
+        # MikroTik: raccogli routing e ARP
+        if device_type_lower == "mikrotik" and credentials_list:
+            logger.info(f"Device {device_id} identified as MikroTik, collecting routing/ARP...")
+            from ..services.mikrotik_service import get_mikrotik_service
+            import json
+            mikrotik_service = get_mikrotik_service()
+            
+            # Raccogli routing table
+            try:
+                cred = credentials_list[0]
+                routes_result = mikrotik_service.get_routes(
+                    device.primary_ip,
+                    cred.get("mikrotik_api_port", 8728),
+                    cred.get("username", ""),
+                    cred.get("password", ""),
+                    use_ssl=cred.get("use_ssl", False)
+                )
+                
+                if routes_result.get("success") and routes_result.get("routes"):
+                    # Salva routing in custom_fields
+                    if not device.custom_fields:
+                        device.custom_fields = {}
+                    if isinstance(device.custom_fields, str):
+                        try:
+                            device.custom_fields = json.loads(device.custom_fields)
+                        except:
+                            device.custom_fields = {}
+                    device.custom_fields["routing_table"] = routes_result.get("routes")
+                    device.custom_fields["routing_count"] = routes_result.get("count", 0)
+                    logger.info(f"Saved {routes_result.get('count', 0)} routing entries for MikroTik device {device_id}")
+            except Exception as e:
+                logger.error(f"Error collecting routing table: {e}", exc_info=True)
+            
+            # Raccogli ARP table completa
+            try:
+                cred = credentials_list[0]
+                api = mikrotik_service._get_connection(
+                    device.primary_ip,
+                    cred.get("mikrotik_api_port", 8728),
+                    cred.get("username", ""),
+                    cred.get("password", ""),
+                    use_ssl=cred.get("use_ssl", False)
+                )
+                
+                arp_resource = api.get_resource('/ip/arp')
+                arps = arp_resource.get()
+                
+                arp_entries = []
+                for a in arps:
+                    ip_str = a.get("address", "")
+                    mac = a.get("mac-address", "")
+                    if ip_str and mac and mac != "00:00:00:00:00:00":
+                        arp_entries.append({
+                            "ip": ip_str,
+                            "mac": mac.upper(),
+                            "interface": a.get("interface", ""),
+                            "complete": a.get("complete", "") == "true",
+                        })
+                
+                if arp_entries:
+                    # Salva ARP in custom_fields
+                    if not device.custom_fields:
+                        device.custom_fields = {}
+                    if isinstance(device.custom_fields, str):
+                        try:
+                            device.custom_fields = json.loads(device.custom_fields)
+                        except:
+                            device.custom_fields = {}
+                    device.custom_fields["arp_table"] = arp_entries
+                    device.custom_fields["arp_count"] = len(arp_entries)
+                    logger.info(f"Saved {len(arp_entries)} ARP entries for MikroTik device {device_id}")
+            except Exception as e:
+                logger.error(f"Error collecting ARP table: {e}", exc_info=True)
         
         # Proxmox: raccogli info host, VM, storage
         os_family_lower = (device.os_family or "").lower()
