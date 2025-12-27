@@ -7,6 +7,8 @@ from typing import Optional, List
 from pydantic import BaseModel
 from loguru import logger
 from datetime import datetime
+from sqlalchemy.orm.attributes import flag_modified
+import json
 
 
 router = APIRouter(prefix="/inventory", tags=["Inventory"])

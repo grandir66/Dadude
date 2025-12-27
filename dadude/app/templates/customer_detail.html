@@ -4983,6 +4983,140 @@ async function viewInventoryDevice(deviceId) {
                         ${cf.uptime ? '<div class="col-md-4 mb-2"><strong>Uptime:</strong> ' + cf.uptime + '</div>' : ''}
                         ${cf.kernel ? '<div class="col-md-4 mb-2"><strong>Kernel:</strong> ' + cf.kernel + '</div>' : ''}
                         ${cf.bios_version ? '<div class="col-md-4 mb-2"><strong>BIOS:</strong> ' + cf.bios_version + '</div>' : ''}
+                        ${cf.default_gateway ? '<div class="col-md-4 mb-2"><strong>Gateway:</strong> ' + cf.default_gateway + '</div>' : ''}
+                        ${cf.dns_servers ? '<div class="col-md-4 mb-2"><strong>DNS:</strong> ' + cf.dns_servers.join(', ') + '</div>' : ''}
+                        ${cf.load_average ? '<div class="col-md-4 mb-2"><strong>Load Avg:</strong> ' + cf.load_average + '</div>' : ''}
+                        ${cf.packages_installed ? '<div class="col-md-4 mb-2"><strong>Pacchetti:</strong> ' + cf.packages_installed + '</div>' : ''}
+                    </div>
+                `;
+            }
+            
+            // Linux: Servizi attivi
+            if (cf.running_services && cf.running_services.length > 0) {
+                detailsHtml += `
+                    <hr>
+                    <h6 class="text-muted mb-3"><i class="bi bi-gear-fill"></i> Servizi Attivi (${cf.running_services_count || cf.running_services.length})</h6>
+                    <div class="mb-2">
+                        ${cf.important_services ? '<strong>Servizi Importanti:</strong> ' + cf.important_services.map(s => '<span class="badge bg-primary me-1">' + s + '</span>').join('') : ''}
+                    </div>
+                    <details class="mb-2">
+                        <summary class="text-muted" style="cursor: pointer;">Mostra tutti i servizi (${cf.running_services.length})</summary>
+                        <div class="mt-2" style="max-height: 200px; overflow-y: auto;">
+                            ${cf.running_services.map(s => '<span class="badge bg-secondary me-1 mb-1">' + s + '</span>').join('')}
+                        </div>
+                    </details>
+                `;
+            }
+            
+            // Linux: Cron Jobs
+            if (cf.cron_jobs && cf.cron_jobs.length > 0) {
+                detailsHtml += `
+                    <hr>
+                    <h6 class="text-muted mb-3"><i class="bi bi-clock-history"></i> Cron Jobs (${cf.cron_jobs_count || cf.cron_jobs.length})</h6>
+                    <div class="table-responsive" style="max-height: 200px; overflow-y: auto;">
+                        <table class="table table-sm table-striped">
+                            <thead><tr><th>Sorgente</th><th>Job</th></tr></thead>
+                            <tbody>
+                                ${cf.cron_jobs.map(cj => '<tr><td><small>' + cj.source + '</small></td><td><code style="font-size: 0.75em;">' + (cj.job || '-') + '</code></td></tr>').join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+            }
+            
+            // Linux: Network / IP Addresses
+            if (cf.ip_addresses && cf.ip_addresses.length > 0) {
+                detailsHtml += `
+                    <hr>
+                    <h6 class="text-muted mb-3"><i class="bi bi-diagram-3"></i> Indirizzi IP (${cf.ip_addresses.length})</h6>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-striped">
+                            <thead><tr><th>Interfaccia</th><th>Indirizzo</th><th>Prefix</th></tr></thead>
+                            <tbody>
+                                ${cf.ip_addresses.filter(ip => !ip.address.startsWith('127.')).map(ip => '<tr><td>' + ip.interface + '</td><td><code>' + ip.address + '</code></td><td>' + (ip.prefix || '-') + '</td></tr>').join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+            }
+            
+            // Linux: Routes
+            if (cf.routes && cf.routes.length > 0) {
+                detailsHtml += `
+                    <hr>
+                    <h6 class="text-muted mb-3"><i class="bi bi-signpost-split"></i> Routing Table (${cf.routes.length})</h6>
+                    <div style="max-height: 150px; overflow-y: auto; font-family: monospace; font-size: 0.8em;">
+                        ${cf.routes.map(r => '<div>' + r + '</div>').join('')}
+                    </div>
+                `;
+            }
+            
+            // Linux: Listening Ports
+            if (cf.listening_ports && cf.listening_ports.length > 0) {
+                detailsHtml += `
+                    <hr>
+                    <h6 class="text-muted mb-3"><i class="bi bi-plug"></i> Porte in Ascolto (${cf.listening_ports.length})</h6>
+                    <div>
+                        ${cf.listening_ports.slice(0, 30).map(p => '<span class="badge bg-info me-1 mb-1">' + p + '</span>').join('')}
+                        ${cf.listening_ports.length > 30 ? '<span class="text-muted">... e altri ' + (cf.listening_ports.length - 30) + '</span>' : ''}
+                    </div>
+                `;
+            }
+            
+            // Linux: Block Devices
+            if (cf.block_devices && cf.block_devices.length > 0) {
+                detailsHtml += `
+                    <hr>
+                    <h6 class="text-muted mb-3"><i class="bi bi-device-hdd"></i> Block Devices (${cf.block_devices.length})</h6>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-striped">
+                            <thead><tr><th>Nome</th><th>Dimensione</th><th>Tipo</th><th>Modello</th></tr></thead>
+                            <tbody>
+                                ${cf.block_devices.map(bd => '<tr><td>' + bd.name + '</td><td>' + bd.size + '</td><td>' + bd.type + '</td><td>' + (bd.model || '-') + '</td></tr>').join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+            }
+            
+            // Linux: Hardware Inventory
+            if (cf.hardware_inventory) {
+                detailsHtml += `
+                    <hr>
+                    <h6 class="text-muted mb-3"><i class="bi bi-cpu"></i> Hardware Inventory</h6>
+                    <pre style="max-height: 200px; overflow-y: auto; font-size: 0.75em; background: #f8f9fa; padding: 10px; border-radius: 4px;">${cf.hardware_inventory}</pre>
+                `;
+            }
+            
+            // MikroTik: Routing Table
+            if (cf.routing_table && cf.routing_table.length > 0) {
+                detailsHtml += `
+                    <hr>
+                    <h6 class="text-muted mb-3"><i class="bi bi-signpost-split"></i> Routing Table MikroTik (${cf.routing_count || cf.routing_table.length})</h6>
+                    <div class="table-responsive" style="max-height: 250px; overflow-y: auto;">
+                        <table class="table table-sm table-striped">
+                            <thead><tr><th>Destinazione</th><th>Gateway</th><th>Distanza</th><th>Interfaccia</th></tr></thead>
+                            <tbody>
+                                ${cf.routing_table.map(r => '<tr><td><code>' + (r.dst || r['dst-address'] || '-') + '</code></td><td>' + (r.gateway || '-') + '</td><td>' + (r.distance || '-') + '</td><td>' + (r['pref-src'] || r.interface || '-') + '</td></tr>').join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+            }
+            
+            // MikroTik: ARP Table
+            if (cf.arp_table && cf.arp_table.length > 0) {
+                detailsHtml += `
+                    <hr>
+                    <h6 class="text-muted mb-3"><i class="bi bi-table"></i> ARP Table MikroTik (${cf.arp_count || cf.arp_table.length})</h6>
+                    <div class="table-responsive" style="max-height: 250px; overflow-y: auto;">
+                        <table class="table table-sm table-striped">
+                            <thead><tr><th>IP</th><th>MAC</th><th>Interfaccia</th><th>Stato</th></tr></thead>
+                            <tbody>
+                                ${cf.arp_table.slice(0, 100).map(a => '<tr><td><code>' + (a.address || '-') + '</code></td><td><small>' + (a['mac-address'] || '-') + '</small></td><td>' + (a.interface || '-') + '</td><td><span class="badge bg-' + (a.status === 'reachable' ? 'success' : 'secondary') + '">' + (a.status || '-') + '</span></td></tr>').join('')}
+                            </tbody>
+                        </table>
+                        ${cf.arp_table.length > 100 ? '<div class="text-muted text-center">Mostrati 100 di ' + cf.arp_table.length + ' entries</div>' : ''}
                     </div>
                 `;
             }
