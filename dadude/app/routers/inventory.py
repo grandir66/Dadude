@@ -240,19 +240,59 @@ async def auto_detect_device(
         logger.info(f"Auto-detect: Performing FULL port scan on {data.address}...")
         
         # Recupera credenziali SNMP disponibili per il port scan UDP 161
+        # Prima prova a recuperare la credenziale assegnata al device (se esiste)
         snmp_communities = []
-        if data.use_default_credentials:
-            default_creds = customer_service.get_default_credentials(customer_id)
-            for cred in default_creds:
-                if cred.get("type") == "snmp" and cred.get("password"):
-                    from ..services.encryption_service import get_encryption_service
-                    encryption = get_encryption_service()
-                    try:
-                        snmp_community = encryption.decrypt(cred["password"])
-                        if snmp_community and snmp_community not in snmp_communities:
-                            snmp_communities.append(snmp_community)
-                    except:
-                        pass
+        if data.device_id and data.use_assigned_credential:
+            try:
+                from ..models.inventory import InventoryDevice
+                from ..models.database import Credential as CredentialDB
+                session = customer_service._get_session()
+                try:
+                    device_record = session.query(InventoryDevice).filter(
+                        InventoryDevice.id == data.device_id
+                    ).first()
+                    
+                    if device_record and device_record.credential_id:
+                        cred = session.query(CredentialDB).filter(
+                            CredentialDB.id == device_record.credential_id
+                        ).first()
+                        
+                        if cred and cred.credential_type == "snmp" and cred.snmp_community:
+                            from ..services.encryption_service import get_encryption_service
+                            encryption = get_encryption_service()
+                            try:
+                                snmp_community = encryption.decrypt(cred.snmp_community) if cred.snmp_community else None
+                                if snmp_community and snmp_community not in snmp_communities:
+                                    snmp_communities.append(snmp_community)
+                                    logger.info(f"Auto-detect: Using assigned SNMP community for port scan")
+                            except:
+                                pass
+                finally:
+                    session.close()
+            except Exception as e:
+                logger.debug(f"Auto-detect: Error retrieving assigned SNMP credential for port scan: {e}")
+        
+        # Se non abbiamo credenziali assegnate, prova a recuperare credenziali di default SNMP
+        if not snmp_communities and data.use_default_credentials:
+            try:
+                default_snmp_cred = customer_service.get_default_credentials_by_type(
+                    customer_id=customer_id,
+                    credential_types=["snmp"]
+                )
+                if default_snmp_cred and "snmp" in default_snmp_cred:
+                    cred = default_snmp_cred["snmp"]
+                    if cred.snmp_community:
+                        from ..services.encryption_service import get_encryption_service
+                        encryption = get_encryption_service()
+                        try:
+                            snmp_community = encryption.decrypt(cred.snmp_community)
+                            if snmp_community and snmp_community not in snmp_communities:
+                                snmp_communities.append(snmp_community)
+                                logger.info(f"Auto-detect: Using default SNMP community for port scan")
+                        except:
+                            pass
+            except Exception as e:
+                logger.debug(f"Auto-detect: Error retrieving default SNMP credential for port scan: {e}")
         
         # Durante autodetect, sempre usa scan completo con tutte le porte comuni
         # Non limitare a DEFAULT_PORTS anche se viene usato un agent
