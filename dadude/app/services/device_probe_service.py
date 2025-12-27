@@ -219,7 +219,7 @@ class DeviceProbeService:
             ssh_key = credentials.get("ssh_private_key") or credentials.get("ssh_key")
             port = credentials.get("ssh_port", 22)
 
-            logger.debug(f"Attempting SSH probe on {address}:{port} with user {username}")
+            logger.info(f"SSH probe: Attempting connection to {address}:{port} with user '{username}', password={'Yes' if password else 'No'}, key={'Yes' if ssh_key else 'No'}")
             loop = asyncio.get_event_loop()
             
             def connect():
@@ -253,7 +253,9 @@ class DeviceProbeService:
                 else:
                     raise ValueError("SSH credentials require either password or private key")
 
+                logger.info(f"SSH probe: Connecting to {address}:{port}...")
                 client.connect(**connect_kwargs)
+                logger.info(f"SSH probe: ✓ Connected successfully to {address}:{port}")
                 
                 info = {}
                 device_detected = False
@@ -2076,20 +2078,25 @@ class DeviceProbeService:
                 cred_name = creds.get("name", f"credential-{idx}")
 
                 # Scegli protocolli in base al tipo credenziali
+                # IMPORTANTE: Se c'è una credenziale specifica, prova sempre quel protocollo anche senza porte aperte
                 protocols = []
                 if cred_type == "mikrotik" or cred_type == "routeros":
                     protocols = ["mikrotik_api"]
                 elif cred_type == "ssh" or cred_type == "linux":
-                    protocols = ["ssh"]
+                    protocols = ["ssh"]  # Prova sempre SSH se credenziale SSH, anche senza porte aperte
                 elif cred_type == "snmp":
                     protocols = ["snmp"]
                 elif cred_type == "wmi" or cred_type == "windows":
                     protocols = ["wmi"]
                 else:
-                    # Prova tutti i protocolli disponibili
+                    # Prova tutti i protocolli disponibili, ma se non ci sono porte aperte, prova comunque SSH/SNMP se disponibili nelle credenziali
                     protocols = result["available_protocols"]
+                    if not protocols and (creds.get("username") or creds.get("password")):
+                        # Se non ci sono protocolli rilevati ma abbiamo username/password, prova SSH
+                        protocols = ["ssh"]
+                        logger.info(f"No protocols detected, but credential has username/password - trying SSH anyway")
 
-                logger.debug(f"Testing credential '{cred_name}' (type: {cred_type}) with protocols: {protocols}")
+                logger.info(f"Testing credential '{cred_name}' (type: {cred_type}, username: {creds.get('username', 'N/A')}) with protocols: {protocols}")
                 probe_results = await self.probe_device(address, creds, protocols)
                 
                 # Arricchisci i risultati con i dati extra raccolti
