@@ -879,7 +879,7 @@ async def auto_detect_device(
                                             )
                                             session.add(vm)
                                         except Exception as vm_error:
-                                            logger.error("Error saving VM %s: %s", vm_data_clean.get('vm_id', 'unknown'), str(vm_error), exc_info=True)
+                                            logger.error("Error saving VM {}: {}", vm_data_clean.get('vm_id', 'unknown'), vm_error, exc_info=True)
                                             continue
                                     
                                     try:
@@ -945,7 +945,7 @@ async def auto_detect_device(
                     logger.info(f"Auto-detect: Saved results to device {data.device_id} - hostname={device.hostname}, os={device.os_family}, cpu={device.cpu_model}")
                     result["saved"] = True
             except Exception as save_err:
-                logger.error(f"Failed to save auto-detect results: {save_err}", exc_info=True)
+                logger.error("Failed to save auto-detect results: {}", save_err, exc_info=True)
                 session.rollback()
                 result["save_error"] = str(save_err)
             finally:
