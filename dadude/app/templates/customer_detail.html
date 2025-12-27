@@ -4570,6 +4570,16 @@ async function viewInventoryDevice(deviceId) {
             alert('Dispositivo non trovato');
             return;
         }
+        
+        // Debug: verifica cosa viene recuperato dall'API
+        console.log('Device retrieved from API:', {
+            id: device.id,
+            name: device.name,
+            device_type: device.device_type,
+            custom_fields_type: typeof device.custom_fields,
+            custom_fields_is_null: device.custom_fields === null,
+            custom_fields_keys: device.custom_fields ? (typeof device.custom_fields === 'object' ? Object.keys(device.custom_fields) : 'string') : 'none'
+        });
 
         // Crea contenuto modal
         let detailsHtml = `
