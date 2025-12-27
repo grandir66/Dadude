@@ -1075,6 +1075,279 @@ class ProxmoxCollector:
             except:
                 pass
             
+            # Raccogli temperature readings
+            temperature_summary = None
+            temperature_highest_c = None
+            try:
+                sensors_json = exec_cmd('sensors -Aj 2>/dev/null')
+                if sensors_json:
+                    try:
+                        sensors_data = json.loads(sensors_json)
+                        readings = []
+                        highest = None
+                        for chip_name, chip_data in sensors_data.items():
+                            if not isinstance(chip_data, dict):
+                                continue
+                            adapter = chip_data.get("Adapter") or chip_data.get("adapter")
+                            for sensor_name, sensor_values in chip_data.items():
+                                if not isinstance(sensor_values, dict):
+                                    continue
+                                for key, value in sensor_values.items():
+                                    if not key.endswith("_input"):
+                                        continue
+                                    try:
+                                        temp_val = float(value)
+                                        chip = chip_name
+                                        sensor = sensor_name
+                                        label = f"{sensor}"
+                                        if chip and chip != sensor:
+                                            label = f"{chip} - {sensor}"
+                                        if adapter:
+                                            label = f"{label} [{adapter}]"
+                                        label = f"{label}: {temp_val:.1f}°C"
+                                        readings.append(label)
+                                        highest = temp_val if highest is None else max(highest, temp_val)
+                                    except (ValueError, TypeError):
+                                        continue
+                        if readings:
+                            temperature_summary = readings[:20]  # Limita a 20
+                            temperature_highest_c = round(highest, 1) if highest else None
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+            except:
+                pass
+            
+            # Raccogli BIOS info
+            bios_vendor = None
+            bios_version = None
+            bios_release_date = None
+            system_manufacturer = None
+            system_product = None
+            system_serial = None
+            board_vendor = None
+            board_name = None
+            try:
+                sys_paths = {
+                    'bios_vendor': '/sys/class/dmi/id/bios_vendor',
+                    'bios_version': '/sys/class/dmi/id/bios_version',
+                    'bios_release_date': '/sys/class/dmi/id/bios_date',
+                    'system_manufacturer': '/sys/class/dmi/id/sys_vendor',
+                    'system_product': '/sys/class/dmi/id/product_name',
+                    'system_serial': '/sys/class/dmi/id/product_serial',
+                    'board_vendor': '/sys/class/dmi/id/board_vendor',
+                    'board_name': '/sys/class/dmi/id/board_name',
+                }
+                for key, path in sys_paths.items():
+                    try:
+                        value = exec_cmd(f'cat {path} 2>/dev/null')
+                        if value:
+                            value = value.strip()
+                            if key == 'bios_vendor':
+                                bios_vendor = value
+                            elif key == 'bios_version':
+                                bios_version = value
+                            elif key == 'bios_release_date':
+                                bios_release_date = value
+                            elif key == 'system_manufacturer':
+                                system_manufacturer = value
+                            elif key == 'system_product':
+                                system_product = value
+                            elif key == 'system_serial':
+                                system_serial = value
+                            elif key == 'board_vendor':
+                                board_vendor = value
+                            elif key == 'board_name':
+                                board_name = value
+                    except:
+                        continue
+                
+                # Fallback a dmidecode se necessario
+                if not bios_vendor or not bios_version:
+                    try:
+                        dmidecode_output = exec_cmd('dmidecode -t bios 2>/dev/null')
+                        if dmidecode_output:
+                            import re
+                            vendor_match = re.search(r'Vendor:\s*(.+)', dmidecode_output)
+                            version_match = re.search(r'Version:\s*(.+)', dmidecode_output)
+                            date_match = re.search(r'Release Date:\s*(.+)', dmidecode_output)
+                            if vendor_match and not bios_vendor:
+                                bios_vendor = vendor_match.group(1).strip()
+                            if version_match and not bios_version:
+                                bios_version = version_match.group(1).strip()
+                            if date_match and not bios_release_date:
+                                bios_release_date = date_match.group(1).strip()
+                    except:
+                        pass
+            except:
+                pass
+            
+            # Raccogli boot devices
+            boot_devices = None
+            boot_devices_details = None
+            boot_entries = None
+            try:
+                lsblk_output = exec_cmd('lsblk --json -o NAME,TYPE,SIZE,MOUNTPOINT,MODEL,SERIAL,FSTYPE,TRAN,ROTA,RM,PARTFLAGS 2>/dev/null')
+                if lsblk_output:
+                    try:
+                        lsblk_data = json.loads(lsblk_output)
+                        devices = []
+                        summaries = []
+                        
+                        def visit(nodes, parent_name=None):
+                            for node in nodes or []:
+                                name = node.get('name')
+                                dev_type = node.get('type')
+                                size = node.get('size')
+                                model = node.get('model')
+                                serial = node.get('serial')
+                                mountpoint = node.get('mountpoint')
+                                fstype = node.get('fstype')
+                                transport = node.get('tran')
+                                rotational = node.get('rota')
+                                removable = node.get('rm')
+                                partflags = node.get('partflags')
+                                
+                                entry = {
+                                    'name': name,
+                                    'type': dev_type,
+                                    'size': size,
+                                    'model': model,
+                                    'serial': serial,
+                                    'mountpoint': mountpoint,
+                                    'fstype': fstype,
+                                    'transport': transport,
+                                    'rotational': rotational,
+                                    'removable': removable,
+                                    'parent': parent_name,
+                                    'partflags': partflags,
+                                }
+                                
+                                flags = str(partflags or '').lower()
+                                entry['is_boot'] = bool(flags and any(flag in flags for flag in ('boot', 'esp', 'legacy_boot', 'bios_grub')))
+                                
+                                devices.append(entry)
+                                
+                                # Crea summary
+                                boot_flag = ' (boot)' if entry['is_boot'] else ''
+                                summary_parts = [name, dev_type, size]
+                                if model:
+                                    summary_parts.append(model)
+                                if serial:
+                                    summary_parts.append(serial)
+                                if mountpoint:
+                                    summary_parts.append(f'mnt:{mountpoint}')
+                                summaries.append(' | '.join(part for part in summary_parts if part) + boot_flag)
+                                
+                                children = node.get('children') or node.get('children'.upper())
+                                if children:
+                                    visit(children, name)
+                        
+                        visit(lsblk_data.get('blockdevices'))
+                        if devices:
+                            boot_devices_details = devices
+                            boot_devices = summaries[:20]  # Limita a 20
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+                
+                # Raccogli boot entries EFI
+                try:
+                    efiboot_output = exec_cmd('efibootmgr -v 2>/dev/null')
+                    if efiboot_output:
+                        entries = [line.strip() for line in efiboot_output.splitlines() if line.strip()]
+                        if entries:
+                            boot_entries = entries[:40]  # Limita a 40
+                except:
+                    pass
+            except:
+                pass
+            
+            # Raccogli hardware info via lshw
+            hardware_system = None
+            hardware_bus = None
+            hardware_memory = None
+            hardware_processor = None
+            hardware_storage = None
+            hardware_disk = None
+            hardware_volume = None
+            hardware_network = None
+            hardware_product = None
+            try:
+                lshw_output = exec_cmd('LANG=C lshw -short 2>/dev/null')
+                if lshw_output:
+                    import re
+                    sections = {}
+                    allowed_keywords = {'system', 'bus', 'memory', 'processor', 'storage', 'disk', 'volume', 'network'}
+                    
+                    for raw_line in lshw_output.splitlines():
+                        line = raw_line.rstrip()
+                        if not line or line.startswith('H/W path') or line.startswith('='):
+                            continue
+                        columns = re.split(r'\s{2,}', line.strip())
+                        if not columns:
+                            continue
+                        
+                        path = device = description = ''
+                        clazz = ''
+                        if len(columns) >= 4:
+                            path, device, clazz, description = columns[0], columns[1], columns[2], ' '.join(columns[3:])
+                        elif len(columns) == 3:
+                            path, clazz, description = columns[0], columns[1], columns[2]
+                        elif len(columns) == 2:
+                            clazz, description = columns[0], columns[1]
+                        else:
+                            continue
+                        
+                        clazz = clazz.strip().lower()
+                        if clazz == 'system' and not hardware_product and not path and not device:
+                            hardware_product = description
+                            continue
+                        if clazz not in allowed_keywords:
+                            continue
+                        
+                        entry_parts = []
+                        if device:
+                            entry_parts.append(device)
+                        entry_parts.append(description)
+                        entry = ' - '.join(part for part in entry_parts if part)
+                        sections.setdefault(clazz, []).append(f'[{entry.strip()}]')
+                    
+                    # Limita ogni sezione a 40 entries
+                    for key, entries in sections.items():
+                        sections[key] = entries[:40]
+                    
+                    hardware_system = sections.get('system')
+                    hardware_bus = sections.get('bus')
+                    hardware_memory = sections.get('memory')
+                    hardware_processor = sections.get('processor')
+                    hardware_storage = sections.get('storage')
+                    hardware_disk = sections.get('disk')
+                    hardware_volume = sections.get('volume')
+                    hardware_network = sections.get('network')
+            except:
+                pass
+            
+            # Raccogli PCI devices
+            pci_devices = None
+            try:
+                lspci_output = exec_cmd('lspci 2>/dev/null')
+                if lspci_output:
+                    lines = [line.strip() for line in lspci_output.splitlines() if line.strip()]
+                    if lines:
+                        pci_devices = lines[:30]  # Limita a 30
+            except:
+                pass
+            
+            # Raccogli USB devices
+            usb_devices = None
+            try:
+                lsusb_output = exec_cmd('lsusb 2>/dev/null')
+                if lsusb_output:
+                    lines = [line.strip() for line in lsusb_output.splitlines() if line.strip()]
+                    if lines:
+                        usb_devices = lines[:30]  # Limita a 30
+            except:
+                pass
+            
             client.close()
             
             host_info = {
@@ -1121,6 +1394,30 @@ class ProxmoxCollector:
                 'boot_mode': boot_mode,
                 'network_interfaces': network_interfaces,
                 'storage_list': storage_list,
+                'temperature_summary': temperature_summary,
+                'temperature_highest_c': temperature_highest_c,
+                'bios_vendor': bios_vendor,
+                'bios_version': bios_version,
+                'bios_release_date': bios_release_date,
+                'system_manufacturer': system_manufacturer,
+                'system_product': system_product,
+                'system_serial': system_serial,
+                'board_vendor': board_vendor,
+                'board_name': board_name,
+                'boot_devices': boot_devices,
+                'boot_devices_details': boot_devices_details,
+                'boot_entries': boot_entries,
+                'hardware_system': hardware_system,
+                'hardware_bus': hardware_bus,
+                'hardware_memory': hardware_memory,
+                'hardware_processor': hardware_processor,
+                'hardware_storage': hardware_storage,
+                'hardware_disk': hardware_disk,
+                'hardware_volume': hardware_volume,
+                'hardware_network': hardware_network,
+                'hardware_product': hardware_product,
+                'pci_devices': pci_devices,
+                'usb_devices': usb_devices,
             }
             
             logger.info(f"Successfully collected Proxmox host info via SSH for {address}: node={hostname}")

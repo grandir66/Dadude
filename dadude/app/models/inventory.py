@@ -768,6 +768,44 @@ class ProxmoxHost(Base):
     # Manager version
     manager_version = Column(String(50), nullable=True)
     
+    # Temperature
+    temperature_summary = Column(JSON, nullable=True)  # Lista temperature formattate
+    temperature_highest_c = Column(Float, nullable=True)  # Temperatura più alta
+    
+    # BIOS info
+    bios_vendor = Column(String(100), nullable=True)
+    bios_version = Column(String(100), nullable=True)
+    bios_release_date = Column(String(50), nullable=True)
+    
+    # System info
+    system_manufacturer = Column(String(100), nullable=True)
+    system_product = Column(String(200), nullable=True)
+    system_serial = Column(String(100), nullable=True)
+    
+    # Board info
+    board_vendor = Column(String(100), nullable=True)
+    board_name = Column(String(200), nullable=True)
+    
+    # Boot devices
+    boot_devices = Column(JSON, nullable=True)  # Lista formattata dispositivi boot
+    boot_devices_details = Column(JSON, nullable=True)  # Dettagli completi dispositivi boot
+    boot_entries = Column(JSON, nullable=True)  # Entries EFI boot
+    
+    # Hardware info (lshw)
+    hardware_system = Column(JSON, nullable=True)
+    hardware_bus = Column(JSON, nullable=True)
+    hardware_memory = Column(JSON, nullable=True)
+    hardware_processor = Column(JSON, nullable=True)
+    hardware_storage = Column(JSON, nullable=True)
+    hardware_disk = Column(JSON, nullable=True)
+    hardware_volume = Column(JSON, nullable=True)
+    hardware_network = Column(JSON, nullable=True)
+    hardware_product = Column(String(200), nullable=True)
+    
+    # PCI/USB devices
+    pci_devices = Column(JSON, nullable=True)  # Lista dispositivi PCI
+    usb_devices = Column(JSON, nullable=True)  # Lista dispositivi USB
+    
     last_updated = Column(DateTime, default=func.now())
     
     device = relationship("InventoryDevice")
