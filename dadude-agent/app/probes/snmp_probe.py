@@ -375,8 +375,15 @@ async def probe(
             device_type = "router"
             category = "network"
         elif any(x in sys_descr for x in ["nas", "synology", "qnap", "diskstation"]):
-            device_type = "nas"
+            device_type = "storage"
             category = "storage"
+            # Imposta os_family per Synology/QNAP
+            if "synology" in sys_descr.lower() or "diskstation" in sys_descr.lower():
+                info["os_family"] = "Linux"
+                info["os_name"] = "DSM"
+            elif "qnap" in sys_descr.lower():
+                info["os_family"] = "Linux"
+                info["os_name"] = "QTS"
         elif any(x in sys_descr for x in ["ups", "apc", "smart-ups"]):
             device_type = "ups"
             category = "power"
@@ -390,9 +397,10 @@ async def probe(
         # ==========================================
         # STORAGE INFO COLLECTION (Synology/QNAP)
         # ==========================================
-        is_storage_device = device_type == "storage" or device_type == "nas" or vendor in ["Synology", "QNAP"]
+        vendor_name = info.get("vendor", "")
+        is_storage_device = device_type == "storage" or device_type == "nas" or vendor_name in ["Synology", "QNAP"]
         
-        if is_storage_device and vendor == "Synology":
+        if is_storage_device and vendor_name == "Synology":
             logger.info(f"SNMP probe: Collecting storage info for Synology device {target}")
             storage_info = {}
             
@@ -627,7 +635,7 @@ async def probe(
             except Exception as e:
                 logger.warning(f"SNMP probe: Error collecting Synology storage info: {e}", exc_info=True)
         
-        elif is_storage_device and vendor == "QNAP":
+        elif is_storage_device and vendor_name == "QNAP":
             logger.info(f"SNMP probe: Collecting storage info for QNAP device {target}")
             storage_info = {}
             
