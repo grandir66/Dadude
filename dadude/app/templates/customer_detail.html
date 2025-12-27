@@ -4742,7 +4742,20 @@ async function viewInventoryDevice(deviceId) {
         }
 
         // Parse custom_fields for extra data
-        const cf = device.custom_fields ? (typeof device.custom_fields === 'string' ? JSON.parse(device.custom_fields) : device.custom_fields) : {};
+        let cf = {};
+        if (device.custom_fields) {
+            if (typeof device.custom_fields === 'string') {
+                try {
+                    cf = JSON.parse(device.custom_fields);
+                } catch (e) {
+                    console.warn('Error parsing custom_fields as JSON:', e);
+                    cf = {};
+                }
+            } else if (typeof device.custom_fields === 'object' && device.custom_fields !== null) {
+                cf = device.custom_fields;
+            }
+        }
+        console.log('Parsed custom_fields:', Object.keys(cf), 'running_services:', cf.running_services ? cf.running_services.length : 'not present');
         
         // Determina se mostrare tab avanzate
         // Converti sempre in stringa per evitare errori con operatori 'in'
