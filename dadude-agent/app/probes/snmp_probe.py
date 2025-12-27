@@ -464,10 +464,14 @@ async def probe(
                     
                     if lldp_neighbors:
                         info["lldp_neighbors"] = lldp_neighbors
+                        info["neighbors"] = lldp_neighbors  # Also set in neighbors for compatibility
                         info["lldp_neighbors_count"] = len(lldp_neighbors)
-                        logger.debug(f"Found {len(lldp_neighbors)} LLDP neighbors")
+                        info["neighbors_count"] = len(lldp_neighbors)
+                        logger.info(f"SNMP probe: Found {len(lldp_neighbors)} LLDP neighbors")
+                    else:
+                        logger.debug(f"SNMP probe: No LLDP neighbors found (sys_names={len(sys_names)}, local_ports={len(local_ports)})")
                 except Exception as e:
-                    logger.debug(f"LLDP query failed: {e}")
+                    logger.warning(f"SNMP probe: LLDP query failed for {target}: {e}", exc_info=True)
                 
                 # ==========================================
                 # CDP NEIGHBORS (Cisco Discovery Protocol)
