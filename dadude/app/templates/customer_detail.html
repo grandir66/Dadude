@@ -5731,6 +5731,110 @@ async function loadProxmoxInfo(deviceId) {
                                 </table>
                             </div>
                         </div>
+                        
+                        ${(hi.temperature_summary && hi.temperature_summary.length > 0) || hi.temperature_highest_c ? `
+                        <div class="row mt-3">
+                            <div class="col-12">
+                                <h6><i class="bi bi-thermometer-half"></i> Temperature</h6>
+                                ${hi.temperature_highest_c ? `<p><strong>Massima:</strong> ${hi.temperature_highest_c.toFixed(1)}°C</p>` : ''}
+                                ${hi.temperature_summary && hi.temperature_summary.length > 0 ? `
+                                    <ul class="mb-0">
+                                        ${hi.temperature_summary.slice(0, 10).map(t => `<li><small>${t}</small></li>`).join('')}
+                                    </ul>
+                                ` : ''}
+                            </div>
+                        </div>
+                        ` : ''}
+                        
+                        ${hi.bios_vendor || hi.bios_version || hi.system_manufacturer || hi.system_product ? `
+                        <div class="row mt-3">
+                            <div class="col-md-6">
+                                <h6><i class="bi bi-motherboard"></i> BIOS & System</h6>
+                                <table class="table table-sm mb-0">
+                                    ${hi.bios_vendor ? `<tr><th width="40%">BIOS Vendor:</th><td>${hi.bios_vendor}</td></tr>` : ''}
+                                    ${hi.bios_version ? `<tr><th>BIOS Version:</th><td>${hi.bios_version}</td></tr>` : ''}
+                                    ${hi.bios_release_date ? `<tr><th>BIOS Date:</th><td>${hi.bios_release_date}</td></tr>` : ''}
+                                    ${hi.system_manufacturer ? `<tr><th>Manufacturer:</th><td>${hi.system_manufacturer}</td></tr>` : ''}
+                                    ${hi.system_product ? `<tr><th>Product:</th><td>${hi.system_product}</td></tr>` : ''}
+                                    ${hi.system_serial ? `<tr><th>Serial:</th><td>${hi.system_serial}</td></tr>` : ''}
+                                    ${hi.board_vendor ? `<tr><th>Board Vendor:</th><td>${hi.board_vendor}</td></tr>` : ''}
+                                    ${hi.board_name ? `<tr><th>Board Name:</th><td>${hi.board_name}</td></tr>` : ''}
+                                </table>
+                            </div>
+                        </div>
+                        ` : ''}
+                        
+                        ${hi.boot_devices && hi.boot_devices.length > 0 ? `
+                        <div class="row mt-3">
+                            <div class="col-12">
+                                <h6><i class="bi bi-hdd"></i> Boot Devices</h6>
+                                <ul class="mb-0">
+                                    ${hi.boot_devices.slice(0, 10).map(d => `<li><small>${d}</small></li>`).join('')}
+                                </ul>
+                            </div>
+                        </div>
+                        ` : ''}
+                        
+                        ${hi.hardware_product || (hi.hardware_system && hi.hardware_system.length > 0) ? `
+                        <div class="row mt-3">
+                            <div class="col-12">
+                                <h6><i class="bi bi-cpu"></i> Hardware Info</h6>
+                                ${hi.hardware_product ? `<p><strong>Product:</strong> ${hi.hardware_product}</p>` : ''}
+                                ${hi.hardware_system && hi.hardware_system.length > 0 ? `
+                                    <p><strong>System:</strong></p>
+                                    <ul class="mb-2">
+                                        ${hi.hardware_system.slice(0, 5).map(h => `<li><small>${h}</small></li>`).join('')}
+                                    </ul>
+                                ` : ''}
+                                ${hi.hardware_processor && hi.hardware_processor.length > 0 ? `
+                                    <p><strong>Processor:</strong></p>
+                                    <ul class="mb-2">
+                                        ${hi.hardware_processor.slice(0, 5).map(h => `<li><small>${h}</small></li>`).join('')}
+                                    </ul>
+                                ` : ''}
+                                ${hi.hardware_memory && hi.hardware_memory.length > 0 ? `
+                                    <p><strong>Memory:</strong></p>
+                                    <ul class="mb-2">
+                                        ${hi.hardware_memory.slice(0, 5).map(h => `<li><small>${h}</small></li>`).join('')}
+                                    </ul>
+                                ` : ''}
+                                ${hi.hardware_disk && hi.hardware_disk.length > 0 ? `
+                                    <p><strong>Disks:</strong></p>
+                                    <ul class="mb-2">
+                                        ${hi.hardware_disk.slice(0, 5).map(h => `<li><small>${h}</small></li>`).join('')}
+                                    </ul>
+                                ` : ''}
+                                ${hi.hardware_network && hi.hardware_network.length > 0 ? `
+                                    <p><strong>Network:</strong></p>
+                                    <ul class="mb-2">
+                                        ${hi.hardware_network.slice(0, 5).map(h => `<li><small>${h}</small></li>`).join('')}
+                                    </ul>
+                                ` : ''}
+                            </div>
+                        </div>
+                        ` : ''}
+                        
+                        ${hi.pci_devices && hi.pci_devices.length > 0 ? `
+                        <div class="row mt-3">
+                            <div class="col-12">
+                                <h6><i class="bi bi-pci-card"></i> PCI Devices</h6>
+                                <ul class="mb-0">
+                                    ${hi.pci_devices.slice(0, 10).map(d => `<li><small>${d}</small></li>`).join('')}
+                                </ul>
+                            </div>
+                        </div>
+                        ` : ''}
+                        
+                        ${hi.usb_devices && hi.usb_devices.length > 0 ? `
+                        <div class="row mt-3">
+                            <div class="col-12">
+                                <h6><i class="bi bi-usb"></i> USB Devices</h6>
+                                <ul class="mb-0">
+                                    ${hi.usb_devices.slice(0, 10).map(d => `<li><small>${d}</small></li>`).join('')}
+                                </ul>
+                            </div>
+                        </div>
+                        ` : ''}
                     </div>
                 </div>
             `;
