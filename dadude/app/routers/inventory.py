@@ -907,15 +907,16 @@ async def auto_detect_device(
                                             content_types=storage_data.get("content", []),
                                         )
                                         session.add(storage)
-                                    logger.info(f"Auto-detect: Saved {len(scan_result['proxmox_storage'])} Proxmox storage for device {data.device_id}")
+                                    session.flush()  # Flush prima del commit per verificare errori
+                                    logger.info("Auto-detect: Saved %d Proxmox storage for device %s", len(scan_result['proxmox_storage']), data.device_id)
                         except Exception as e:
-                            logger.error(f"Error saving Proxmox info during auto-detect for device {data.device_id}: {e}", exc_info=True)
+                            logger.error("Error saving Proxmox info during auto-detect for device %s: %s", data.device_id, str(e), exc_info=True)
                     
                     session.commit()
                     logger.info(f"Auto-detect: Saved results to device {data.device_id} - hostname={device.hostname}, os={device.os_family}, cpu={device.cpu_model}")
                     result["saved"] = True
             except Exception as save_err:
-                logger.error(f"Failed to save auto-detect results: {save_err}", exc_info=True)
+                logger.error("Failed to save auto-detect results: %s", str(save_err), exc_info=True)
                 session.rollback()
                 result["save_error"] = str(save_err)
             finally:
