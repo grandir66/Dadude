@@ -137,6 +137,97 @@ async def probe(
             iface_count = exec_cmd("/interface print count-only")
             if iface_count.isdigit():
                 info["interface_count"] = int(iface_count)
+            
+            # ===== NEIGHBOR DISCOVERY (LLDP/CDP/MNDP) =====
+            neighbor_out = exec_cmd("/ip neighbor print detail", timeout=10)
+            if neighbor_out and "interface=" in neighbor_out:
+                neighbors = []
+                # Parse output - ogni neighbor inizia con un numero
+                current_neighbor = {}
+                for line in neighbor_out.split('\n'):
+                    line = line.strip()
+                    if not line:
+                        continue
+                    
+                    # Nuovo neighbor (inizia con numero)
+                    if line and line[0].isdigit() and 'interface=' in line:
+                        if current_neighbor:
+                            neighbors.append(current_neighbor)
+                        current_neighbor = {}
+                        # Parse la prima riga
+                        parts = line.split(' ', 1)
+                        if len(parts) > 1:
+                            line = parts[1]
+                    
+                    # Parse attributi
+                    for attr in line.split(' '):
+                        if '=' in attr:
+                            key, value = attr.split('=', 1)
+                            key = key.strip()
+                            value = value.strip().strip('"')
+                            if key == 'interface':
+                                current_neighbor['local_interface'] = value.split(',')[0]
+                            elif key == 'identity':
+                                current_neighbor['remote_device_name'] = value
+                            elif key == 'mac-address':
+                                current_neighbor['remote_mac'] = value
+                            elif key == 'address' or key == 'address4':
+                                if not current_neighbor.get('remote_ip'):
+                                    current_neighbor['remote_ip'] = value
+                            elif key == 'platform':
+                                current_neighbor['platform'] = value
+                            elif key == 'version':
+                                current_neighbor['version'] = value
+                            elif key == 'board':
+                                current_neighbor['board'] = value
+                            elif key == 'interface-name':
+                                current_neighbor['remote_interface'] = value
+                            elif key == 'discovered-by':
+                                current_neighbor['discovered_by'] = value
+                            elif key == 'uptime':
+                                current_neighbor['uptime'] = value
+                
+                if current_neighbor:
+                    neighbors.append(current_neighbor)
+                
+                if neighbors:
+                    info["neighbors"] = neighbors
+                    info["neighbors_count"] = len(neighbors)
+                    logger.info(f"SSH probe: Collected {len(neighbors)} MikroTik neighbors")
+            
+            # ===== ROUTING TABLE =====
+            routes_out = exec_cmd("/ip route print terse where active", timeout=10)
+            if routes_out:
+                routes = []
+                for line in routes_out.split('\n'):
+                    if 'dst-address=' in line:
+                        route = {}
+                        for attr in line.split(' '):
+                            if '=' in attr:
+                                key, value = attr.split('=', 1)
+                                route[key.strip()] = value.strip()
+                        if route:
+                            routes.append(route)
+                if routes:
+                    info["routing_table"] = routes
+                    info["routing_count"] = len(routes)
+            
+            # ===== ARP TABLE =====
+            arp_out = exec_cmd("/ip arp print terse", timeout=10)
+            if arp_out:
+                arp_entries = []
+                for line in arp_out.split('\n'):
+                    if 'address=' in line:
+                        entry = {}
+                        for attr in line.split(' '):
+                            if '=' in attr:
+                                key, value = attr.split('=', 1)
+                                entry[key.strip()] = value.strip()
+                        if entry:
+                            arp_entries.append(entry)
+                if arp_entries:
+                    info["arp_table"] = arp_entries
+                    info["arp_count"] = len(arp_entries)
         
         else:
             # ===== LINUX/UNIX/OTHER =====

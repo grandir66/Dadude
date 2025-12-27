@@ -1373,7 +1373,13 @@ async def auto_detect_device(
                                     device.custom_fields["arp_table"] = scan_result.get("arp_table")
                                     device.custom_fields["arp_count"] = scan_result.get("arp_count", 0)
                                 
-                                logger.info(f"Saved routing/ARP data to custom_fields for MikroTik device {data.device_id}")
+                                # Neighbors (LLDP/CDP/MNDP)
+                                if scan_result.get("neighbors"):
+                                    device.custom_fields["neighbors"] = scan_result.get("neighbors")
+                                    device.custom_fields["neighbors_count"] = scan_result.get("neighbors_count", 0)
+                                
+                                flag_modified(device, "custom_fields")
+                                logger.info(f"Saved routing/ARP/neighbors data to custom_fields for MikroTik device {data.device_id}")
                         except Exception as e:
                             logger.error(f"Error saving MikroTikDetails: {e}", exc_info=True)
                     
