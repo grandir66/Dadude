@@ -614,6 +614,7 @@ class AgentService:
         """
         Esegue auto-probe basato su porte aperte.
         Prova WMI, SNMP, SSH in ordine di priorità.
+        Se ci sono credenziali assegnate, prova anche senza porte aperte rilevate.
         """
         results = {
             "target": target,
@@ -630,6 +631,7 @@ class AgentService:
         
         # Determina quali probe fare
         open_port_nums = {p.get("port") for p in open_ports if p.get("open")}
+        logger.info(f"Agent auto_probe: Target {target}, open ports: {open_port_nums}, credentials: {[c.get('type') for c in credentials]}")
         
         # Ordine priorità: WMI (più info), SNMP, SSH
         probe_order = []
@@ -647,11 +649,14 @@ class AgentService:
                 probe_order.append(("snmp", cred))
                 break
         
-        # SSH
-        if 22 in open_port_nums:
-            for cred in credentials:
-                if cred.get("type") == "ssh":
+        # SSH - prova sempre se ci sono credenziali SSH (porta potrebbe essere filtrata o non rilevata)
+        # Se c'è una credenziale SSH assegnata, prova sempre SSH anche senza porte aperte
+        for cred in credentials:
+            if cred.get("type") == "ssh":
+                # Prova SSH se porta 22 è aperta OPPURE se non ci sono porte aperte (fallback)
+                if 22 in open_port_nums or len(open_port_nums) == 0:
                     probe_order.append(("ssh", cred))
+                    logger.info(f"Agent auto_probe: Adding SSH probe for {target} (port 22 {'detected' if 22 in open_port_nums else 'not detected, trying anyway'})")
                     break
         
         # Esegui probe
