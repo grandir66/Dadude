@@ -907,8 +907,13 @@ async def auto_detect_device(
                                             content_types=storage_data.get("content", []),
                                         )
                                         session.add(storage)
-                                    session.flush()  # Flush prima del commit per verificare errori
-                                    logger.info("Auto-detect: Saved %d Proxmox storage for device %s", len(scan_result['proxmox_storage']), data.device_id)
+                                    
+                                    try:
+                                        session.flush()  # Flush prima del commit per verificare errori
+                                        logger.info("Auto-detect: Flushed %d Proxmox storage for device %s", len(scan_result['proxmox_storage']), data.device_id)
+                                    except Exception as flush_error:
+                                        logger.error("Error flushing storage to database: %s", str(flush_error), exc_info=True)
+                                        raise
                         except Exception as e:
                             logger.error("Error saving Proxmox info during auto-detect for device %s: %s", data.device_id, str(e), exc_info=True)
                     
