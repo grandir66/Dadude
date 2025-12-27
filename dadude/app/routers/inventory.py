@@ -944,58 +944,63 @@ async def auto_detect_device(
                             extra_info = scan_result
                             logger.info(f"Saving WindowsDetails for device {data.device_id}, scan_result keys: {list(scan_result.keys())[:20]}")
                             
-                            # Estrai dati Windows da extra_info o da scan_result direttamente
+                            # Estrai dati Windows da scan_result (contiene tutti i dati mergeati)
                             windows_data = {}
                             
-                            # Dati OS
-                            if scan_result.get("os_version") or extra_info.get("version"):
-                                windows_data["edition"] = extra_info.get("name", "").split("(")[0].strip() if extra_info.get("name") else None
+                            # Dati OS - usa scan_result che contiene tutti i dati mergeati
+                            os_name = scan_result.get("name") or scan_result.get("os_name") or scan_result.get("caption")
+                            if os_name:
+                                windows_data["edition"] = str(os_name).split("(")[0].strip()
+                            elif scan_result.get("os_version") or scan_result.get("version"):
+                                # Se non c'è il nome completo, usa almeno la versione
+                                windows_data["edition"] = scan_result.get("os_version") or scan_result.get("version")
                             
-                            # Domain info
-                            if extra_info.get("domain"):
-                                windows_data["domain_name"] = extra_info.get("domain")
+                            # Domain info - usa scan_result direttamente
+                            if scan_result.get("domain"):
+                                windows_data["domain_name"] = scan_result.get("domain")
                                 # Determina domain role
-                                if extra_info.get("is_domain_controller"):
+                                if scan_result.get("is_domain_controller"):
                                     windows_data["domain_role"] = "DC"
-                                elif extra_info.get("server_roles") and any("Active Directory" in r or "Domain Controller" in r for r in extra_info.get("server_roles", [])):
+                                elif scan_result.get("server_roles") and any("Active Directory" in str(r) or "Domain Controller" in str(r) for r in scan_result.get("server_roles", [])):
                                     windows_data["domain_role"] = "DC"
                                 else:
                                     windows_data["domain_role"] = "Workstation" if device.category == "workstation" else "Member Server"
                             
                             # BIOS
-                            if extra_info.get("bios_version") or extra_info.get("bios_serial"):
-                                windows_data["bios_version"] = extra_info.get("bios_version")
+                            if scan_result.get("bios_version"):
+                                windows_data["bios_version"] = scan_result.get("bios_version")
                             
                             # Updates e reboot
-                            if extra_info.get("last_boot"):
+                            if scan_result.get("last_boot"):
                                 try:
                                     from datetime import datetime
                                     # WMI restituisce formato WMI datetime
-                                    boot_str = str(extra_info.get("last_boot"))
+                                    boot_str = str(scan_result.get("last_boot"))
                                     if boot_str:
                                         windows_data["last_reboot"] = datetime.now()  # Placeholder, parsing WMI datetime è complesso
                                 except:
                                     pass
                             
                             # Antivirus
-                            if extra_info.get("antivirus_name") or extra_info.get("antivirus_status"):
-                                windows_data["antivirus_name"] = extra_info.get("antivirus_name")
-                                windows_data["antivirus_status"] = extra_info.get("antivirus_status")
+                            if scan_result.get("antivirus_name"):
+                                windows_data["antivirus_name"] = scan_result.get("antivirus_name")
+                            if scan_result.get("antivirus_status"):
+                                windows_data["antivirus_status"] = scan_result.get("antivirus_status")
                             
                             # Users
-                            if extra_info.get("local_admins"):
-                                windows_data["local_admins"] = extra_info.get("local_admins")
-                            if extra_info.get("logged_users"):
-                                windows_data["logged_users"] = extra_info.get("logged_users")
+                            if scan_result.get("local_admins"):
+                                windows_data["local_admins"] = scan_result.get("local_admins")
+                            if scan_result.get("logged_users"):
+                                windows_data["logged_users"] = scan_result.get("logged_users")
                             
                             # Software installato
-                            if extra_info.get("installed_software"):
+                            if scan_result.get("installed_software"):
                                 from ..models.inventory import InstalledSoftware
                                 # Elimina vecchio software
                                 session.query(InstalledSoftware).filter(InstalledSoftware.device_id == data.device_id).delete()
                                 
-                                # Salva nuovo software
-                                for sw in extra_info.get("installed_software", [])[:50]:  # Limita a 50 per evitare troppi dati
+                                # Salva nuovo software - usa scan_result direttamente
+                                for sw in scan_result.get("installed_software", [])[:50]:  # Limita a 50 per evitare troppi dati
                                     try:
                                         sw_obj = InstalledSoftware(
                                             id=uuid.uuid4().hex[:8],
