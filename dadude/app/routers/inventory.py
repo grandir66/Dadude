@@ -475,7 +475,10 @@ async def auto_detect_device(
                                     scan_result["proxmox_storage"] = storage
                             logger.info(f"Collected advanced Proxmox info during auto-detect")
                     
-                    if is_network and not scan_result.get("lldp_neighbors"):
+                    # LLDP/CDP per dispositivi di rete (escluso MikroTik che ha logica separata)
+                    is_mikrotik_for_lldp = device_type == "mikrotik" or "mikrotik" in vendor or "mikrotik" in os_family or scan_result.get("os_family", "").lower() == "routeros"
+                    if is_network and not is_mikrotik_for_lldp and not scan_result.get("lldp_neighbors"):
+                        logger.info(f"Collecting LLDP/CDP for network device (device_type={device_type}, vendor={vendor})...")
                         from ..services.lldp_cdp_collector import get_lldp_cdp_collector
                         lldp_collector = get_lldp_cdp_collector()
                         
@@ -486,19 +489,46 @@ async def auto_detect_device(
                         lldp_neighbors = await lldp_collector.collect_lldp_neighbors(data.address, device_type, vendor, working_creds)
                         if lldp_neighbors:
                             scan_result["lldp_neighbors"] = lldp_neighbors
+                            logger.info(f"✓ Collected {len(lldp_neighbors)} LLDP neighbors")
                         
                         if "cisco" in vendor:
                             cdp_neighbors = await lldp_collector.collect_cdp_neighbors(data.address, vendor, working_creds)
                             if cdp_neighbors:
                                 scan_result["cdp_neighbors"] = cdp_neighbors
+                                logger.info(f"✓ Collected {len(cdp_neighbors)} CDP neighbors")
                         
                         interfaces = await lldp_collector.collect_interface_details(data.address, device_type, vendor, working_creds)
                         if interfaces:
                             scan_result["interface_details"] = interfaces
+                            logger.info(f"✓ Collected {len(interfaces)} interface details")
                         logger.info(f"Collected advanced network info during auto-detect")
                     
+                    # LLDP per MikroTik (MikroTik supporta LLDP)
+                    if is_mikrotik_for_lldp and not scan_result.get("lldp_neighbors"):
+                        logger.info(f"Collecting LLDP for MikroTik device...")
+                        from ..services.lldp_cdp_collector import get_lldp_cdp_collector
+                        lldp_collector = get_lldp_cdp_collector()
+                        
+                        working_creds = [c for c in credentials_list if c.get("id") in [ct.get("id") for ct in result.get("credentials_tested", [])]]
+                        if not working_creds:
+                            working_creds = credentials_list
+                        
+                        if working_creds:
+                            try:
+                                lldp_neighbors = await lldp_collector.collect_lldp_neighbors(data.address, "mikrotik", vendor, working_creds)
+                                if lldp_neighbors:
+                                    scan_result["lldp_neighbors"] = lldp_neighbors
+                                    logger.info(f"✓ Collected {len(lldp_neighbors)} LLDP neighbors for MikroTik")
+                                else:
+                                    logger.debug(f"No LLDP neighbors found for MikroTik")
+                            except Exception as e:
+                                logger.error(f"Error collecting LLDP for MikroTik: {e}", exc_info=True)
+                    
                     # MikroTik: raccogli routing e ARP durante auto-detect
-                    if device_type == "mikrotik" or "mikrotik" in vendor:
+                    # MikroTik può essere identificato come device_type="mikrotik" o come network device con vendor="MikroTik"
+                    is_mikrotik = device_type == "mikrotik" or "mikrotik" in vendor or "mikrotik" in os_family or scan_result.get("os_family", "").lower() == "routeros"
+                    if is_mikrotik:
+                        logger.info(f"Detected MikroTik device (device_type={device_type}, vendor={vendor}, os_family={os_family}), collecting routing/ARP...")
                         from ..services.mikrotik_service import get_mikrotik_service
                         import json
                         mikrotik_service = get_mikrotik_service()
@@ -509,6 +539,7 @@ async def auto_detect_device(
                         
                         if working_creds:
                             cred = working_creds[0]
+                            logger.info(f"Using credential '{cred.get('name', 'unknown')}' for MikroTik data collection on {data.address}")
                             
                             # Raccogli routing table
                             try:
@@ -523,9 +554,11 @@ async def auto_detect_device(
                                 if routes_result.get("success") and routes_result.get("routes"):
                                     scan_result["routing_table"] = routes_result.get("routes")
                                     scan_result["routing_count"] = routes_result.get("count", 0)
-                                    logger.info(f"Collected {routes_result.get('count', 0)} routing entries for MikroTik during auto-detect")
+                                    logger.info(f"✓ Collected {routes_result.get('count', 0)} routing entries for MikroTik during auto-detect")
+                                else:
+                                    logger.warning(f"Routing collection returned: success={routes_result.get('success')}, routes={routes_result.get('routes') is not None}, error={routes_result.get('error')}")
                             except Exception as e:
-                                logger.debug(f"Error collecting routing table during auto-detect: {e}")
+                                logger.error(f"Error collecting routing table during auto-detect: {e}", exc_info=True)
                             
                             # Raccogli ARP table completa
                             try:
@@ -555,9 +588,15 @@ async def auto_detect_device(
                                 if arp_entries:
                                     scan_result["arp_table"] = arp_entries
                                     scan_result["arp_count"] = len(arp_entries)
-                                    logger.info(f"Collected {len(arp_entries)} ARP entries for MikroTik during auto-detect")
+                                    logger.info(f"✓ Collected {len(arp_entries)} ARP entries for MikroTik during auto-detect")
+                                else:
+                                    logger.warning(f"No ARP entries found for MikroTik device")
                             except Exception as e:
-                                logger.debug(f"Error collecting ARP table during auto-detect: {e}")
+                                logger.error(f"Error collecting ARP table during auto-detect: {e}", exc_info=True)
+                        else:
+                            logger.warning(f"No credentials available for MikroTik data collection on {data.address}")
+                    else:
+                        logger.debug(f"Device not identified as MikroTik (device_type={device_type}, vendor={vendor}, os_family={os_family})")
                 except Exception as e:
                     logger.warning(f"Error collecting advanced info during auto-detect: {e}", exc_info=True)
         
