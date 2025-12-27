@@ -3572,7 +3572,7 @@ async def refresh_advanced_info(customer_id: str, device_id: str):
                                     session.commit()  # Commit solo dell'host
                                     logger.info(f"Host info committed despite VM save failure")
                                 except Exception as commit_error:
-                                    logger.error(f"Error committing host after VM failure: {commit_error}", exc_info=True)
+                                    logger.error("Error committing host after VM failure: %s", str(commit_error), exc_info=True)
                                     session.rollback()
                                 # Continua con lo storage anche se le VM sono fallite
                                 logger.warning(f"VM save failed, continuing with storage collection")

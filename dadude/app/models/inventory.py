@@ -3,7 +3,7 @@ DaDude - Inventory Models
 Database models per inventario dispositivi: Windows, Linux, Network Devices, MikroTik
 """
 from sqlalchemy import (
-    Column, String, Integer, Float, Boolean, DateTime, Text, JSON,
+    Column, String, Integer, BigInteger, Float, Boolean, DateTime, Text, JSON,
     ForeignKey, Index, Enum as SQLEnum
 )
 from sqlalchemy.orm import relationship
@@ -818,11 +818,11 @@ class ProxmoxVM(Base):
     # Performance metrics
     uptime = Column(Integer, nullable=True)  # Uptime in secondi
     cpu_usage = Column(Float, nullable=True)  # CPU usage percentuale
-    mem_used = Column(Integer, nullable=True)  # Memoria usata in bytes
-    netin = Column(Integer, nullable=True)  # Network in bytes
-    netout = Column(Integer, nullable=True)  # Network out bytes
-    diskread = Column(Integer, nullable=True)  # Disk read bytes
-    diskwrite = Column(Integer, nullable=True)  # Disk write bytes
+    mem_used = Column(BigInteger, nullable=True)  # Memoria usata in bytes (può superare INTEGER max)
+    netin = Column(BigInteger, nullable=True)  # Network in bytes (può superare INTEGER max)
+    netout = Column(BigInteger, nullable=True)  # Network out bytes (può superare INTEGER max)
+    diskread = Column(BigInteger, nullable=True)  # Disk read bytes (può superare INTEGER max)
+    diskwrite = Column(BigInteger, nullable=True)  # Disk write bytes (può superare INTEGER max)
     
     backup_enabled = Column(Boolean, nullable=True)
     last_backup = Column(DateTime, nullable=True)
