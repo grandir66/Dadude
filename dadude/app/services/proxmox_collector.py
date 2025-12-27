@@ -1245,7 +1245,9 @@ class ProxmoxCollector:
                                 disk_details = []
                                 for key in config:
                                     if key.startswith(('scsi', 'sata', 'ide', 'virtio')):
-                                        disks.append(key)
+                                        # Assicurati che key sia una stringa valida
+                                        if isinstance(key, str) and key:
+                                            disks.append(key)
                                         disk_info = config[key]
                                         if isinstance(disk_info, str):
                                             disk_detail = {'id': key}
@@ -1272,7 +1274,13 @@ class ProxmoxCollector:
                                             disk_details.append(disk_detail)
                                 
                                 vm_data['num_disks'] = len(disks)
-                                vm_data['disks'] = ', '.join(disks) if disks else None
+                                # Limita la lunghezza di disks a 500 caratteri per il campo VARCHAR(500)
+                                # Filtra solo stringhe valide prima del join
+                                disks_valid = [str(d) for d in disks if d]
+                                disks_str = ', '.join(disks_valid) if disks_valid else None
+                                if disks_str and len(disks_str) > 500:
+                                    disks_str = disks_str[:497] + '...'
+                                vm_data['disks'] = disks_str
                                 vm_data['disks_details'] = disk_details if disk_details else []
                                 
                                 # Network dettagliati (come Proxreporter)
@@ -1280,7 +1288,9 @@ class ProxmoxCollector:
                                 network_details = []
                                 for key in config:
                                     if key.startswith('net'):
-                                        networks.append(key)
+                                        # Assicurati che key sia una stringa valida
+                                        if isinstance(key, str) and key:
+                                            networks.append(key)
                                         net_info = config[key]
                                         if isinstance(net_info, str):
                                             net_detail = {'id': key}
@@ -1306,7 +1316,13 @@ class ProxmoxCollector:
                                             network_details.append(net_detail)
                                 
                                 vm_data['num_networks'] = len(networks)
-                                vm_data['networks'] = ', '.join(networks) if networks else None
+                                # Limita la lunghezza di networks a 500 caratteri per il campo VARCHAR(500)
+                                # Filtra solo stringhe valide prima del join
+                                networks_valid = [str(n) for n in networks if n]
+                                networks_str = ', '.join(networks_valid) if networks_valid else None
+                                if networks_str and len(networks_str) > 500:
+                                    networks_str = networks_str[:497] + '...'
+                                vm_data['networks'] = networks_str
                                 vm_data['network_interfaces'] = network_details if network_details else []
                             except Exception as e:
                                 logger.debug(f"Failed to parse VM config for {vmid}: {e}")
@@ -1359,7 +1375,11 @@ class ProxmoxCollector:
                                 seen.add(ip)
                                 unique_ips.append(ip)
                         
-                        vm_data['ip_addresses'] = '; '.join(unique_ips) if unique_ips else None
+                        # Limita la lunghezza di ip_addresses a 500 caratteri per il campo VARCHAR(500)
+                        ip_addresses_str = '; '.join(unique_ips) if unique_ips else None
+                        if ip_addresses_str and len(ip_addresses_str) > 500:
+                            ip_addresses_str = ip_addresses_str[:497] + '...'
+                        vm_data['ip_addresses'] = ip_addresses_str
                         
                         vms.append(vm_data)
                 except Exception as e:
@@ -1470,7 +1490,11 @@ class ProxmoxCollector:
                                 seen.add(ip)
                                 unique_ips.append(ip)
                         
-                        lxc_data['ip_addresses'] = '; '.join(unique_ips) if unique_ips else None
+                        # Limita la lunghezza di ip_addresses a 500 caratteri per il campo VARCHAR(500)
+                        ip_addresses_str = '; '.join(unique_ips) if unique_ips else None
+                        if ip_addresses_str and len(ip_addresses_str) > 500:
+                            ip_addresses_str = ip_addresses_str[:497] + '...'
+                        lxc_data['ip_addresses'] = ip_addresses_str
                         
                         vms.append(lxc_data)
                 except Exception as e:

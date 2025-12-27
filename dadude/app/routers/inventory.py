@@ -3559,9 +3559,10 @@ async def refresh_advanced_info(customer_id: str, device_id: str):
                                 session.flush()  # Flush per verificare errori prima del commit finale
                                 logger.info(f"Saved {len(vms)} Proxmox VMs for device {device_id}")
                             except Exception as flush_error:
-                                logger.error(f"Error flushing VMs to database: {flush_error}", exc_info=True)
+                                # Usa %s invece di f-string per evitare problemi con caratteri speciali nel messaggio
+                                logger.error("Error flushing VMs to database: %s", str(flush_error), exc_info=True)
                                 import traceback
-                                logger.error(f"VM flush traceback: {traceback.format_exc()}")
+                                logger.error("VM flush traceback: %s", traceback.format_exc())
                                 # Commit parziale: salva solo l'host, non le VM
                                 try:
                                     # Rimuovi le VM dalla sessione per evitare che vengano incluse nel commit
