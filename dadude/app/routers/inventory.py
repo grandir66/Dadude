@@ -3491,41 +3491,68 @@ async def refresh_advanced_info(customer_id: str, device_id: str):
                             
                             # Salva nuove VM con tutti i campi da Proxreporter
                             for vm_data in vms:
-                                vm = ProxmoxVM(
-                                    id=uuid.uuid4().hex[:8],
-                                    host_id=host_id,
-                                    vm_id=vm_data.get("vm_id", vm_data.get("vmid", 0)),
-                                    vm_type=vm_data.get("type"),  # qemu, lxc
-                                    name=vm_data.get("name", ""),
-                                    status=vm_data.get("status"),
-                                    cpu_cores=vm_data.get("cpu_cores"),
-                                    cpu_sockets=vm_data.get("cpu_sockets"),
-                                    cpu_total=vm_data.get("cpu_total"),
-                                    memory_mb=vm_data.get("memory_mb", vm_data.get("memory_total_mb")),
-                                    disk_total_gb=vm_data.get("disk_total_gb"),
-                                    bios=vm_data.get("bios"),
-                                    machine=vm_data.get("machine"),
-                                    agent_installed=vm_data.get("agent_installed"),
-                                    network_interfaces=vm_data.get("network_interfaces"),
-                                    num_networks=vm_data.get("num_networks"),
-                                    networks=vm_data.get("networks"),
-                                    ip_addresses=vm_data.get("ip_addresses"),
-                                    num_disks=vm_data.get("num_disks"),
-                                    disks=vm_data.get("disks"),
-                                    disks_details=vm_data.get("disks_details"),
-                                    os_type=vm_data.get("os_type", vm_data.get("guest_os")),
-                                    template=vm_data.get("template", False),
-                                    uptime=vm_data.get("uptime"),
-                                    cpu_usage=vm_data.get("cpu_usage"),
-                                    mem_used=vm_data.get("mem_used"),
-                                    netin=vm_data.get("netin"),
-                                    netout=vm_data.get("netout"),
-                                    diskread=vm_data.get("diskread"),
-                                    diskwrite=vm_data.get("diskwrite"),
-                                )
-                                session.add(vm)
+                                try:
+                                    # Converti valori numerici esplicitamente
+                                    def safe_int(value):
+                                        if value is None:
+                                            return None
+                                        try:
+                                            return int(value)
+                                        except (ValueError, TypeError):
+                                            return None
+                                    
+                                    def safe_float(value):
+                                        if value is None:
+                                            return None
+                                        try:
+                                            return float(value)
+                                        except (ValueError, TypeError):
+                                            return None
+                                    
+                                    vm = ProxmoxVM(
+                                        id=uuid.uuid4().hex[:8],
+                                        host_id=host_id,
+                                        vm_id=safe_int(vm_data.get("vm_id", vm_data.get("vmid", 0))),
+                                        vm_type=vm_data.get("type"),  # qemu, lxc
+                                        name=vm_data.get("name", ""),
+                                        status=vm_data.get("status"),
+                                        cpu_cores=safe_int(vm_data.get("cpu_cores")),
+                                        cpu_sockets=safe_int(vm_data.get("cpu_sockets")),
+                                        cpu_total=safe_int(vm_data.get("cpu_total")),
+                                        memory_mb=safe_int(vm_data.get("memory_mb", vm_data.get("memory_total_mb"))),
+                                        disk_total_gb=safe_float(vm_data.get("disk_total_gb")),
+                                        bios=vm_data.get("bios"),
+                                        machine=vm_data.get("machine"),
+                                        agent_installed=vm_data.get("agent_installed"),
+                                        network_interfaces=vm_data.get("network_interfaces"),
+                                        num_networks=safe_int(vm_data.get("num_networks")),
+                                        networks=vm_data.get("networks"),
+                                        ip_addresses=vm_data.get("ip_addresses"),
+                                        num_disks=safe_int(vm_data.get("num_disks")),
+                                        disks=vm_data.get("disks"),
+                                        disks_details=vm_data.get("disks_details"),
+                                        os_type=vm_data.get("os_type", vm_data.get("guest_os")),
+                                        template=vm_data.get("template", False),
+                                        uptime=safe_int(vm_data.get("uptime")),
+                                        cpu_usage=safe_float(vm_data.get("cpu_usage")),
+                                        mem_used=safe_int(vm_data.get("mem_used")),
+                                        netin=safe_int(vm_data.get("netin")),
+                                        netout=safe_int(vm_data.get("netout")),
+                                        diskread=safe_int(vm_data.get("diskread")),
+                                        diskwrite=safe_int(vm_data.get("diskwrite")),
+                                    )
+                                    session.add(vm)
+                                except Exception as vm_error:
+                                    logger.error(f"Error saving VM {vm_data.get('vm_id', 'unknown')}: {vm_error}", exc_info=True)
+                                    continue
                             
-                            logger.info(f"Saved {len(vms)} Proxmox VMs for device {device_id}")
+                            try:
+                                session.flush()  # Flush per verificare errori prima del commit finale
+                                logger.info(f"Saved {len(vms)} Proxmox VMs for device {device_id}")
+                            except Exception as flush_error:
+                                logger.error(f"Error flushing VMs to database: {flush_error}", exc_info=True)
+                                session.rollback()
+                                raise
                         else:
                             logger.warning(f"No VMs collected for device {device_id}")
                         
@@ -3540,27 +3567,37 @@ async def refresh_advanced_info(customer_id: str, device_id: str):
                             
                             # Salva nuovo storage
                             for storage_data in storage_list:
-                                # Calcola usage_percent se disponibile
-                                usage_percent = None
-                                total_gb = storage_data.get("total_gb")
-                                used_gb = storage_data.get("used_gb")
-                                if total_gb and used_gb and total_gb > 0:
-                                    usage_percent = round((used_gb / total_gb) * 100, 2)
-                                
-                                storage = ProxmoxStorage(
-                                    id=uuid.uuid4().hex[:8],
-                                    host_id=host_id,
-                                    storage_name=storage_data.get("storage", storage_data.get("storage_name", "")),
-                                    storage_type=storage_data.get("type", storage_data.get("storage_type")),
-                                    total_gb=total_gb,
-                                    used_gb=used_gb,
-                                    available_gb=storage_data.get("available_gb", storage_data.get("free_gb")),
-                                    usage_percent=usage_percent,
-                                    content_types=storage_data.get("content", storage_data.get("content_types", [])),
-                                )
-                                session.add(storage)
+                                try:
+                                    # Calcola usage_percent se disponibile
+                                    usage_percent = None
+                                    total_gb = storage_data.get("total_gb")
+                                    used_gb = storage_data.get("used_gb")
+                                    if total_gb and used_gb and total_gb > 0:
+                                        usage_percent = round((used_gb / total_gb) * 100, 2)
+                                    
+                                    storage = ProxmoxStorage(
+                                        id=uuid.uuid4().hex[:8],
+                                        host_id=host_id,
+                                        storage_name=storage_data.get("storage", storage_data.get("storage_name", "")),
+                                        storage_type=storage_data.get("type", storage_data.get("storage_type")),
+                                        total_gb=total_gb,
+                                        used_gb=used_gb,
+                                        available_gb=storage_data.get("available_gb", storage_data.get("free_gb")),
+                                        usage_percent=usage_percent,
+                                        content_types=storage_data.get("content", storage_data.get("content_types", [])),
+                                    )
+                                    session.add(storage)
+                                except Exception as storage_error:
+                                    logger.error(f"Error saving storage {storage_data.get('storage_name', 'unknown')}: {storage_error}", exc_info=True)
+                                    continue
                             
-                            logger.info(f"Saved {len(storage_list)} Proxmox storage for device {device_id}")
+                            try:
+                                session.flush()  # Flush per verificare errori prima del commit finale
+                                logger.info(f"Saved {len(storage_list)} Proxmox storage for device {device_id}")
+                            except Exception as flush_error:
+                                logger.error(f"Error flushing storage to database: {flush_error}", exc_info=True)
+                                session.rollback()
+                                raise
                         else:
                             logger.warning(f"No storage collected for device {device_id}")
                 else:
@@ -3568,6 +3605,8 @@ async def refresh_advanced_info(customer_id: str, device_id: str):
                 
             except Exception as e:
                 logger.error(f"Error collecting Proxmox info for device {device_id}: {e}", exc_info=True)
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
         
         if not is_network_device and not is_proxmox:
             logger.info(f"Device {device_id} (type={device_type}, vendor={vendor}) does not match network or Proxmox criteria, skipping advanced info collection")
