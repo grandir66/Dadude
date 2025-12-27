@@ -368,8 +368,23 @@ class CommandHandler:
             result = await self._snmp_probe.probe(
                 target, community, version, port
             )
+            
+            # Log what fields are being returned
+            basic_fields = ['sysDescr', 'sysName', 'sysObjectID', 'device_type', 'category', 'vendor', 'manufacturer', 'model', 'serial_number', 'firmware_version', 'interface_count', 'uptime_formatted']
+            advanced_fields = ['neighbors', 'lldp_neighbors', 'cdp_neighbors', 'routing_table', 'arp_table', 'interfaces', 'interface_details']
+            returned_basic = [f for f in basic_fields if f in result]
+            returned_advanced = [f for f in advanced_fields if f in result]
+            
+            logger.info(f"SNMP probe handler: Returning {len(result)} fields for {target}")
+            logger.info(f"SNMP probe handler: Basic fields: {len(returned_basic)}/{len(basic_fields)}, Advanced fields: {len(returned_advanced)}/{len(advanced_fields)}")
+            if returned_advanced:
+                logger.info(f"SNMP probe handler: Advanced data returned: {returned_advanced}")
+            else:
+                logger.warning(f"SNMP probe handler: No advanced data returned for {target} (device_type={result.get('device_type')}, is_network={result.get('device_type') in ['router', 'switch', 'ap', 'network']})")
+            
             return CommandResult(success=True, status="success", data=result)
         except Exception as e:
+            logger.error(f"SNMP probe handler error: {e}", exc_info=True)
             return CommandResult(success=False, status="error", error=str(e))
     
     async def _get_arp_table(self, params: Dict) -> CommandResult:
