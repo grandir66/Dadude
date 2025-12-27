@@ -5529,10 +5529,25 @@ async function loadLLDPNeighbors(deviceId) {
     content.innerHTML = '<div class="spinner-border spinner-border-sm me-2"></div>Caricamento...';
     
     try {
-        const response = await fetch(`/api/v1/inventory/${customerId}/devices/${deviceId}/lldp-neighbors`);
-        const data = await response.json();
+        // Carica i dati del device (già disponibili nel modal)
+        const response = await fetch(`/api/v1/inventory/devices/${deviceId}`);
+        const device = await response.json();
         
-        if (data.success && data.neighbors && data.neighbors.length > 0) {
+        // Estrai neighbors da custom_fields
+        let neighbors = [];
+        if (device.custom_fields) {
+            let cf = device.custom_fields;
+            if (typeof cf === 'string') {
+                try {
+                    cf = JSON.parse(cf);
+                } catch (e) {
+                    cf = {};
+                }
+            }
+            neighbors = cf.neighbors || cf.lldp_neighbors || [];
+        }
+        
+        if (neighbors && neighbors.length > 0) {
             content.innerHTML = `
                 <div class="table-responsive">
                     <table class="table table-sm table-striped">
@@ -5544,35 +5559,36 @@ async function loadLLDPNeighbors(deviceId) {
                                 <th>MAC Remoto</th>
                                 <th>IP Remoto</th>
                                 <th>Chassis ID</th>
-                                <th>Ultimo Visto</th>
+                                <th>Scoperto via</th>
                             </tr>
                         </thead>
                         <tbody>
-                            ${data.neighbors.map(n => `
+                            ${neighbors.map(n => `
                                 <tr>
-                                    <td><code>${n.local_interface}</code></td>
+                                    <td><code>${n.local_interface || '-'}</code></td>
                                     <td>
-                                        <strong>${n.remote_device_name || '-'}</strong>
-                                        ${n.remote_device_description ? '<br><small class="text-muted">' + n.remote_device_description + '</small>' : ''}
+                                        <strong>${n.remote_device_name || n.identity || '-'}</strong>
+                                        ${n.platform ? '<br><small class="text-muted">' + n.platform + '</small>' : ''}
+                                        ${n.version ? '<br><small class="text-muted">' + n.version.substring(0, 50) + '</small>' : ''}
                                     </td>
-                                    <td>${n.remote_port || '-'}</td>
-                                    <td><code class="small">${n.remote_mac || '-'}</code></td>
-                                    <td><code class="small">${n.remote_ip || '-'}</code></td>
+                                    <td>${n.remote_port || n.remote_interface || '-'}</td>
+                                    <td><code class="small">${n.remote_mac || n['mac-address'] || '-'}</code></td>
+                                    <td><code class="small">${n.remote_ip || n.address || '-'}</code></td>
                                     <td><code class="small">${n.chassis_id || '-'}</code></td>
-                                    <td><small>${n.last_seen ? new Date(n.last_seen).toLocaleString('it-IT') : '-'}</small></td>
+                                    <td><span class="badge bg-info">${n.discovered_by || 'lldp'}</span></td>
                                 </tr>
                             `).join('')}
                         </tbody>
                     </table>
                 </div>
                 <div class="mt-2 text-muted small">
-                    <i class="bi bi-info-circle"></i> Trovati ${data.count || data.neighbors.length} neighbor LLDP
+                    <i class="bi bi-info-circle"></i> Trovati ${neighbors.length} neighbor LLDP/CDP
                 </div>
             `;
         } else {
             content.innerHTML = `
                 <div class="alert alert-info">
-                    <i class="bi bi-info-circle"></i> Nessun neighbor LLDP trovato.
+                    <i class="bi bi-info-circle"></i> Nessun neighbor LLDP/CDP trovato.
                     <br><small>I dati vengono raccolti automaticamente durante l'autodetect.</small>
                 </div>
             `;
@@ -5589,10 +5605,26 @@ async function loadCDPNeighbors(deviceId) {
     content.innerHTML = '<div class="spinner-border spinner-border-sm me-2"></div>Caricamento...';
     
     try {
-        const response = await fetch(`/api/v1/inventory/${customerId}/devices/${deviceId}/cdp-neighbors`);
-        const data = await response.json();
+        // Carica i dati del device (già disponibili nel modal)
+        const response = await fetch(`/api/v1/inventory/devices/${deviceId}`);
+        const device = await response.json();
         
-        if (data.success && data.neighbors && data.neighbors.length > 0) {
+        // Estrai neighbors da custom_fields (filtra solo CDP)
+        let neighbors = [];
+        if (device.custom_fields) {
+            let cf = device.custom_fields;
+            if (typeof cf === 'string') {
+                try {
+                    cf = JSON.parse(cf);
+                } catch (e) {
+                    cf = {};
+                }
+            }
+            const allNeighbors = cf.neighbors || cf.cdp_neighbors || [];
+            neighbors = allNeighbors.filter(n => (n.discovered_by || '').toLowerCase().includes('cdp'));
+        }
+        
+        if (neighbors && neighbors.length > 0) {
             content.innerHTML = `
                 <div class="table-responsive">
                     <table class="table table-sm table-striped">
@@ -5609,23 +5641,23 @@ async function loadCDPNeighbors(deviceId) {
                             </tr>
                         </thead>
                         <tbody>
-                            ${data.neighbors.map(n => `
+                            ${neighbors.map(n => `
                                 <tr>
-                                    <td><code>${n.local_interface}</code></td>
-                                    <td><code class="small">${n.remote_device_id || '-'}</code></td>
-                                    <td><strong>${n.remote_device_name || '-'}</strong></td>
-                                    <td>${n.remote_port || '-'}</td>
-                                    <td><code class="small">${n.remote_ip || '-'}</code></td>
-                                    <td><small>${n.remote_version || '-'}</small></td>
+                                    <td><code>${n.local_interface || '-'}</code></td>
+                                    <td><code class="small">${n.remote_device_id || n.identity || '-'}</code></td>
+                                    <td><strong>${n.remote_device_name || n.identity || '-'}</strong></td>
+                                    <td>${n.remote_port || n.remote_interface || '-'}</td>
+                                    <td><code class="small">${n.remote_ip || n.address || '-'}</code></td>
+                                    <td><small>${n.version || '-'}</small></td>
                                     <td><small>${n.platform || '-'}</small></td>
-                                    <td><small>${n.last_seen ? new Date(n.last_seen).toLocaleString('it-IT') : '-'}</small></td>
+                                    <td><span class="badge bg-info">${n.discovered_by || 'cdp'}</span></td>
                                 </tr>
                             `).join('')}
                         </tbody>
                     </table>
                 </div>
                 <div class="mt-2 text-muted small">
-                    <i class="bi bi-info-circle"></i> Trovati ${data.count || data.neighbors.length} neighbor CDP
+                    <i class="bi bi-info-circle"></i> Trovati ${neighbors.length} neighbor CDP
                 </div>
             `;
         } else {
@@ -5686,31 +5718,22 @@ async function loadDeviceAdvancedInterfaces(deviceId) {
                             </tr>
                         </thead>
                         <tbody>
-                            ${data.interfaces.map(iface => {
-                                const vlanTrunk = iface.vlan_trunk_allowed ? 
-                                    (typeof iface.vlan_trunk_allowed === 'string' ? JSON.parse(iface.vlan_trunk_allowed) : iface.vlan_trunk_allowed) : [];
-                                const vlanTrunkDisplay = Array.isArray(vlanTrunk) && vlanTrunk.length > 0 ? 
-                                    vlanTrunk.map(v => `<span class="badge bg-secondary">${v}</span>`).join(' ') : '-';
-                                
+                            ${interfaces.map(iface => {
                                 return `
                                     <tr>
-                                        <td><code>${iface.name}</code></td>
+                                        <td><code>${iface.name || iface.if_index || '-'}</code></td>
                                         <td><small>${iface.mac_address || '-'}</small></td>
                                         <td>${iface.speed_mbps ? iface.speed_mbps + ' Mbps' : '-'}</td>
                                         <td>
-                                            <span class="badge bg-${iface.oper_status === 'up' ? 'success' : 'secondary'}">${iface.oper_status || '-'}</span>
+                                            <span class="badge bg-${iface.oper_status === 'up' ? 'success' : iface.oper_status === 'down' ? 'danger' : 'secondary'}">${iface.oper_status || iface.admin_status || '-'}</span>
                                         </td>
-                                        <td>${iface.lldp_enabled !== null ? (iface.lldp_enabled ? '<i class="bi bi-check-circle text-success"></i>' : '<i class="bi bi-x-circle text-danger"></i>') : '-'}</td>
-                                        <td>${iface.cdp_enabled !== null ? (iface.cdp_enabled ? '<i class="bi bi-check-circle text-success"></i>' : '<i class="bi bi-x-circle text-danger"></i>') : '-'}</td>
-                                        <td>
-                                            ${iface.poe_enabled ? 
-                                                `<i class="bi bi-lightning-charge text-warning"></i> ${iface.poe_power_watts ? iface.poe_power_watts + 'W' : ''}` : 
-                                                '<i class="bi bi-x-circle text-muted"></i>'}
-                                        </td>
-                                        <td>${iface.vlan_native || '-'}</td>
-                                        <td>${vlanTrunkDisplay}</td>
-                                        <td>${iface.stp_state ? `<span class="badge bg-info">${iface.stp_state}</span>` : '-'}</td>
-                                        <td>${iface.lacp_enabled !== null ? (iface.lacp_enabled ? '<i class="bi bi-check-circle text-success"></i>' : '<i class="bi bi-x-circle text-danger"></i>') : '-'}</td>
+                                        <td>-</td>
+                                        <td>-</td>
+                                        <td>-</td>
+                                        <td>-</td>
+                                        <td>-</td>
+                                        <td>-</td>
+                                        <td>-</td>
                                     </tr>
                                 `;
                             }).join('')}
@@ -5718,7 +5741,7 @@ async function loadDeviceAdvancedInterfaces(deviceId) {
                     </table>
                 </div>
                 <div class="mt-2 text-muted small">
-                    <i class="bi bi-info-circle"></i> Trovate ${data.count || data.interfaces.length} interfacce con dettagli avanzati
+                    <i class="bi bi-info-circle"></i> Trovate ${interfaces.length} interfacce con dettagli avanzati
                 </div>
             `;
         } else {
