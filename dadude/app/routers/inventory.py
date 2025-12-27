@@ -788,6 +788,88 @@ async def auto_detect_device(
                     from datetime import datetime
                     device.last_scan = datetime.utcnow()
                     
+                    # Salva informazioni Proxmox se disponibili (raccolte durante autodetect)
+                    if scan_result.get("proxmox_host_info") or scan_result.get("proxmox_vms") or scan_result.get("proxmox_storage"):
+                        try:
+                            from ..models.inventory import ProxmoxHost, ProxmoxVM, ProxmoxStorage
+                            import uuid
+                            
+                            host_info = scan_result.get("proxmox_host_info")
+                            if host_info:
+                                # Aggiorna o crea ProxmoxHost
+                                existing_host = session.query(ProxmoxHost).filter(
+                                    ProxmoxHost.device_id == data.device_id
+                                ).first()
+                                
+                                if existing_host:
+                                    # Aggiorna
+                                    for key, value in host_info.items():
+                                        if hasattr(existing_host, key):
+                                            setattr(existing_host, key, value)
+                                    existing_host.last_updated = datetime.now()
+                                    host_id = existing_host.id
+                                else:
+                                    # Crea nuovo
+                                    new_host = ProxmoxHost(
+                                        id=uuid.uuid4().hex[:8],
+                                        device_id=data.device_id,
+                                        **{k: v for k, v in host_info.items() if hasattr(ProxmoxHost, k)}
+                                    )
+                                    session.add(new_host)
+                                    session.flush()
+                                    host_id = new_host.id
+                                
+                                # Salva VM
+                                if scan_result.get("proxmox_vms"):
+                                    # Elimina vecchie VM
+                                    session.query(ProxmoxVM).filter(ProxmoxVM.host_id == host_id).delete()
+                                    
+                                    # Salva nuove VM
+                                    for vm_data in scan_result["proxmox_vms"]:
+                                        vm = ProxmoxVM(
+                                            id=uuid.uuid4().hex[:8],
+                                            host_id=host_id,
+                                            vmid=vm_data.get("vmid", vm_data.get("vm_id", 0)),
+                                            name=vm_data.get("name", ""),
+                                            status=vm_data.get("status"),
+                                            vm_type=vm_data.get("type"),
+                                            cpu_cores=vm_data.get("cpu_cores"),
+                                            cpu_sockets=vm_data.get("cpu_sockets"),
+                                            memory_total_mb=vm_data.get("memory_total_mb", vm_data.get("memory_mb")),
+                                            disk_total_gb=vm_data.get("disk_total_gb"),
+                                            ip_addresses=vm_data.get("ip_addresses"),
+                                            mac_address=vm_data.get("mac_address"),
+                                            guest_os=vm_data.get("guest_os", vm_data.get("os_type")),
+                                            agent_installed=vm_data.get("agent_installed"),
+                                            uptime_seconds=vm_data.get("uptime_seconds"),
+                                        )
+                                        session.add(vm)
+                                    logger.info(f"Auto-detect: Saved {len(scan_result['proxmox_vms'])} Proxmox VMs for device {data.device_id}")
+                                
+                                # Salva storage
+                                if scan_result.get("proxmox_storage"):
+                                    # Elimina vecchio storage
+                                    session.query(ProxmoxStorage).filter(ProxmoxStorage.host_id == host_id).delete()
+                                    
+                                    # Salva nuovo storage
+                                    for storage_data in scan_result["proxmox_storage"]:
+                                        storage = ProxmoxStorage(
+                                            id=uuid.uuid4().hex[:8],
+                                            host_id=host_id,
+                                            storage_name=storage_data.get("storage"),
+                                            storage_type=storage_data.get("type"),
+                                            total_gb=storage_data.get("total_gb"),
+                                            used_gb=storage_data.get("used_gb"),
+                                            free_gb=storage_data.get("free_gb", storage_data.get("available_gb")),
+                                            content_types=storage_data.get("content", []),
+                                            active=storage_data.get("enabled", 1),
+                                            shared=storage_data.get("shared", 0),
+                                        )
+                                        session.add(storage)
+                                    logger.info(f"Auto-detect: Saved {len(scan_result['proxmox_storage'])} Proxmox storage for device {data.device_id}")
+                        except Exception as e:
+                            logger.error(f"Error saving Proxmox info during auto-detect for device {data.device_id}: {e}", exc_info=True)
+                    
                     session.commit()
                     logger.info(f"Auto-detect: Saved results to device {data.device_id} - hostname={device.hostname}, os={device.os_family}, cpu={device.cpu_model}")
                     result["saved"] = True
