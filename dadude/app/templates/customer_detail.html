@@ -3105,7 +3105,6 @@ async function runCustomerDiscovery() {
                     const portsData = await portsResponse.json();
                     if (portsData.success && portsData.open_ports) {
                         dev.open_ports = portsData.open_ports;
-                        console.log(`Port scan ${dev.address}: ${portsData.active_count} porte aperte`);
                     }
                 } catch (e) {
                     console.warn(`Port scan fallito per ${dev.address}:`, e);
@@ -3126,7 +3125,6 @@ async function runCustomerDiscovery() {
                         const dnsData = await dnsResponse.json();
                         if (dnsData.success && dnsData.hostname) {
                             dev.hostname = dnsData.hostname;
-                            console.log(`Reverse DNS ${dev.address}: ${dnsData.hostname}`);
                         }
                     } catch (e) {
                         console.warn(`Reverse DNS fallito per ${dev.address}:`, e);
@@ -3448,15 +3446,10 @@ async function importDiscoveredDevices() {
                 credential_used: dev.credential_used,
             });
             
-            // Log per debug
-            console.log(`Device ${dev.address}: hostname=${dev.hostname}, open_ports=${dev.open_ports?.filter(p => p.open)?.length || 0}`);
         }
     });
     
     if (!confirm(`Importare ${devices.length} dispositivi nell'inventario?`)) return;
-    
-    // Log dettagliato per debug
-    console.log('Devices da importare:', JSON.stringify(devices, null, 2));
     
     try {
         const response = await fetch(`/api/v1/inventory/devices/bulk-import?customer_id=${customerId}`, {
@@ -3752,15 +3745,6 @@ async function loadInventory() {
                         </td>
                     </tr>
                 `;
-                
-                // Debug: log dei dati del device
-                const debugPorts = parseOpenPorts(dev.open_ports);
-                if (debugPorts.length > 0) {
-                    console.log(`Device ${dev.name} (${dev.primary_ip}): ${debugPorts.filter(p => p.open).length} porte aperte`);
-                }
-                if (dev.hostname) {
-                    console.log(`Device ${dev.name}: hostname = ${dev.hostname}`);
-                }
             });
             
             // Aggiorna icone di ordinamento
@@ -4755,7 +4739,6 @@ async function viewInventoryDevice(deviceId) {
                 cf = device.custom_fields;
             }
         }
-        console.log('Parsed custom_fields:', Object.keys(cf), 'running_services:', cf.running_services ? cf.running_services.length : 'not present');
         
         // Determina se mostrare tab avanzate
         // Converti sempre in stringa per evitare errori con operatori 'in'
