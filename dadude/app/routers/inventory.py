@@ -1086,10 +1086,34 @@ async def auto_detect_device(
                                 linux_data["docker_installed"] = True
                                 linux_data["docker_version"] = scan_result.get("docker_version")
                             
-                            # Virtualization
-                            if scan_result.get("virtualization"):
-                                # Questo campo potrebbe non esistere in LinuxDetails, ma proviamo
-                                pass  # Gestito in custom_fields se necessario
+                            # Virtualization - determina da manufacturer/model se è VM
+                            if scan_result.get("manufacturer"):
+                                manufacturer_lower = scan_result.get("manufacturer", "").lower()
+                                if "qemu" in manufacturer_lower or "vmware" in manufacturer_lower or "microsoft" in manufacturer_lower or "virtualbox" in manufacturer_lower:
+                                    linux_data["virtualization"] = scan_result.get("manufacturer")
+                                elif scan_result.get("model"):
+                                    model_lower = scan_result.get("model", "").lower()
+                                    if "qemu" in model_lower or "vmware" in model_lower or "virtual" in model_lower:
+                                        linux_data["virtualization"] = scan_result.get("model")
+                            
+                            # Package manager - determina da distro
+                            if linux_data.get("distro_name"):
+                                distro_lower = linux_data["distro_name"].lower()
+                                if distro_lower in ["ubuntu", "debian"]:
+                                    linux_data["package_manager"] = "apt"
+                                elif distro_lower in ["centos", "rhel", "rocky", "almalinux"]:
+                                    linux_data["package_manager"] = "yum"
+                                elif distro_lower == "arch":
+                                    linux_data["package_manager"] = "pacman"
+                                elif distro_lower == "alpine":
+                                    linux_data["package_manager"] = "apk"
+                            
+                            # Init system - la maggior parte dei Linux moderni usa systemd
+                            if scan_result.get("os_family") and scan_result.get("os_family") != "Linux":
+                                # Se è una distro specifica, probabilmente usa systemd
+                                linux_data["init_system"] = "systemd"
+                            
+                            logger.info(f"Linux data collected: {list(linux_data.keys())}")
                             
                             # Crea o aggiorna LinuxDetails
                             existing_ld = session.query(LinuxDetails).filter(LinuxDetails.device_id == data.device_id).first()
