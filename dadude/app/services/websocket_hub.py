@@ -371,7 +371,11 @@ class AgentWebSocketHub:
         try:
             await connection.websocket.send_text(json.dumps(message))
         except Exception as e:
-            logger.error(f"Error sending to {connection.agent_id}: {e}")
+            error_msg = str(e) if e else f"{type(e).__name__}"
+            logger.error(f"Error sending to {connection.agent_id}: {error_msg}")
+            # Se la connessione è chiusa, rimuovila dalla lista
+            if "closed" in error_msg.lower() or "disconnect" in error_msg.lower():
+                await self._handle_disconnect(connection.agent_id)
             raise
     
     async def _send_error(self, connection: AgentConnection, error: str):
