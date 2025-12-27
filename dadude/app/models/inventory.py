@@ -854,7 +854,7 @@ class ProxmoxVM(Base):
     template = Column(Boolean, default=False)
     
     # Performance metrics
-    uptime = Column(Integer, nullable=True)  # Uptime in secondi
+    uptime = Column(BigInteger, nullable=True)  # Uptime in secondi (può essere molto grande)
     cpu_usage = Column(Float, nullable=True)  # CPU usage percentuale
     mem_used = Column(BigInteger, nullable=True)  # Memoria usata in bytes (può superare INTEGER max)
     netin = Column(BigInteger, nullable=True)  # Network in bytes (può superare INTEGER max)

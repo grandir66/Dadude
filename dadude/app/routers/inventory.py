@@ -888,8 +888,7 @@ async def auto_detect_device(
                                     except Exception as flush_error:
                                         import traceback
                                         flush_trace = traceback.format_exc()
-                                        flush_msg = f"Error flushing VMs to database: {str(flush_error)}\n{flush_trace}"
-                                        logger.error(flush_msg, exc_info=False)
+                                        logger.error("Error flushing VMs to database: {}\n{}", flush_error, flush_trace, exc_info=False)
                                         raise
                                 
                                 # Salva storage
