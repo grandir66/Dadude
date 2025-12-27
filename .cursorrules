@@ -93,13 +93,62 @@
   - Gli agent devono poter essere configurati per usare un tag specifico
   - Non forzare auto-update a `main` se non esplicitamente richiesto
 
+## Regole per Aggiornamento Server Locale
+
+### ⚠️ SERVER PCT 600 - AGGIORNAMENTO OBBLIGATORIO
+
+**Server Locale di Sviluppo/Test:**
+- **Host**: 192.168.40.1
+- **Container**: PCT 600 (Proxmox)
+- **Container Docker**: `dadude`
+- **Path codice**: `/app/repo` nel container
+
+**REGOLE CRITICHE:**
+
+1. **DOPO OGNI MODIFICA AL CODICE**:
+   - ✅ Committare le modifiche su git
+   - ✅ Pushare su `origin/main`
+   - ✅ **AGGIORNARE IMMEDIATAMENTE** il server PCT 600 con:
+     ```bash
+     # Metodo 1: Script helper (consigliato)
+     ./update-server-pct600.sh
+     
+     # Metodo 2: Comando manuale
+     ssh root@192.168.40.1 "pct exec 600 -- bash -c 'docker exec dadude bash -c \"git config --global --add safe.directory /app/repo && cd /app/repo && git pull origin main && exit\"' && docker restart dadude"
+     ```
+   - ✅ Verificare che il container si sia riavviato correttamente
+   - ✅ Verificare che le modifiche siano presenti nel codice del server
+
+2. **PRIMA DI TESTARE FUNZIONALITÀ**:
+   - ✅ Verificare che il server sia aggiornato all'ultimo commit
+   - ✅ Se il server non è aggiornato, aggiornarlo PRIMA di testare
+   - ✅ Non testare funzionalità su codice non aggiornato
+
+3. **WORKFLOW STANDARD**:
+   ```
+   Modifica codice → Commit → Push → Aggiorna PCT 600 → Verifica → Test
+   ```
+
+4. **VERIFICA AGGIORNAMENTO**:
+   - Controllare ultimo commit: `git log -1` nel container
+   - Verificare che le modifiche siano presenti nel codice
+   - Controllare log del container dopo riavvio
+
+**NON FARE MAI:**
+- ❌ Committare modifiche senza aggiornare il server
+- ❌ Testare funzionalità su server non aggiornato
+- ❌ Lasciare il server con codice obsoleto dopo modifiche
+
 ## Workflow Consigliato
 
 1. **Leggere** il codice esistente e capire come funziona
 2. **Identificare** il problema reale (non quello che pensi sia)
 3. **Proporre** la soluzione più semplice possibile
 4. **Testare** prima di commitare
-5. **Se non funziona**: REVERT e riprovare con approccio diverso
+5. **Committare e pushare** le modifiche
+6. **Aggiornare server PCT 600** (192.168.40.1, container 600)
+7. **Verificare** che le modifiche siano applicate
+8. **Se non funziona**: REVERT e riprovare con approccio diverso
 
 ## Cosa NON Fare
 
@@ -129,6 +178,8 @@
 - ✅ **Se l'utente dice "funzionava prima"**: REVERT immediatamente alle modifiche
 - ✅ **Usare tag Git stabili** per versioni funzionanti degli agent
 - ✅ **Documentare** ogni modifica critica (SSL, connessione, restart) nelle cursorrules
+- ✅ **DOPO OGNI MODIFICA**: Committare, pushare e aggiornare IMMEDIATAMENTE il server PCT 600 (192.168.40.1)
+- ✅ **PRIMA DI TESTARE**: Verificare che il server PCT 600 sia aggiornato all'ultimo commit
 
 ## Organizzazione Struttura Progetto
 
