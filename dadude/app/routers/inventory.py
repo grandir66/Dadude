@@ -1453,7 +1453,7 @@ async def get_inventory_device(device_id: str):
                 "uptime": md.uptime,
             }
         
-        # Se il device è Proxmox/hypervisor con credenziali ma senza dati avanzati, avvia autodetect in background
+        # Se il device è Proxmox/hypervisor con credenziali ma senza dati avanzati completi, avvia autodetect in background
         is_proxmox = (
             device.device_type == "hypervisor" or 
             (device.manufacturer and "proxmox" in device.manufacturer.lower()) or
@@ -1462,11 +1462,19 @@ async def get_inventory_device(device_id: str):
         
         if is_proxmox and device.primary_ip and device.credential_id:
             from ..models.inventory import ProxmoxHost
-            has_proxmox_data = session.query(ProxmoxHost).filter(
+            proxmox_host = session.query(ProxmoxHost).filter(
                 ProxmoxHost.device_id == device_id
-            ).first() is not None
+            ).first()
             
-            if not has_proxmox_data:
+            # Esegui autodetect se non ci sono dati Proxmox o se mancano dati avanzati (temperature, BIOS, hardware)
+            needs_refresh = (
+                not proxmox_host or
+                not proxmox_host.temperature_summary or
+                not proxmox_host.bios_vendor or
+                not proxmox_host.hardware_product
+            )
+            
+            if needs_refresh:
                 logger.info(f"Device {device_id} is Proxmox with credentials but no advanced data, triggering auto-detect in background")
                 try:
                     import asyncio
