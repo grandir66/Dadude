@@ -191,6 +191,10 @@ async def auto_detect_device(
     - RDP/SMB/LDAP/WMI (3389, 445, 139, 389, 135, 5985) → credenziali wmi
     - MikroTik API (8728, 8729, 8291) → credenziali mikrotik
     """
+    logger.info(f"=== AUTO-DETECT REQUEST START ===")
+    logger.info(f"Address: {data.address}, MAC: {data.mac_address}, Device ID: {data.device_id}")
+    logger.info(f"Use assigned credential: {data.use_assigned_credential}, Use default: {data.use_default_credentials}, Use agent: {data.use_agent}, Save results: {data.save_results}")
+    
     from ..services.device_probe_service import get_device_probe_service
     from ..services.customer_service import get_customer_service
     from ..services.agent_service import get_agent_service
