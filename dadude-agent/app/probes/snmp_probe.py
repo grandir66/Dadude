@@ -393,15 +393,15 @@ async def probe(
         is_network_device = device_type in ["router", "switch", "ap", "network"]
         is_router = device_type == "router"
         
-        logger.debug(f"SNMP probe: device_type={device_type}, category={category}, vendor={info.get('vendor')}, is_network_device={is_network_device}, is_router={is_router}")
+        logger.info(f"SNMP probe: device_type={device_type}, category={category}, vendor={info.get('vendor', 'unknown')}, sysObjectID={sys_oid}, is_network_device={is_network_device}, is_router={is_router}")
         
         if is_network_device:
             logger.info(f"SNMP probe: Collecting advanced data for network device {target} (type={device_type}, vendor={info.get('vendor', 'unknown')})")
-            # ==========================================
-            # LLDP NEIGHBORS (IEEE 802.1AB)
-            # ==========================================
             try:
-                logger.debug(f"Collecting LLDP neighbors for {target}...")
+                # ==========================================
+                # LLDP NEIGHBORS (IEEE 802.1AB)
+                # ==========================================
+                logger.info(f"SNMP probe: Collecting LLDP neighbors for {target}...")
                 lldp_neighbors = []
                 
                 # LLDP Remote Table OIDs
@@ -806,21 +806,23 @@ async def probe(
                         logger.debug(f"SNMP probe: No interfaces found (if_descriptions={len(if_descriptions)}, if_speeds={len(if_speeds)})")
                 except Exception as e:
                     logger.warning(f"SNMP probe: Interface details query failed for {target}: {e}", exc_info=True)
-        
-        # Log summary of advanced data collected
-        advanced_data_summary = []
-        if info.get("neighbors") or info.get("lldp_neighbors") or info.get("cdp_neighbors"):
-            neighbors_count = len(info.get("neighbors", [])) or len(info.get("lldp_neighbors", [])) or len(info.get("cdp_neighbors", []))
-            advanced_data_summary.append(f"{neighbors_count} neighbors")
-        if info.get("routing_table"):
-            advanced_data_summary.append(f"{len(info.get('routing_table', []))} routes")
-        if info.get("arp_table"):
-            advanced_data_summary.append(f"{len(info.get('arp_table', []))} ARP entries")
-        if info.get("interfaces"):
-            advanced_data_summary.append(f"{len(info.get('interfaces', []))} interfaces")
-        
-        if advanced_data_summary:
-            logger.info(f"SNMP probe: Advanced data collected for {target}: {', '.join(advanced_data_summary)}")
+                
+                # Log summary of advanced data collected
+                advanced_data_summary = []
+                if info.get("neighbors") or info.get("lldp_neighbors") or info.get("cdp_neighbors"):
+                    neighbors_count = len(info.get("neighbors", [])) or len(info.get("lldp_neighbors", [])) or len(info.get("cdp_neighbors", []))
+                    advanced_data_summary.append(f"{neighbors_count} neighbors")
+                if info.get("routing_table"):
+                    advanced_data_summary.append(f"{len(info.get('routing_table', []))} routes")
+                if info.get("arp_table"):
+                    advanced_data_summary.append(f"{len(info.get('arp_table', []))} ARP entries")
+                if info.get("interfaces"):
+                    advanced_data_summary.append(f"{len(info.get('interfaces', []))} interfaces")
+                
+                if advanced_data_summary:
+                    logger.info(f"SNMP probe: Advanced data collected for {target}: {', '.join(advanced_data_summary)}")
+            except Exception as e:
+                logger.warning(f"SNMP probe: Error collecting advanced data for {target}: {e}", exc_info=True)
         
     finally:
         dispatcher.transport_dispatcher.close_dispatcher()
