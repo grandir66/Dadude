@@ -58,8 +58,13 @@ async def probe(
         def exec_cmd(cmd: str, timeout: int = 5) -> str:
             try:
                 stdin, stdout, stderr = client.exec_command(cmd, timeout=timeout)
-                return stdout.read().decode().strip()
-            except:
+                output = stdout.read().decode().strip()
+                error = stderr.read().decode().strip()
+                if error and "Permission denied" not in error.lower() and "command not found" not in error.lower():
+                    logger.debug(f"SSH exec_cmd '{cmd[:50]}...' stderr: {error[:200]}")
+                return output
+            except Exception as e:
+                logger.debug(f"SSH exec_cmd '{cmd[:50]}...' failed: {e}")
                 return ""
         
         # ===== PRIMA RILEVA IL TIPO DI DEVICE =====
