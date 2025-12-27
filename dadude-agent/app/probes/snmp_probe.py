@@ -431,7 +431,8 @@ async def probe(
                                 index = oid_str.split('.')[-1]
                                 volume_names[index] = value
                 except Exception as e:
-                    logger.debug(f"SNMP probe: Synology volume name walk failed: {e}")
+                    logger.warning(f"SNMP probe: Synology volume name walk failed: {e}")
+                logger.info(f"SNMP probe: Synology volume names collected: {len(volume_names)}")
                 
                 # Walk volume status, total, used, free
                 for oid_type in ["volume_status", "volume_total", "volume_used", "volume_free"]:
@@ -517,7 +518,8 @@ async def probe(
                                 index = oid_str.split('.')[-1]
                                 disk_names[index] = value
                 except Exception as e:
-                    logger.debug(f"SNMP probe: Synology disk name walk failed: {e}")
+                    logger.warning(f"SNMP probe: Synology disk name walk failed: {e}")
+                logger.info(f"SNMP probe: Synology disk names collected: {len(disk_names)}")
                 
                 # Walk disk status, model, temperature
                 for oid_type in ["disk_status", "disk_model", "disk_temperature"]:
@@ -607,7 +609,8 @@ async def probe(
                                     elif oid_type == "raid_level":
                                         raid_levels[index] = value
                 except Exception as e:
-                    logger.debug(f"SNMP probe: Synology RAID walk failed: {e}")
+                    logger.warning(f"SNMP probe: Synology RAID walk failed: {e}")
+                logger.info(f"SNMP probe: Synology RAID names collected: {len(raid_names)}")
                 
                 # Build RAID info
                 if raid_names:
@@ -636,7 +639,7 @@ async def probe(
                 logger.warning(f"SNMP probe: Error collecting Synology storage info: {e}", exc_info=True)
         
         elif is_storage_device and vendor_name == "QNAP":
-            logger.info(f"SNMP probe: Collecting storage info for QNAP device {target}")
+            logger.info(f"SNMP probe: Collecting storage info for QNAP device {target} (sysObjectID={sys_oid})")
             storage_info = {}
             
             try:
@@ -666,7 +669,8 @@ async def probe(
                                 index = oid_str.split('.')[-1]
                                 volume_names[index] = value
                 except Exception as e:
-                    logger.debug(f"SNMP probe: QNAP volume name walk failed: {e}")
+                    logger.warning(f"SNMP probe: QNAP volume name walk failed: {e}")
+                logger.info(f"SNMP probe: QNAP volume names collected: {len(volume_names)}")
                 
                 # Walk volume status, total, used, free
                 for oid_type in ["volume_status", "volume_total", "volume_used", "volume_free"]:
@@ -752,7 +756,8 @@ async def probe(
                                 index = oid_str.split('.')[-1]
                                 disk_names[index] = value
                 except Exception as e:
-                    logger.debug(f"SNMP probe: QNAP disk name walk failed: {e}")
+                    logger.warning(f"SNMP probe: QNAP disk name walk failed: {e}")
+                logger.info(f"SNMP probe: QNAP disk names collected: {len(disk_names)}")
                 
                 # Walk disk status, model, temperature
                 for oid_type in ["disk_status", "disk_model", "disk_temperature"]:
@@ -842,7 +847,8 @@ async def probe(
                                     elif oid_type == "raid_level":
                                         raid_levels[index] = value
                 except Exception as e:
-                    logger.debug(f"SNMP probe: QNAP RAID walk failed: {e}")
+                    logger.warning(f"SNMP probe: QNAP RAID walk failed: {e}")
+                logger.info(f"SNMP probe: QNAP RAID names collected: {len(raid_names)}")
                 
                 # Build RAID info
                 if raid_names:
