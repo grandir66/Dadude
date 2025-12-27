@@ -744,29 +744,52 @@ async def auto_detect_device(
                     identified_by = scan_result.get("identified_by") or scan_result.get("probe_type")
                     
                     # Determina device_type in base al metodo di identificazione e ai dati raccolti
-                    if not device.device_type or device.device_type == "other":
+                    # PRIORITÀ: 1) scan_result.device_type, 2) identified_by, 3) os_family, 4) os_version
+                    if scan_result.get("device_type") and scan_result["device_type"] != "unknown":
+                        device.device_type = scan_result["device_type"]
+                        logger.info(f"Setting device_type from scan_result: {device.device_type}")
+                    elif not device.device_type or device.device_type == "other" or device.device_type == "unknown":
                         if identified_by:
                             if "wmi" in identified_by.lower() or "windows" in identified_by.lower():
                                 device.device_type = "windows"
+                                logger.info(f"Setting device_type from identified_by: windows")
                             elif "ssh" in identified_by.lower() or "linux" in identified_by.lower():
                                 device.device_type = "linux"
+                                logger.info(f"Setting device_type from identified_by: linux")
                             elif "mikrotik" in identified_by.lower() or "routeros" in identified_by.lower():
                                 device.device_type = "mikrotik"
+                                logger.info(f"Setting device_type from identified_by: mikrotik")
                             elif "snmp" in identified_by.lower():
                                 # SNMP può essere router, switch, server, etc.
                                 device.device_type = "network"
+                                logger.info(f"Setting device_type from identified_by: network")
                         
-                        # Fallback: determina da os_family
-                        if (not device.device_type or device.device_type == "other") and device.os_family:
-                            os_family_lower = device.os_family.lower()
-                            if "windows" in os_family_lower:
-                                device.device_type = "windows"
-                            elif "linux" in os_family_lower or "unix" in os_family_lower:
-                                device.device_type = "linux"
-                            elif "routeros" in os_family_lower or "mikrotik" in os_family_lower:
-                                device.device_type = "mikrotik"
-                            elif "ios" in os_family_lower or "nx-os" in os_family_lower:
-                                device.device_type = "network"
+                        # Fallback: determina da os_family o os_version
+                        if (not device.device_type or device.device_type == "other" or device.device_type == "unknown"):
+                            os_family_to_check = device.os_family or scan_result.get("os_family") or ""
+                            os_version_to_check = device.os_version or scan_result.get("os_version") or scan_result.get("version") or ""
+                            
+                            if os_family_to_check:
+                                os_family_lower = os_family_to_check.lower()
+                                if "windows" in os_family_lower:
+                                    device.device_type = "windows"
+                                    logger.info(f"Setting device_type from os_family: windows")
+                                elif "linux" in os_family_lower or "unix" in os_family_lower:
+                                    device.device_type = "linux"
+                                    logger.info(f"Setting device_type from os_family: linux")
+                                elif "routeros" in os_family_lower or "mikrotik" in os_family_lower:
+                                    device.device_type = "mikrotik"
+                                    logger.info(f"Setting device_type from os_family: mikrotik")
+                                elif "ios" in os_family_lower or "nx-os" in os_family_lower:
+                                    device.device_type = "network"
+                                    logger.info(f"Setting device_type from os_family: network")
+                            
+                            # Ultimo fallback: controlla os_version per Windows
+                            if (not device.device_type or device.device_type == "other" or device.device_type == "unknown") and os_version_to_check:
+                                os_version_lower = os_version_to_check.lower()
+                                if "windows" in os_version_lower or "microsoft" in os_version_lower or "server" in os_version_lower:
+                                    device.device_type = "windows"
+                                    logger.info(f"Setting device_type from os_version: windows")
                     
                     # Determina category in base ai dati raccolti
                     if not device.category:
@@ -908,9 +931,13 @@ async def auto_detect_device(
                     import uuid
                     device.last_scan = datetime.utcnow()
                     
-                    # Salva WindowsDetails se disponibili (dati WMI)
+                    # Salva WindowsDetails se disponibili (dati WMI o dati Windows rilevati)
                     # I dati vengono mergeati direttamente in scan_result, non in extra_info
-                    if device.device_type == "windows" and scan_result.get("identified_by", "").startswith("probe_wmi"):
+                    # Salva anche se il device è una VM Windows (non necessariamente identificata via WMI)
+                    is_windows_device = device.device_type == "windows" or "windows" in (device.os_family or "").lower() or "windows" in (scan_result.get("os_family") or "").lower()
+                    has_wmi_data = scan_result.get("identified_by", "").startswith("probe_wmi") or scan_result.get("domain") or scan_result.get("server_roles") or scan_result.get("installed_software")
+                    
+                    if is_windows_device and has_wmi_data:
                         try:
                             from ..models.inventory import WindowsDetails
                             # I dati WMI sono mergeati direttamente in scan_result
