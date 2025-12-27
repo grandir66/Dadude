@@ -5628,6 +5628,32 @@ async function loadDeviceAdvancedInterfaces(deviceId) {
     }
 }
 
+// Funzione helper per formattare uptime
+function formatUptime(seconds) {
+    if (!seconds) return '-';
+    const days = Math.floor(seconds / 86400);
+    const hours = Math.floor((seconds % 86400) / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const parts = [];
+    if (days > 0) parts.push(`${days}d`);
+    if (hours > 0) parts.push(`${hours}h`);
+    if (minutes > 0) parts.push(`${minutes}m`);
+    return parts.length > 0 ? parts.join(' ') : '0m';
+}
+
+// Funzione helper per formattare bytes
+function formatBytes(bytes) {
+    if (!bytes) return '-';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let size = bytes;
+    let unitIndex = 0;
+    while (size >= 1024 && unitIndex < units.length - 1) {
+        size /= 1024;
+        unitIndex++;
+    }
+    return `${size.toFixed(2)} ${units[unitIndex]}`;
+}
+
 async function loadProxmoxInfo(deviceId) {
     const content = document.getElementById('proxmoxContent');
     if (!content) return;
@@ -5664,9 +5690,11 @@ async function loadProxmoxInfo(deviceId) {
                                     <tr><th width="40%">Node Name:</th><td><strong>${hi.node_name}</strong></td></tr>
                                     ${hi.cluster_name ? `<tr><th>Cluster:</th><td>${hi.cluster_name}</td></tr>` : ''}
                                     <tr><th>Proxmox Version:</th><td>${hi.proxmox_version || '-'}</td></tr>
+                                    ${hi.manager_version ? `<tr><th>Manager Version:</th><td>${hi.manager_version}</td></tr>` : ''}
                                     <tr><th>Kernel:</th><td>${hi.kernel_version || '-'}</td></tr>
+                                    ${hi.boot_mode ? `<tr><th>Boot Mode:</th><td><span class="badge bg-info">${hi.boot_mode}</span></td></tr>` : ''}
                                     <tr><th>CPU Model:</th><td>${hi.cpu_model || '-'}</td></tr>
-                                    <tr><th>CPU Cores:</th><td>${hi.cpu_total_cores || hi.cpu_cores || '-'} (${hi.cpu_sockets || '-'} sockets)</td></tr>
+                                    <tr><th>CPU Cores:</th><td>${hi.cpu_total_cores || hi.cpu_cores || '-'} (${hi.cpu_sockets || '-'} sockets, ${hi.cpu_threads || '-'} threads/core)</td></tr>
                                 </table>
                             </div>
                             <div class="col-md-6">
@@ -5674,7 +5702,20 @@ async function loadProxmoxInfo(deviceId) {
                                     <tr><th width="40%">Memory:</th><td>
                                         ${hi.memory_total_gb ? hi.memory_total_gb.toFixed(1) + ' GB' : '-'}
                                         ${hi.memory_usage_percent ? ` (${hi.memory_usage_percent.toFixed(1)}% utilizzato)` : ''}
+                                        ${hi.memory_used_gb ? ` - Usato: ${hi.memory_used_gb.toFixed(1)} GB` : ''}
+                                        ${hi.memory_free_gb ? ` - Libero: ${hi.memory_free_gb.toFixed(1)} GB` : ''}
                                     </td></tr>
+                                    ${hi.swap_total_gb ? `<tr><th>Swap:</th><td>
+                                        ${hi.swap_total_gb.toFixed(1)} GB totale
+                                        ${hi.swap_used_gb ? ` - Usato: ${hi.swap_used_gb.toFixed(1)} GB` : ''}
+                                        ${hi.swap_usage_percent ? ` (${hi.swap_usage_percent.toFixed(1)}%)` : ''}
+                                    </td></tr>` : ''}
+                                    ${hi.rootfs_total_gb ? `<tr><th>Root FS:</th><td>
+                                        ${hi.rootfs_total_gb.toFixed(1)} GB totale
+                                        ${hi.rootfs_used_gb ? ` - Usato: ${hi.rootfs_used_gb.toFixed(1)} GB` : ''}
+                                        ${hi.rootfs_usage_percent ? ` (${hi.rootfs_usage_percent.toFixed(1)}%)` : ''}
+                                    </td></tr>` : ''}
+                                    ${hi.ksm_sharing_gb ? `<tr><th>KSM Sharing:</th><td>${hi.ksm_sharing_gb.toFixed(2)} GB</td></tr>` : ''}
                                     <tr><th>CPU Usage:</th><td>
                                         ${hi.cpu_usage_percent !== null ? `
                                             <div class="progress" style="height: 20px;">
@@ -5682,6 +5723,7 @@ async function loadProxmoxInfo(deviceId) {
                                             </div>
                                         ` : '-'}
                                     </td></tr>
+                                    ${hi.io_delay_percent !== null ? `<tr><th>IO Delay:</th><td>${hi.io_delay_percent.toFixed(2)}%</td></tr>` : ''}
                                     <tr><th>Uptime:</th><td>${hi.uptime_human || '-'}</td></tr>
                                     <tr><th>Load Average:</th><td>
                                         ${hi.load_average_1m !== null ? `${hi.load_average_1m.toFixed(2)}, ${hi.load_average_5m.toFixed(2)}, ${hi.load_average_15m.toFixed(2)}` : '-'}
@@ -5689,7 +5731,12 @@ async function loadProxmoxInfo(deviceId) {
                                     <tr><th>License:</th><td>
                                         ${hi.license_status ? `<span class="badge bg-${hi.license_status === 'active' ? 'success' : 'warning'}">${hi.license_status}</span>` : '-'}
                                         ${hi.license_level ? ` (${hi.license_level})` : ''}
+                                        ${hi.subscription_type ? `<br><small>Type: ${hi.subscription_type}</small>` : ''}
+                                        ${hi.subscription_server_id ? `<br><small>Server ID: ${hi.subscription_server_id}</small>` : ''}
+                                        ${hi.subscription_sockets ? `<br><small>Sockets: ${hi.subscription_sockets}</small>` : ''}
+                                        ${hi.subscription_next_due ? `<br><small>Next Due: ${hi.subscription_next_due}</small>` : ''}
                                     </td></tr>
+                                    ${hi.repository_status ? `<tr><th>Repositories:</th><td><small>${hi.repository_status}</small></td></tr>` : ''}
                                 </table>
                             </div>
                         </div>
@@ -5719,25 +5766,88 @@ async function loadProxmoxInfo(deviceId) {
                                     <tr>
                                         <th>VM ID</th>
                                         <th>Nome</th>
+                                        <th>Type</th>
                                         <th>Stato</th>
                                         <th>CPU</th>
                                         <th>RAM</th>
                                         <th>Disco</th>
+                                        <th>IP Addresses</th>
                                         <th>OS Type</th>
+                                        <th>Agent</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    ${vmsData.vms.map(vm => `
+                                    ${vmsData.vms.map((vm, idx) => {
+                                        const cpuInfo = vm.cpu_total ? `${vm.cpu_total} cores` : (vm.cpu_cores ? `${vm.cpu_cores} cores` : '-');
+                                        const cpuSockets = vm.cpu_sockets ? ` (${vm.cpu_sockets} sockets)` : '';
+                                        const vmDetailsId = `vm-details-${idx}`;
+                                        
+                                        // Dettagli dischi
+                                        let disksHtml = '';
+                                        if (vm.disks_details && Array.isArray(vm.disks_details) && vm.disks_details.length > 0) {
+                                            disksHtml = '<div class="mt-2"><strong>Dischi:</strong><ul class="mb-0">';
+                                            vm.disks_details.forEach(disk => {
+                                                disksHtml += `<li>${disk.id || 'N/A'}: ${disk.storage || 'N/A'}${disk.size ? ` (${disk.size})` : ''}${disk.cache ? ` [cache: ${disk.cache}]` : ''}</li>`;
+                                            });
+                                            disksHtml += '</ul></div>';
+                                        }
+                                        
+                                        // Dettagli network
+                                        let networksHtml = '';
+                                        if (vm.network_interfaces && Array.isArray(vm.network_interfaces) && vm.network_interfaces.length > 0) {
+                                            networksHtml = '<div class="mt-2"><strong>Network:</strong><ul class="mb-0">';
+                                            vm.network_interfaces.forEach(net => {
+                                                networksHtml += `<li>${net.id || 'N/A'}: ${net.model || 'N/A'}${net.mac ? ` (${net.mac})` : ''}${net.bridge ? ` → ${net.bridge}` : ''}${net.vlan ? ` VLAN ${net.vlan}` : ''}</li>`;
+                                            });
+                                            networksHtml += '</ul></div>';
+                                        }
+                                        
+                                        // Performance metrics
+                                        let perfHtml = '';
+                                        if (vm.status === 'running') {
+                                            perfHtml = '<div class="mt-2"><strong>Performance:</strong><ul class="mb-0">';
+                                            if (vm.uptime) perfHtml += `<li>Uptime: ${formatUptime(vm.uptime)}</li>`;
+                                            if (vm.cpu_usage !== null) perfHtml += `<li>CPU Usage: ${vm.cpu_usage.toFixed(1)}%</li>`;
+                                            if (vm.mem_used) perfHtml += `<li>Memory Used: ${formatBytes(vm.mem_used)}</li>`;
+                                            if (vm.netin) perfHtml += `<li>Network In: ${formatBytes(vm.netin)}</li>`;
+                                            if (vm.netout) perfHtml += `<li>Network Out: ${formatBytes(vm.netout)}</li>`;
+                                            if (vm.diskread) perfHtml += `<li>Disk Read: ${formatBytes(vm.diskread)}</li>`;
+                                            if (vm.diskwrite) perfHtml += `<li>Disk Write: ${formatBytes(vm.diskwrite)}</li>`;
+                                            perfHtml += '</ul></div>';
+                                        }
+                                        
+                                        return `
                                         <tr>
                                             <td><code>${vm.vm_id}</code></td>
-                                            <td><strong>${vm.name}</strong></td>
+                                            <td>
+                                                <strong>${vm.name}</strong>
+                                                ${vm.bios || vm.machine ? `<br><small class="text-muted">${vm.bios || ''}${vm.bios && vm.machine ? ' / ' : ''}${vm.machine || ''}</small>` : ''}
+                                            </td>
+                                            <td><span class="badge bg-${vm.vm_type === 'lxc' ? 'info' : 'primary'}">${vm.vm_type || 'qemu'}</span></td>
                                             <td><span class="badge bg-${vm.status === 'running' ? 'success' : 'secondary'}">${vm.status || '-'}</span></td>
-                                            <td>${vm.cpu_cores || '-'}</td>
+                                            <td>${cpuInfo}${cpuSockets}</td>
                                             <td>${vm.memory_mb ? (vm.memory_mb / 1024).toFixed(1) + ' GB' : '-'}</td>
-                                            <td>${vm.disk_total_gb ? vm.disk_total_gb.toFixed(1) + ' GB' : '-'}</td>
+                                            <td>${vm.disk_total_gb ? vm.disk_total_gb.toFixed(1) + ' GB' : '-'}
+                                                ${vm.num_disks ? `<br><small class="text-muted">${vm.num_disks} dischi</small>` : ''}
+                                            </td>
+                                            <td><small>${vm.ip_addresses || '-'}</small></td>
                                             <td><small>${vm.os_type || '-'}</small></td>
+                                            <td>${vm.agent_installed ? '<span class="badge bg-success" title="QEMU Guest Agent installato"><i class="bi bi-check-circle"></i></span>' : '<span class="badge bg-secondary" title="QEMU Guest Agent non installato"><i class="bi bi-x-circle"></i></span>'}</td>
                                         </tr>
-                                    `).join('')}
+                                        ${(disksHtml || networksHtml || perfHtml) ? `
+                                        <tr class="table-light">
+                                            <td colspan="10">
+                                                <button class="btn btn-sm btn-link p-0" type="button" data-bs-toggle="collapse" data-bs-target="#${vmDetailsId}" aria-expanded="false">
+                                                    <i class="bi bi-chevron-down"></i> Dettagli
+                                                </button>
+                                                <div class="collapse mt-2" id="${vmDetailsId}">
+                                                    ${disksHtml}${networksHtml}${perfHtml}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                        ` : ''}
+                                    `;
+                                    }).join('')}
                                 </tbody>
                             </table>
                         </div>

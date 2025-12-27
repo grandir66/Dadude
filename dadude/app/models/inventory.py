@@ -738,6 +738,36 @@ class ProxmoxHost(Base):
     cpu_usage_percent = Column(Float, nullable=True)
     io_delay_percent = Column(Float, nullable=True)
     
+    # Swap info
+    swap_total_gb = Column(Float, nullable=True)
+    swap_used_gb = Column(Float, nullable=True)
+    swap_free_gb = Column(Float, nullable=True)
+    swap_usage_percent = Column(Float, nullable=True)
+    
+    # Rootfs info
+    rootfs_total_gb = Column(Float, nullable=True)
+    rootfs_used_gb = Column(Float, nullable=True)
+    rootfs_free_gb = Column(Float, nullable=True)
+    rootfs_usage_percent = Column(Float, nullable=True)
+    
+    # KSM sharing
+    ksm_sharing_gb = Column(Float, nullable=True)
+    
+    # Subscription dettagliata
+    subscription_server_id = Column(String(255), nullable=True)
+    subscription_sockets = Column(Integer, nullable=True)
+    subscription_last_check = Column(String(100), nullable=True)
+    subscription_next_due = Column(String(100), nullable=True)
+    
+    # Repository status
+    repository_status = Column(Text, nullable=True)
+    
+    # Boot mode
+    boot_mode = Column(String(50), nullable=True)
+    
+    # Manager version
+    manager_version = Column(String(50), nullable=True)
+    
     last_updated = Column(DateTime, default=func.now())
     
     device = relationship("InventoryDevice")
@@ -759,13 +789,40 @@ class ProxmoxVM(Base):
     name = Column(String(255), nullable=False)
     status = Column(String(20), nullable=True)  # running, stopped, paused
     
+    vm_type = Column(String(20), nullable=True)  # qemu, lxc
     cpu_cores = Column(Integer, nullable=True)
+    cpu_sockets = Column(Integer, nullable=True)
+    cpu_total = Column(Integer, nullable=True)
     memory_mb = Column(Integer, nullable=True)
     disk_total_gb = Column(Float, nullable=True)
     
-    network_interfaces = Column(JSON, nullable=True)  # Lista interfacce di rete
+    # BIOS e Machine
+    bios = Column(String(50), nullable=True)  # seabios, ovmf
+    machine = Column(String(50), nullable=True)  # pc, q35, ecc.
+    agent_installed = Column(Boolean, nullable=True)
+    
+    # Network
+    network_interfaces = Column(JSON, nullable=True)  # Lista interfacce di rete dettagliate
+    num_networks = Column(Integer, nullable=True)
+    networks = Column(String(500), nullable=True)  # Lista nomi interfacce (net0, net1, ecc.)
+    ip_addresses = Column(String(500), nullable=True)  # IP addresses separati da "; "
+    
+    # Dischi
+    num_disks = Column(Integer, nullable=True)
+    disks = Column(String(500), nullable=True)  # Lista nomi dischi (scsi0, virtio0, ecc.)
+    disks_details = Column(JSON, nullable=True)  # Dettagli dischi
+    
     os_type = Column(String(50), nullable=True)  # l26, win10, win11, ecc.
     template = Column(Boolean, default=False)
+    
+    # Performance metrics
+    uptime = Column(Integer, nullable=True)  # Uptime in secondi
+    cpu_usage = Column(Float, nullable=True)  # CPU usage percentuale
+    mem_used = Column(Integer, nullable=True)  # Memoria usata in bytes
+    netin = Column(Integer, nullable=True)  # Network in bytes
+    netout = Column(Integer, nullable=True)  # Network out bytes
+    diskread = Column(Integer, nullable=True)  # Disk read bytes
+    diskwrite = Column(Integer, nullable=True)  # Disk write bytes
     
     backup_enabled = Column(Boolean, nullable=True)
     last_backup = Column(DateTime, nullable=True)

@@ -829,15 +829,34 @@ async def auto_detect_device(
                                         vm = ProxmoxVM(
                                             id=uuid.uuid4().hex[:8],
                                             host_id=host_id,
-                                            vm_id=vm_data.get("vm_id", vm_data.get("vmid", 0)),  # Campo corretto: vm_id
+                                            vm_id=vm_data.get("vm_id", vm_data.get("vmid", 0)),
+                                            vm_type=vm_data.get("type"),  # qemu, lxc
                                             name=vm_data.get("name", ""),
                                             status=vm_data.get("status"),
                                             cpu_cores=vm_data.get("cpu_cores"),
-                                            memory_mb=vm_data.get("memory_mb", vm_data.get("memory_total_mb")),  # Campo corretto: memory_mb
+                                            cpu_sockets=vm_data.get("cpu_sockets"),
+                                            cpu_total=vm_data.get("cpu_total"),
+                                            memory_mb=vm_data.get("memory_mb", vm_data.get("memory_total_mb")),
                                             disk_total_gb=vm_data.get("disk_total_gb"),
-                                            network_interfaces=vm_data.get("network_interfaces"),  # Campo corretto: network_interfaces
-                                            os_type=vm_data.get("os_type", vm_data.get("guest_os")),  # Campo corretto: os_type
+                                            bios=vm_data.get("bios"),
+                                            machine=vm_data.get("machine"),
+                                            agent_installed=vm_data.get("agent_installed"),
+                                            network_interfaces=vm_data.get("network_interfaces"),
+                                            num_networks=vm_data.get("num_networks"),
+                                            networks=vm_data.get("networks"),
+                                            ip_addresses=vm_data.get("ip_addresses"),
+                                            num_disks=vm_data.get("num_disks"),
+                                            disks=vm_data.get("disks"),
+                                            disks_details=vm_data.get("disks_details"),
+                                            os_type=vm_data.get("os_type", vm_data.get("guest_os")),
                                             template=vm_data.get("template", False),
+                                            uptime=vm_data.get("uptime"),
+                                            cpu_usage=vm_data.get("cpu_usage"),
+                                            mem_used=vm_data.get("mem_used"),
+                                            netin=vm_data.get("netin"),
+                                            netout=vm_data.get("netout"),
+                                            diskread=vm_data.get("diskread"),
+                                            diskwrite=vm_data.get("diskwrite"),
                                         )
                                         session.add(vm)
                                     logger.info(f"Auto-detect: Saved {len(scan_result['proxmox_vms'])} Proxmox VMs for device {data.device_id}")
@@ -2392,20 +2411,39 @@ async def identify_inventory_device(
                         # Elimina vecchie VM
                         session.query(ProxmoxVM).filter(ProxmoxVM.host_id == host_id).delete()
                         
-                        # Salva nuove VM
+                        # Salva nuove VM con tutti i campi da Proxreporter
                         for vm_data in result["proxmox_vms"]:
                             vm = ProxmoxVM(
                                 id=uuid.uuid4().hex[:8],
                                 host_id=host_id,
-                                vm_id=vm_data.get("vm_id", vm_data.get("vmid", 0)),  # Campo corretto: vm_id
+                                vm_id=vm_data.get("vm_id", vm_data.get("vmid", 0)),
+                                vm_type=vm_data.get("type"),  # qemu, lxc
                                 name=vm_data.get("name", ""),
                                 status=vm_data.get("status"),
                                 cpu_cores=vm_data.get("cpu_cores"),
-                                memory_mb=vm_data.get("memory_mb", vm_data.get("memory_total_mb")),  # Campo corretto: memory_mb
+                                cpu_sockets=vm_data.get("cpu_sockets"),
+                                cpu_total=vm_data.get("cpu_total"),
+                                memory_mb=vm_data.get("memory_mb", vm_data.get("memory_total_mb")),
                                 disk_total_gb=vm_data.get("disk_total_gb"),
-                                network_interfaces=vm_data.get("network_interfaces"),  # Campo corretto: network_interfaces
-                                os_type=vm_data.get("os_type", vm_data.get("guest_os")),  # Campo corretto: os_type
+                                bios=vm_data.get("bios"),
+                                machine=vm_data.get("machine"),
+                                agent_installed=vm_data.get("agent_installed"),
+                                network_interfaces=vm_data.get("network_interfaces"),
+                                num_networks=vm_data.get("num_networks"),
+                                networks=vm_data.get("networks"),
+                                ip_addresses=vm_data.get("ip_addresses"),
+                                num_disks=vm_data.get("num_disks"),
+                                disks=vm_data.get("disks"),
+                                disks_details=vm_data.get("disks_details"),
+                                os_type=vm_data.get("os_type", vm_data.get("guest_os")),
                                 template=vm_data.get("template", False),
+                                uptime=vm_data.get("uptime"),
+                                cpu_usage=vm_data.get("cpu_usage"),
+                                mem_used=vm_data.get("mem_used"),
+                                netin=vm_data.get("netin"),
+                                netout=vm_data.get("netout"),
+                                diskread=vm_data.get("diskread"),
+                                diskwrite=vm_data.get("diskwrite"),
                             )
                             session.add(vm)
                         logger.info(f"Saved {len(result['proxmox_vms'])} Proxmox VMs for device {device_id}")
@@ -2978,16 +3016,29 @@ async def get_proxmox_host_info(customer_id: str, device_id: str):
                 "node_name": host_info.node_name,
                 "cluster_name": host_info.cluster_name,
                 "proxmox_version": host_info.proxmox_version,
+                "manager_version": host_info.manager_version,
                 "kernel_version": host_info.kernel_version,
+                "boot_mode": host_info.boot_mode,
                 "cpu_model": host_info.cpu_model,
                 "cpu_cores": host_info.cpu_cores,
                 "cpu_sockets": host_info.cpu_sockets,
                 "cpu_threads": host_info.cpu_threads,
                 "cpu_total_cores": host_info.cpu_total_cores,
+                "cpu_usage_percent": host_info.cpu_usage_percent,
+                "io_delay_percent": host_info.io_delay_percent,
                 "memory_total_gb": host_info.memory_total_gb,
                 "memory_used_gb": host_info.memory_used_gb,
                 "memory_free_gb": host_info.memory_free_gb,
                 "memory_usage_percent": host_info.memory_usage_percent,
+                "ksm_sharing_gb": host_info.ksm_sharing_gb,
+                "swap_total_gb": host_info.swap_total_gb,
+                "swap_used_gb": host_info.swap_used_gb,
+                "swap_free_gb": host_info.swap_free_gb,
+                "swap_usage_percent": host_info.swap_usage_percent,
+                "rootfs_total_gb": host_info.rootfs_total_gb,
+                "rootfs_used_gb": host_info.rootfs_used_gb,
+                "rootfs_free_gb": host_info.rootfs_free_gb,
+                "rootfs_usage_percent": host_info.rootfs_usage_percent,
                 "storage_list": host_info.storage_list,
                 "network_interfaces": host_info.network_interfaces,
                 "license_status": host_info.license_status,
@@ -2995,13 +3046,16 @@ async def get_proxmox_host_info(customer_id: str, device_id: str):
                 "license_level": host_info.license_level,
                 "subscription_type": host_info.subscription_type,
                 "subscription_key": host_info.subscription_key,
+                "subscription_server_id": host_info.subscription_server_id,
+                "subscription_sockets": host_info.subscription_sockets,
+                "subscription_last_check": host_info.subscription_last_check,
+                "subscription_next_due": host_info.subscription_next_due,
+                "repository_status": host_info.repository_status,
                 "uptime_seconds": host_info.uptime_seconds,
                 "uptime_human": host_info.uptime_human,
                 "load_average_1m": host_info.load_average_1m,
                 "load_average_5m": host_info.load_average_5m,
                 "load_average_15m": host_info.load_average_15m,
-                "cpu_usage_percent": host_info.cpu_usage_percent,
-                "io_delay_percent": host_info.io_delay_percent,
                 "last_updated": host_info.last_updated.isoformat() if host_info.last_updated else None,
             }
         }
@@ -3057,14 +3111,33 @@ async def get_proxmox_vms(customer_id: str, device_id: str):
                 {
                     "id": vm.id,
                     "vm_id": vm.vm_id,
+                    "vm_type": vm.vm_type,
                     "name": vm.name,
                     "status": vm.status,
                     "cpu_cores": vm.cpu_cores,
+                    "cpu_sockets": vm.cpu_sockets,
+                    "cpu_total": vm.cpu_total,
                     "memory_mb": vm.memory_mb,
                     "disk_total_gb": vm.disk_total_gb,
+                    "bios": vm.bios,
+                    "machine": vm.machine,
+                    "agent_installed": vm.agent_installed,
                     "network_interfaces": vm.network_interfaces,
+                    "num_networks": vm.num_networks,
+                    "networks": vm.networks,
+                    "ip_addresses": vm.ip_addresses,
+                    "num_disks": vm.num_disks,
+                    "disks": vm.disks,
+                    "disks_details": vm.disks_details,
                     "os_type": vm.os_type,
                     "template": vm.template,
+                    "uptime": vm.uptime,
+                    "cpu_usage": vm.cpu_usage,
+                    "mem_used": vm.mem_used,
+                    "netin": vm.netin,
+                    "netout": vm.netout,
+                    "diskread": vm.diskread,
+                    "diskwrite": vm.diskwrite,
                     "backup_enabled": vm.backup_enabled,
                     "last_backup": vm.last_backup.isoformat() if vm.last_backup else None,
                     "created_at": vm.created_at.isoformat() if vm.created_at else None,
@@ -3416,20 +3489,39 @@ async def refresh_advanced_info(customer_id: str, device_id: str):
                         # Elimina vecchie VM
                         session.query(ProxmoxVM).filter(ProxmoxVM.host_id == host_id).delete()
                         
-                        # Salva nuove VM
+                        # Salva nuove VM con tutti i campi da Proxreporter
                         for vm_data in vms:
                             vm = ProxmoxVM(
                                 id=uuid.uuid4().hex[:8],
                                 host_id=host_id,
-                                vm_id=vm_data.get("vm_id", 0),
+                                vm_id=vm_data.get("vm_id", vm_data.get("vmid", 0)),
+                                vm_type=vm_data.get("type"),  # qemu, lxc
                                 name=vm_data.get("name", ""),
                                 status=vm_data.get("status"),
                                 cpu_cores=vm_data.get("cpu_cores"),
-                                memory_mb=vm_data.get("memory_mb"),
+                                cpu_sockets=vm_data.get("cpu_sockets"),
+                                cpu_total=vm_data.get("cpu_total"),
+                                memory_mb=vm_data.get("memory_mb", vm_data.get("memory_total_mb")),
                                 disk_total_gb=vm_data.get("disk_total_gb"),
+                                bios=vm_data.get("bios"),
+                                machine=vm_data.get("machine"),
+                                agent_installed=vm_data.get("agent_installed"),
                                 network_interfaces=vm_data.get("network_interfaces"),
-                                os_type=vm_data.get("os_type"),
+                                num_networks=vm_data.get("num_networks"),
+                                networks=vm_data.get("networks"),
+                                ip_addresses=vm_data.get("ip_addresses"),
+                                num_disks=vm_data.get("num_disks"),
+                                disks=vm_data.get("disks"),
+                                disks_details=vm_data.get("disks_details"),
+                                os_type=vm_data.get("os_type", vm_data.get("guest_os")),
                                 template=vm_data.get("template", False),
+                                uptime=vm_data.get("uptime"),
+                                cpu_usage=vm_data.get("cpu_usage"),
+                                mem_used=vm_data.get("mem_used"),
+                                netin=vm_data.get("netin"),
+                                netout=vm_data.get("netout"),
+                                diskread=vm_data.get("diskread"),
+                                diskwrite=vm_data.get("diskwrite"),
                             )
                             session.add(vm)
                         

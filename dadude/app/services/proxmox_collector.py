@@ -870,11 +870,16 @@ class ProxmoxCollector:
             except:
                 pass
             
-            # Ottieni subscription/license info
+            # Ottieni subscription/license info (dettagliata come Proxreporter)
             license_status = None
             license_message = None
             license_level = None
             subscription_type = None
+            subscription_key = None
+            subscription_server_id = None
+            subscription_sockets = None
+            subscription_last_check = None
+            subscription_next_due = None
             try:
                 sub_cmd = f'pvesh get /nodes/{hostname}/subscription --output-format json'
                 sub_json = exec_cmd(sub_cmd)
@@ -883,7 +888,161 @@ class ProxmoxCollector:
                     license_status = sub_data.get('status')
                     license_message = sub_data.get('message')
                     license_level = sub_data.get('level')
-                    subscription_type = sub_data.get('type')
+                    subscription_type = sub_data.get('productname') or sub_data.get('type')
+                    subscription_key = sub_data.get('key')
+                    subscription_server_id = sub_data.get('serverid')
+                    subscription_sockets = sub_data.get('sockets')
+                    checktime = sub_data.get('checktime') or sub_data.get('lastcheck')
+                    if checktime:
+                        try:
+                            from datetime import datetime
+                            if isinstance(checktime, (int, float)):
+                                subscription_last_check = datetime.fromtimestamp(checktime).isoformat()
+                            else:
+                                subscription_last_check = str(checktime)
+                        except:
+                            subscription_last_check = str(checktime)
+                    next_due = sub_data.get('nextduedate') or sub_data.get('nextdue')
+                    if next_due:
+                        subscription_next_due = str(next_due)
+            except:
+                pass
+            
+            # Prova anche con pvesubscription get per campi aggiuntivi
+            try:
+                sub_output = exec_cmd('pvesubscription get 2>/dev/null')
+                if sub_output:
+                    sub_data = {}
+                    for line in sub_output.splitlines():
+                        line = line.strip()
+                        if ':' in line:
+                            key, value = line.split(':', 1)
+                            key = key.strip().lower().replace(' ', '_')
+                            value = value.strip()
+                            sub_data[key] = value
+                    
+                    if not license_status and sub_data.get('status'):
+                        license_status = sub_data['status']
+                    if not subscription_key and sub_data.get('key'):
+                        subscription_key = sub_data['key']
+                    if not license_level and sub_data.get('level'):
+                        license_level = sub_data['level']
+                    if not subscription_type and sub_data.get('productname'):
+                        subscription_type = sub_data['productname']
+                    if not subscription_next_due and sub_data.get('nextduedate'):
+                        subscription_next_due = sub_data['nextduedate']
+                    if not subscription_server_id and sub_data.get('serverid'):
+                        subscription_server_id = sub_data['serverid']
+                    if not subscription_sockets and sub_data.get('sockets'):
+                        subscription_sockets = sub_data['sockets']
+            except:
+                pass
+            
+            # Ottieni IO delay
+            io_delay_percent = node_data.get('io_delay')
+            if io_delay_percent is not None:
+                try:
+                    io_delay_percent = round(float(io_delay_percent), 2)
+                except:
+                    io_delay_percent = None
+            
+            # Ottieni swap info da /proc/meminfo
+            swap_total_gb = None
+            swap_used_gb = None
+            swap_free_gb = None
+            swap_usage_percent = None
+            try:
+                meminfo_full = exec_cmd('cat /proc/meminfo')
+                if meminfo_full:
+                    import re
+                    swap_total_match = re.search(r'SwapTotal:\s+(\d+)', meminfo_full)
+                    swap_free_match = re.search(r'SwapFree:\s+(\d+)', meminfo_full)
+                    if swap_total_match:
+                        swap_total_kb = int(swap_total_match.group(1))
+                        swap_total_gb = round(swap_total_kb / 1024 / 1024, 2)
+                    if swap_free_match:
+                        swap_free_kb = int(swap_free_match.group(1))
+                        swap_free_gb = round(swap_free_kb / 1024 / 1024, 2)
+                        if swap_total_gb:
+                            swap_used_gb = round(swap_total_gb - swap_free_gb, 2)
+                            if swap_total_gb > 0:
+                                swap_usage_percent = round((swap_used_gb / swap_total_gb) * 100, 2)
+            except:
+                pass
+            
+            # Ottieni rootfs info
+            rootfs_total_gb = None
+            rootfs_used_gb = None
+            rootfs_free_gb = None
+            rootfs_usage_percent = None
+            try:
+                rootfs_output = exec_cmd('df -B1 / 2>/dev/null | tail -1')
+                if rootfs_output:
+                    parts = rootfs_output.split()
+                    if len(parts) >= 5:
+                        total = float(parts[1])
+                        used = float(parts[2])
+                        free = float(parts[3])
+                        rootfs_total_gb = round(total / (1024 ** 3), 2)
+                        rootfs_used_gb = round(used / (1024 ** 3), 2)
+                        rootfs_free_gb = round(free / (1024 ** 3), 2)
+                        if total > 0:
+                            rootfs_usage_percent = round((used / total) * 100, 2)
+            except:
+                pass
+            
+            # Ottieni KSM sharing
+            ksm_sharing_gb = None
+            try:
+                ksm_output = exec_cmd('cat /sys/kernel/mm/ksm/pages_sharing 2>/dev/null')
+                if ksm_output:
+                    pages = int(ksm_output.strip())
+                    ksm_sharing_gb = round((pages * 4096) / (1024 ** 3), 2)
+            except:
+                pass
+            
+            # Ottieni repository status
+            repository_status = None
+            try:
+                repos_cmd = f'pvesh get /nodes/{hostname}/apt/repositories --output-format json'
+                repos_json = exec_cmd(repos_cmd)
+                if repos_json:
+                    repos_data = json.loads(repos_json)
+                    repositories = []
+                    if isinstance(repos_data, dict):
+                        repositories = repos_data.get('repositories') or repos_data.get('data') or []
+                    elif isinstance(repos_data, list):
+                        repositories = repos_data
+                    
+                    repo_entries = []
+                    for repo in repositories:
+                        if not isinstance(repo, dict):
+                            continue
+                        name = repo.get('name') or repo.get('handle') or repo.get('description') or 'repository'
+                        enabled = repo.get('enabled')
+                        status = repo.get('status')
+                        entry = name
+                        if enabled is not None:
+                            entry += f" [{'enabled' if enabled else 'disabled'}]"
+                        if status:
+                            entry += f" - {status}"
+                        repo_entries.append(entry)
+                    if repo_entries:
+                        repository_status = '; '.join(repo_entries)
+            except:
+                pass
+            
+            # Ottieni boot mode
+            boot_mode = None
+            try:
+                boot_mode_output = exec_cmd('[ -d /sys/firmware/efi ] && echo EFI || echo BIOS')
+                if boot_mode_output:
+                    boot_mode = boot_mode_output.strip()
+                    secure_output = exec_cmd('mokutil --sb-state 2>/dev/null')
+                    if secure_output and 'enabled' in secure_output.lower():
+                        boot_mode += ' (Secure Boot)'
+                    elif secure_output and 'disabled' in secure_output.lower():
+                        boot_mode += ' (Secure Boot disabled)'
             except:
                 pass
             
@@ -922,26 +1081,44 @@ class ProxmoxCollector:
                 'node_name': hostname,
                 'cluster_name': cluster_name,
                 'proxmox_version': proxmox_version,
+                'manager_version': manager_version,
                 'kernel_version': kernel_version,
                 'cpu_model': cpu_model,
                 'cpu_cores': cpu_cores,
                 'cpu_sockets': cpu_sockets,
                 'cpu_threads': cpu_threads,
                 'cpu_total_cores': cpu_total_cores,
+                'cpu_usage_percent': cpu_usage,
+                'io_delay_percent': io_delay_percent,
                 'memory_total_gb': memory_total_gb,
                 'memory_used_gb': memory_used_gb,
                 'memory_free_gb': memory_free_gb,
                 'memory_usage_percent': memory_usage_percent,
+                'ksm_sharing_gb': ksm_sharing_gb,
+                'swap_total_gb': swap_total_gb,
+                'swap_used_gb': swap_used_gb,
+                'swap_free_gb': swap_free_gb,
+                'swap_usage_percent': swap_usage_percent,
+                'rootfs_total_gb': rootfs_total_gb,
+                'rootfs_used_gb': rootfs_used_gb,
+                'rootfs_free_gb': rootfs_free_gb,
+                'rootfs_usage_percent': rootfs_usage_percent,
                 'uptime_seconds': uptime_seconds,
                 'uptime_human': uptime_human,
                 'load_average_1m': load_1m,
                 'load_average_5m': load_5m,
                 'load_average_15m': load_15m,
-                'cpu_usage_percent': cpu_usage,
                 'license_status': license_status,
                 'license_message': license_message,
                 'license_level': license_level,
                 'subscription_type': subscription_type,
+                'subscription_key': subscription_key,
+                'subscription_server_id': subscription_server_id,
+                'subscription_sockets': subscription_sockets,
+                'subscription_last_check': subscription_last_check,
+                'subscription_next_due': subscription_next_due,
+                'repository_status': repository_status,
+                'boot_mode': boot_mode,
                 'network_interfaces': network_interfaces,
                 'storage_list': storage_list,
             }
@@ -1033,27 +1210,156 @@ class ProxmoxCollector:
                             'memory_mb': int(vm.get('maxmem', 0) / (1024 * 1024)) if vm.get('maxmem') else 0,
                             'disk_total_gb': bytes_to_gib(vm.get('maxdisk', 0)),
                             'template': vm.get('template', False),
+                            'uptime': vm.get('uptime', 0),
+                            'cpu_usage': vm.get('cpu', 0),
+                            'mem_used': vm.get('mem', 0),
+                            'netin': vm.get('netin', 0),
+                            'netout': vm.get('netout', 0),
+                            'diskread': vm.get('diskread', 0),
+                            'diskwrite': vm.get('diskwrite', 0),
                         }
                         
-                        # Ottieni configurazione VM
+                        # Ottieni configurazione VM completa (come Proxreporter)
                         config_cmd = f'pvesh get /nodes/{node_name}/qemu/{vmid}/config --output-format json'
                         config_json = exec_cmd(config_cmd)
                         if config_json:
                             try:
                                 config = json.loads(config_json)
-                                vm_data['cpu_cores'] = int(config.get('cores', vm_data['cpu_cores']))
+                                
+                                # BIOS e Machine type
+                                vm_data['bios'] = config.get('bios', 'seabios')
+                                vm_data['machine'] = config.get('machine', 'pc')
+                                vm_data['agent_installed'] = bool(config.get('agent'))
+                                
+                                # CPU dalla configurazione
+                                cores = int(config.get('cores', 1))
+                                sockets = int(config.get('sockets', 1))
+                                vm_data['cpu_cores'] = cores
+                                vm_data['cpu_sockets'] = sockets
+                                vm_data['cpu_total'] = cores * sockets
+                                
                                 vm_data['os_type'] = config.get('ostype', '')
                                 
-                                # Network interfaces
+                                # Dischi dettagliati (come Proxreporter)
+                                disks = []
+                                disk_details = []
+                                for key in config:
+                                    if key.startswith(('scsi', 'sata', 'ide', 'virtio')):
+                                        disks.append(key)
+                                        disk_info = config[key]
+                                        if isinstance(disk_info, str):
+                                            disk_detail = {'id': key}
+                                            parts = disk_info.split(',')
+                                            first_part = parts[0]
+                                            if ':' in first_part:
+                                                storage_vol = first_part.split(':', 1)
+                                                disk_detail['storage'] = storage_vol[0]
+                                                if len(storage_vol) > 1:
+                                                    disk_detail['volume'] = storage_vol[1]
+                                            else:
+                                                disk_detail['storage'] = 'N/A'
+                                            
+                                            for part in parts[1:]:
+                                                if '=' in part:
+                                                    param_name, param_value = part.split('=', 1)
+                                                    if param_name == 'size':
+                                                        disk_detail['size'] = param_value
+                                                    elif param_name == 'media':
+                                                        disk_detail['media'] = param_value
+                                                    elif param_name == 'cache':
+                                                        disk_detail['cache'] = param_value
+                                            
+                                            disk_details.append(disk_detail)
+                                
+                                vm_data['num_disks'] = len(disks)
+                                vm_data['disks'] = ', '.join(disks) if disks else None
+                                vm_data['disks_details'] = disk_details if disk_details else []
+                                
+                                # Network dettagliati (come Proxreporter)
                                 networks = []
+                                network_details = []
                                 for key in config:
                                     if key.startswith('net'):
+                                        networks.append(key)
                                         net_info = config[key]
                                         if isinstance(net_info, str):
-                                            networks.append(net_info)
-                                vm_data['network_interfaces'] = networks
+                                            net_detail = {'id': key}
+                                            parts = net_info.split(',')
+                                            first_part = parts[0] if parts else ''
+                                            if '=' in first_part:
+                                                model, mac = first_part.split('=', 1)
+                                                net_detail['model'] = model
+                                                net_detail['mac'] = mac
+                                            
+                                            for part in parts[1:]:
+                                                if '=' in part:
+                                                    k, v = part.split('=', 1)
+                                                    if k == 'bridge':
+                                                        net_detail['bridge'] = v
+                                                    elif k == 'tag':
+                                                        net_detail['vlan'] = v
+                                                    elif k == 'firewall':
+                                                        net_detail['firewall'] = v
+                                                    elif k == 'rate':
+                                                        net_detail['rate'] = v
+                                            
+                                            network_details.append(net_detail)
+                                
+                                vm_data['num_networks'] = len(networks)
+                                vm_data['networks'] = ', '.join(networks) if networks else None
+                                vm_data['network_interfaces'] = network_details if network_details else []
                             except Exception as e:
                                 logger.debug(f"Failed to parse VM config for {vmid}: {e}")
+                        
+                        # IP Addresses via QEMU Guest Agent (solo per VM running con agent)
+                        ip_addresses = []
+                        if status == 'running' and vm_data.get('agent_installed'):
+                            try:
+                                agent_cmd = f'pvesh get /nodes/{node_name}/qemu/{vmid}/agent/network-get-interfaces --output-format json 2>/dev/null'
+                                agent_json = exec_cmd(agent_cmd)
+                                if agent_json:
+                                    agent_info = json.loads(agent_json)
+                                    result = agent_info.get('result', agent_info) if isinstance(agent_info, dict) else agent_info
+                                    
+                                    if isinstance(result, list):
+                                        for iface in result:
+                                            if not isinstance(iface, dict):
+                                                continue
+                                            
+                                            iface_name = iface.get('name', '').lower()
+                                            if iface_name in ['lo', 'loopback']:
+                                                continue
+                                            
+                                            if 'ip-addresses' not in iface:
+                                                continue
+                                            
+                                            ip_addrs = iface.get('ip-addresses', [])
+                                            if not isinstance(ip_addrs, list):
+                                                continue
+                                            
+                                            for ip_info in ip_addrs:
+                                                if not isinstance(ip_info, dict):
+                                                    continue
+                                                
+                                                ip = ip_info.get('ip-address', '').strip()
+                                                if not ip:
+                                                    continue
+                                                if ip.startswith(('127.', '::1', 'fe80:', '169.254.')):
+                                                    continue
+                                                
+                                                ip_addresses.append(ip)
+                            except Exception as e:
+                                logger.debug(f"Failed to get IP addresses for VM {vmid}: {e}")
+                        
+                        # Rimuovi duplicati
+                        seen = set()
+                        unique_ips = []
+                        for ip in ip_addresses:
+                            if ip not in seen:
+                                seen.add(ip)
+                                unique_ips.append(ip)
+                        
+                        vm_data['ip_addresses'] = '; '.join(unique_ips) if unique_ips else None
                         
                         vms.append(vm_data)
                 except Exception as e:
@@ -1080,27 +1386,91 @@ class ProxmoxCollector:
                             'memory_mb': int(lxc.get('maxmem', 0) / (1024 * 1024)) if lxc.get('maxmem') else 0,
                             'disk_total_gb': bytes_to_gib(lxc.get('maxdisk', 0)),
                             'template': lxc.get('template', False),
+                            'uptime': lxc.get('uptime', 0),
+                            'cpu_usage': lxc.get('cpu', 0),
+                            'mem_used': lxc.get('mem', 0),
+                            'netin': lxc.get('netin', 0),
+                            'netout': lxc.get('netout', 0),
+                            'diskread': lxc.get('diskread', 0),
+                            'diskwrite': lxc.get('diskwrite', 0),
                         }
                         
-                        # Ottieni configurazione LXC
+                        # Ottieni configurazione LXC completa (come Proxreporter)
                         config_cmd = f'pvesh get /nodes/{node_name}/lxc/{vmid}/config --output-format json'
                         config_json = exec_cmd(config_cmd)
                         if config_json:
                             try:
                                 config = json.loads(config_json)
+                                
                                 lxc_data['cpu_cores'] = int(config.get('cores', lxc_data['cpu_cores']))
                                 lxc_data['os_type'] = config.get('ostype', '')
                                 
-                                # Network interfaces
+                                # Network dettagliati (come Proxreporter)
                                 networks = []
+                                network_details = []
                                 for key in config:
                                     if key.startswith('net'):
+                                        networks.append(key)
                                         net_info = config[key]
                                         if isinstance(net_info, str):
-                                            networks.append(net_info)
-                                lxc_data['network_interfaces'] = networks
+                                            net_detail = {'id': key}
+                                            parts = net_info.split(',')
+                                            first_part = parts[0] if parts else ''
+                                            if '=' in first_part:
+                                                model, mac = first_part.split('=', 1)
+                                                net_detail['model'] = model
+                                                net_detail['mac'] = mac
+                                            
+                                            for part in parts[1:]:
+                                                if '=' in part:
+                                                    k, v = part.split('=', 1)
+                                                    if k == 'bridge':
+                                                        net_detail['bridge'] = v
+                                                    elif k == 'tag':
+                                                        net_detail['vlan'] = v
+                                                    elif k == 'firewall':
+                                                        net_detail['firewall'] = v
+                                                    elif k == 'rate':
+                                                        net_detail['rate'] = v
+                                            
+                                            network_details.append(net_detail)
+                                
+                                lxc_data['num_networks'] = len(networks)
+                                lxc_data['networks'] = ', '.join(networks) if networks else None
+                                lxc_data['network_interfaces'] = network_details if network_details else []
                             except Exception as e:
                                 logger.debug(f"Failed to parse LXC config for {vmid}: {e}")
+                        
+                        # IP Addresses per LXC (via network config)
+                        ip_addresses = []
+                        if status == 'running':
+                            try:
+                                # Per LXC, gli IP sono nella configurazione network
+                                if config_json:
+                                    config = json.loads(config_json)
+                                    for key in config:
+                                        if key.startswith('net'):
+                                            net_info = config[key]
+                                            if isinstance(net_info, str):
+                                                # Cerca IP nella configurazione
+                                                if 'ip=' in net_info:
+                                                    for part in net_info.split(','):
+                                                        if part.startswith('ip='):
+                                                            ip = part.split('=')[1].split('/')[0]
+                                                            if ip and not ip.startswith(('127.', '::1', 'fe80:', '169.254.')):
+                                                                ip_addresses.append(ip)
+                            except Exception as e:
+                                logger.debug(f"Failed to get IP addresses for LXC {vmid}: {e}")
+                        
+                        # Rimuovi duplicati
+                        seen = set()
+                        unique_ips = []
+                        for ip in ip_addresses:
+                            if ip not in seen:
+                                seen.add(ip)
+                                unique_ips.append(ip)
+                        
+                        lxc_data['ip_addresses'] = '; '.join(unique_ips) if unique_ips else None
                         
                         vms.append(lxc_data)
                 except Exception as e:
