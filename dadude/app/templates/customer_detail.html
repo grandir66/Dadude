@@ -585,9 +585,6 @@
                                 <th>Servizi</th>
                                 <th>Credenziali</th>
                                 <th>Monitoraggio</th>
-                                <th style="cursor: pointer;" onclick="sortInventoryTable(10, 'text')">
-                                    Stato <i class="bi bi-arrow-down-up sort-icon"></i>
-                                </th>
                                 <th>Azioni</th>
                             </tr>
                         </thead>
@@ -3617,12 +3614,6 @@ async function loadInventory() {
                     recognitionIcon = '<i class="bi bi-eye text-danger me-1" title="Solo scoperto - richiede detect"></i>';
                 }
                 
-                const statusBadge = dev.status === 'online' 
-                    ? '<span class="badge bg-success">Online</span>'
-                    : (dev.status === 'offline' 
-                        ? '<span class="badge bg-danger">Offline</span>'
-                        : '<span class="badge bg-secondary">-</span>');
-                
                 // Dropdown credenziali
                 let credOptions = '<option value="">-- Nessuna --</option>';
                 customerCredentials.forEach(cred => {
@@ -3631,24 +3622,15 @@ async function loadInventory() {
                     credOptions += `<option value="${cred.id}" ${selected}>${cred.name}${typeLabel}</option>`;
                 });
                 
-                // Monitoraggio toggle
+                // Monitoraggio toggle - pulsante singolo per abilitare/disabilitare
                 const isMonitored = dev.monitored || false;
-                const monitoringType = dev.monitoring_type || 'none'; // none, netwatch, agent
+                const monitoringType = dev.monitoring_type || 'none';
                 const monitoringHtml = `
-                    <div class="btn-group btn-group-sm" role="group">
-                        <button type="button" class="btn ${monitoringType === 'none' ? 'btn-secondary' : 'btn-outline-secondary'}" 
-                                onclick="setMonitoring('${dev.id}', 'none')" title="Monitoraggio disabilitato">
-                            <i class="bi bi-x-circle"></i>
-                        </button>
-                        <button type="button" class="btn ${monitoringType === 'netwatch' ? 'btn-success' : 'btn-outline-success'}" 
-                                onclick="setMonitoring('${dev.id}', 'netwatch')" title="Netwatch MikroTik">
-                            <i class="bi bi-router"></i>
-                        </button>
-                        <button type="button" class="btn ${monitoringType === 'agent' ? 'btn-primary' : 'btn-outline-primary'}" 
-                                onclick="setMonitoring('${dev.id}', 'agent')" title="Agent Probe">
-                            <i class="bi bi-broadcast"></i>
-                        </button>
-                    </div>
+                    <button type="button" class="btn btn-sm ${isMonitored && monitoringType !== 'none' ? 'btn-success' : 'btn-outline-secondary'}" 
+                            onclick="toggleMonitoring('${dev.id}')" 
+                            title="${isMonitored && monitoringType !== 'none' ? 'Monitoraggio attivo' : 'Abilita monitoraggio'}">
+                        <i class="bi ${isMonitored && monitoringType !== 'none' ? 'bi-toggle-on' : 'bi-toggle-off'}"></i>
+                    </button>
                 `;
 
                 // Servizi aperti
@@ -3740,7 +3722,6 @@ async function loadInventory() {
                         <td style="min-width: 120px;">${servicesDisplay}</td>
                         <td>${credSelect}</td>
                         <td>${monitoringHtml}</td>
-                        <td>${statusBadge}</td>
                         <td>
                             <div class="d-flex justify-content-between align-items-center">
                                 <div class="btn-group btn-group-sm">
@@ -4479,7 +4460,7 @@ async function deleteInventoryDevice(deviceId) {
 // MONITORAGGIO
 // ==========================================
 
-async function setMonitoring(deviceId, monitoringType) {
+async function toggleMonitoring(deviceId) {
     const btn = event.target.closest('button');
     const originalHtml = btn.innerHTML;
     
@@ -4487,11 +4468,16 @@ async function setMonitoring(deviceId, monitoringType) {
         btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
         btn.disabled = true;
         
+        // Determina lo stato attuale del dispositivo
+        const row = document.querySelector(`tr[data-device-id="${deviceId}"]`);
+        const isCurrentlyMonitored = btn.classList.contains('btn-success');
+        const newMonitoringType = isCurrentlyMonitored ? 'none' : 'agent'; // Usa 'agent' come default quando si abilita
+        
         const response = await fetch(`/api/v1/inventory/devices/${deviceId}/monitoring`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                monitoring_type: monitoringType,
+                monitoring_type: newMonitoringType,
                 customer_id: customerId
             })
         });
@@ -4499,27 +4485,17 @@ async function setMonitoring(deviceId, monitoringType) {
         const result = await response.json();
         
         if (result.success) {
-            // Aggiorna visivamente i pulsanti nella riga
-            const row = document.querySelector(`tr[data-device-id="${deviceId}"]`);
-            if (row) {
-                const btnGroup = row.querySelector('.btn-group[role="group"]');
-                if (btnGroup) {
-                    btnGroup.querySelectorAll('button').forEach(b => {
-                        b.classList.remove('btn-secondary', 'btn-success', 'btn-primary');
-                        b.classList.add('btn-outline-secondary', 'btn-outline-success', 'btn-outline-primary');
-                    });
-                    // Attiva il pulsante corretto
-                    if (monitoringType === 'none') {
-                        btnGroup.children[0].classList.remove('btn-outline-secondary');
-                        btnGroup.children[0].classList.add('btn-secondary');
-                    } else if (monitoringType === 'netwatch') {
-                        btnGroup.children[1].classList.remove('btn-outline-success');
-                        btnGroup.children[1].classList.add('btn-success');
-                    } else if (monitoringType === 'agent') {
-                        btnGroup.children[2].classList.remove('btn-outline-primary');
-                        btnGroup.children[2].classList.add('btn-primary');
-                    }
-                }
+            // Aggiorna visivamente il pulsante
+            if (newMonitoringType === 'none') {
+                btn.classList.remove('btn-success');
+                btn.classList.add('btn-outline-secondary');
+                btn.innerHTML = '<i class="bi bi-toggle-off"></i>';
+                btn.title = 'Abilita monitoraggio';
+            } else {
+                btn.classList.remove('btn-outline-secondary');
+                btn.classList.add('btn-success');
+                btn.innerHTML = '<i class="bi bi-toggle-on"></i>';
+                btn.title = 'Monitoraggio attivo';
             }
             
             // Mostra messaggio se configurato Netwatch
@@ -4538,7 +4514,7 @@ async function setMonitoring(deviceId, monitoringType) {
 }
 
 // Configura monitoraggio per più dispositivi
-async function batchSetMonitoring(monitoringType) {
+async function batchSetMonitoring(enable) {
     const checkboxes = document.querySelectorAll('#inventoryTable input[type="checkbox"]:checked');
     if (checkboxes.length === 0) {
         alert('Seleziona almeno un dispositivo');
@@ -4546,14 +4522,28 @@ async function batchSetMonitoring(monitoringType) {
     }
     
     const deviceIds = Array.from(checkboxes).map(cb => cb.dataset.deviceId);
+    const monitoringType = enable ? 'agent' : 'none';
     
-    if (!confirm(`Configurare monitoraggio "${monitoringType}" per ${deviceIds.length} dispositivi?`)) return;
+    if (!confirm(`${enable ? 'Abilitare' : 'Disabilitare'} monitoraggio per ${deviceIds.length} dispositivi?`)) return;
     
     for (const deviceId of deviceIds) {
-        await setMonitoring(deviceId, monitoringType);
+        try {
+            const response = await fetch(`/api/v1/inventory/devices/${deviceId}/monitoring`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    monitoring_type: monitoringType,
+                    customer_id: customerId
+                })
+            });
+            await response.json();
+        } catch (e) {
+            console.error(`Errore dispositivo ${deviceId}:`, e);
+        }
     }
     
-    alert(`Monitoraggio configurato per ${deviceIds.length} dispositivi`);
+    alert(`Monitoraggio ${enable ? 'abilitato' : 'disabilitato'} per ${deviceIds.length} dispositivi`);
+    loadInventory();
 }
 
 async function addToDude(deviceId) {
