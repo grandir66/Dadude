@@ -5648,10 +5648,25 @@ async function loadDeviceAdvancedInterfaces(deviceId) {
     content.innerHTML = '<div class="spinner-border spinner-border-sm me-2"></div>Caricamento...';
     
     try {
-        const response = await fetch(`/api/v1/inventory/${customerId}/devices/${deviceId}/interfaces`);
-        const data = await response.json();
+        // Carica i dati del device (già disponibili nel modal)
+        const response = await fetch(`/api/v1/inventory/devices/${deviceId}`);
+        const device = await response.json();
         
-        if (data.success && data.interfaces && data.interfaces.length > 0) {
+        // Estrai interfaces da custom_fields
+        let interfaces = [];
+        if (device.custom_fields) {
+            let cf = device.custom_fields;
+            if (typeof cf === 'string') {
+                try {
+                    cf = JSON.parse(cf);
+                } catch (e) {
+                    cf = {};
+                }
+            }
+            interfaces = cf.interfaces || cf.interface_details || [];
+        }
+        
+        if (interfaces && interfaces.length > 0) {
             content.innerHTML = `
                 <div class="table-responsive">
                     <table class="table table-sm table-striped">
