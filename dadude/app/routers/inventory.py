@@ -917,7 +917,8 @@ async def auto_detect_device(
                         except Exception as e:
                             import traceback
                             error_trace = traceback.format_exc()
-                            logger.error("Error saving Proxmox info during auto-detect for device %s: %s\n%s", data.device_id, str(e), error_trace)
+                            error_msg = f"Error saving Proxmox info during auto-detect for device {data.device_id}: {str(e)}\n{error_trace}"
+                            logger.error(error_msg, exc_info=False)
                             # Non fare raise qui, continua con il commit degli altri dati
                     
                     try:
@@ -926,7 +927,8 @@ async def auto_detect_device(
                     except Exception as commit_error:
                         import traceback
                         commit_trace = traceback.format_exc()
-                        logger.error("Error committing Proxmox data for device %s: %s\n%s", data.device_id, str(commit_error), commit_trace)
+                        commit_msg = f"Error committing Proxmox data for device {data.device_id}: {str(commit_error)}\n{commit_trace}"
+                        logger.error(commit_msg, exc_info=False)
                         session.rollback()
                         raise
                     logger.info(f"Auto-detect: Saved results to device {data.device_id} - hostname={device.hostname}, os={device.os_family}, cpu={device.cpu_model}")
