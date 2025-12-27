@@ -1009,6 +1009,8 @@ async def auto_detect_device(
                                 existing = {}
                         existing.update(extra_fields)
                         device.custom_fields = existing
+                        flag_modified(device, "custom_fields")
+                        logger.debug(f"Saved {len(extra_fields)} extra fields to custom_fields: {list(extra_fields.keys())}")
                     
                     # Timestamp
                     from datetime import datetime
