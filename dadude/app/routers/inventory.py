@@ -1184,26 +1184,51 @@ async def auto_detect_device(
                         try:
                             from ..models.inventory import MikroTikDetails
                             # I dati MikroTik sono mergeati direttamente in scan_result
-                            extra_info = scan_result
                             logger.info(f"Saving MikroTikDetails for device {data.device_id}, identified_by={scan_result.get('identified_by')}, scan_result keys: {list(scan_result.keys())[:20]}")
                             
                             mikrotik_data = {}
                             
                             # RouterOS version
-                            if extra_info.get("os_version") or scan_result.get("os_version"):
-                                mikrotik_data["routeros_version"] = extra_info.get("os_version") or scan_result.get("os_version")
+                            if scan_result.get("os_version"):
+                                mikrotik_data["routeros_version"] = scan_result.get("os_version")
                             
-                            # Hardware
-                            if extra_info.get("model") or scan_result.get("model"):
-                                mikrotik_data["board_name"] = extra_info.get("model") or scan_result.get("model")
-                            if extra_info.get("arch"):
-                                mikrotik_data["platform"] = extra_info.get("arch")
-                            if extra_info.get("cpu_model"):
-                                mikrotik_data["cpu_model"] = extra_info.get("cpu_model")
-                            if extra_info.get("cpu_cores"):
-                                mikrotik_data["cpu_count"] = extra_info.get("cpu_cores")
-                            if extra_info.get("memory_total_mb"):
-                                mikrotik_data["memory_total_mb"] = extra_info.get("memory_total_mb")
+                            # Hardware - model può essere in model o board_name
+                            if scan_result.get("model"):
+                                mikrotik_data["board_name"] = scan_result.get("model")
+                            if scan_result.get("architecture"):
+                                mikrotik_data["platform"] = scan_result.get("architecture")
+                            elif scan_result.get("arch"):
+                                mikrotik_data["platform"] = scan_result.get("arch")
+                            
+                            # CPU
+                            if scan_result.get("cpu_model"):
+                                mikrotik_data["cpu_model"] = scan_result.get("cpu_model")
+                            if scan_result.get("cpu_cores"):
+                                mikrotik_data["cpu_count"] = scan_result.get("cpu_cores")
+                            
+                            # Memoria
+                            if scan_result.get("ram_total_mb"):
+                                mikrotik_data["memory_total_mb"] = scan_result.get("ram_total_mb")
+                            elif scan_result.get("memory_total_mb"):
+                                mikrotik_data["memory_total_mb"] = scan_result.get("memory_total_mb")
+                            if scan_result.get("ram_free_mb"):
+                                mikrotik_data["memory_free_mb"] = scan_result.get("ram_free_mb")
+                            
+                            # Identity
+                            if scan_result.get("hostname"):
+                                mikrotik_data["identity"] = scan_result.get("hostname")
+                            
+                            # License
+                            if scan_result.get("license_level"):
+                                mikrotik_data["license_level"] = scan_result.get("license_level")
+                            
+                            # Firmware
+                            if scan_result.get("firmware"):
+                                mikrotik_data["firmware_version"] = scan_result.get("firmware")
+                            
+                            # Uptime
+                            if scan_result.get("uptime"):
+                                mikrotik_data["uptime"] = scan_result.get("uptime")
                             
                             # Crea o aggiorna MikroTikDetails
                             existing_md = session.query(MikroTikDetails).filter(MikroTikDetails.device_id == data.device_id).first()
