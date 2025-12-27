@@ -407,11 +407,13 @@ async def auto_detect_device(
                 }
         else:
             # Probe diretto (senza agent o con agent MikroTik)
+            logger.info(f"Auto-detect: Calling probe_service.auto_identify_device with {len(credentials_list)} credentials")
             scan_result = await probe_service.auto_identify_device(
                 address=data.address,
                 mac_address=data.mac_address,
                 credentials_list=credentials_list
             )
+            logger.info(f"Auto-detect: probe_service returned: identified_by={scan_result.get('identified_by')}, device_type={scan_result.get('device_type')}, hostname={scan_result.get('hostname')}")
         
         result["scan_result"] = scan_result
         result["success"] = True
