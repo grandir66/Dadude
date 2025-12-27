@@ -406,14 +406,21 @@ async def auto_detect_device(
             
             # Converti risultato agent in formato compatibile
             if probe_result.get("best_result"):
+                best_data = probe_result["best_result"].get("data", {})
+                best_data_keys = list(best_data.keys()) if isinstance(best_data, dict) else []
+                logger.info(f"Auto-detect: Merging agent probe result, best_result.data has {len(best_data_keys)} fields: {sorted(best_data_keys)[:30]}")
+                if isinstance(best_data, dict) and best_data.get("running_services_count"):
+                    logger.info(f"Auto-detect: best_result.data includes: running_services_count={best_data.get('running_services_count')}, cron_jobs_count={best_data.get('cron_jobs_count')}, neighbors_count={best_data.get('neighbors_count')}")
                 scan_result = {
                     "address": data.address,
                     "mac_address": data.mac_address,
                     "device_type": "unknown",
                     "category": None,
                     "identified_by": f"agent_{probe_result['best_result']['type']}",
-                    **probe_result["best_result"].get("data", {}),
+                    **best_data,
                 }
+                scan_result_keys = list(scan_result.keys())
+                logger.info(f"Auto-detect: scan_result after merge has {len(scan_result_keys)} fields: {sorted(scan_result_keys)[:30]}")
             else:
                 scan_result = {
                     "address": data.address,

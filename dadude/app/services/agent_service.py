@@ -148,6 +148,7 @@ class AgentService:
         """Esegue un comando via WebSocket Hub"""
         hub = get_websocket_hub()
         
+        logger.debug(f"WebSocket command: sending {command.value} to {ws_agent_id} with params keys: {list(params.keys())}")
         result = await hub.send_command(
             ws_agent_id,
             command,
@@ -156,11 +157,16 @@ class AgentService:
         )
         
         if result.status == "success":
+            data_keys = list(result.data.keys()) if isinstance(result.data, dict) else []
+            logger.info(f"WebSocket command {command.value} succeeded, returned {len(data_keys)} fields: {sorted(data_keys)[:30]}")
+            if isinstance(result.data, dict) and result.data.get("running_services_count"):
+                logger.info(f"WebSocket result includes: running_services_count={result.data.get('running_services_count')}, cron_jobs_count={result.data.get('cron_jobs_count')}, neighbors_count={result.data.get('neighbors_count')}")
             return {
                 "success": True,
                 "data": result.data,
             }
         else:
+            logger.warning(f"WebSocket command {command.value} failed: {result.error}")
             return {
                 "success": False,
                 "error": result.error or "WebSocket command failed",
@@ -698,17 +704,26 @@ class AgentService:
                 })
                 
                 if result.success and not results["best_result"]:
+                    data_keys = list(result.data.keys()) if isinstance(result.data, dict) else []
+                    logger.info(f"Agent auto_probe: {probe_type} probe succeeded, collected {len(data_keys)} fields: {sorted(data_keys)[:30]}")
+                    if isinstance(result.data, dict) and result.data.get("running_services_count"):
+                        logger.info(f"Agent auto_probe: result.data includes: running_services_count={result.data.get('running_services_count')}, cron_jobs_count={result.data.get('cron_jobs_count')}, neighbors_count={result.data.get('neighbors_count')}")
                     results["best_result"] = {
                         "type": probe_type,
                         "data": result.data,
                     }
                     
             except Exception as e:
+                logger.error(f"Agent auto_probe: {probe_type} probe failed: {e}", exc_info=True)
                 results["probes"].append({
                     "type": probe_type,
                     "success": False,
                     "error": str(e),
                 })
+        
+        if results["best_result"]:
+            best_data_keys = list(results["best_result"]["data"].keys()) if isinstance(results["best_result"]["data"], dict) else []
+            logger.info(f"Agent auto_probe: Returning best_result with {len(best_data_keys)} fields: {sorted(best_data_keys)[:30]}")
         
         return results
 
