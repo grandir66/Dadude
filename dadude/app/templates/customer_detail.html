@@ -4596,6 +4596,11 @@ async function viewInventoryDevice(deviceId) {
                         <tr><th>OS:</th><td>${device.os_family || '-'} ${device.os_version || ''}</td></tr>
                         <tr><th>CPU:</th><td>${device.cpu_model || '-'} ${device.cpu_cores ? '(' + device.cpu_cores + ' cores)' : ''}</td></tr>
                         <tr><th>RAM:</th><td>${device.ram_total_gb ? device.ram_total_gb + ' GB' : '-'}</td></tr>
+                        ${device.firmware_version ? `<tr><th>Firmware:</th><td>${device.firmware_version}</td></tr>` : ''}
+                        ${device.interface_count ? `<tr><th>Interfacce:</th><td>${device.interface_count}</td></tr>` : ''}
+                        ${device.sysDescr ? `<tr><th>SysDescr:</th><td><small>${device.sysDescr}</small></td></tr>` : ''}
+                        ${device.sysName ? `<tr><th>SysName:</th><td>${device.sysName}</td></tr>` : ''}
+                        ${device.sysObjectID ? `<tr><th>SysObjectID:</th><td><code style="font-size: 0.8em;">${device.sysObjectID}</code></td></tr>` : ''}
                         <tr><th>Ultima vista:</th><td>${device.last_seen ? new Date(device.last_seen).toLocaleString('it-IT') : '-'}</td></tr>
                     </table>
                 </div>
