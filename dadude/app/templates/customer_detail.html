@@ -4750,6 +4750,17 @@ async function viewInventoryDevice(deviceId) {
             }
         }
         
+        // Debug: verifica cosa viene parsato
+        console.log('Parsed custom_fields:', {
+            keys: Object.keys(cf),
+            running_services: cf.running_services ? `array with ${cf.running_services.length} items` : 'not present',
+            cron_jobs: cf.cron_jobs ? `array with ${cf.cron_jobs.length} items` : 'not present',
+            neighbors: cf.neighbors ? `array with ${cf.neighbors.length} items` : 'not present',
+            will_show_services: !!(cf.running_services && cf.running_services.length > 0),
+            will_show_cron: !!(cf.cron_jobs && cf.cron_jobs.length > 0),
+            will_show_neighbors: !!(cf.neighbors && cf.neighbors.length > 0)
+        });
+        
         // Determina se mostrare tab avanzate
         // Converti sempre in stringa per evitare errori con operatori 'in'
         let deviceType = '';
