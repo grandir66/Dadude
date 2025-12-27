@@ -72,13 +72,20 @@ async def probe(
     vendor_oids = {
         # Ubiquiti (41112)
         "ubiquiti": {
-            "model": "1.3.6.1.4.1.41112.1.6.3.3.0",
-            "version": "1.3.6.1.4.1.41112.1.6.3.6.0",
+            "model": "1.3.6.1.4.1.41112.1.6.3.3",  # Modello UniFi (senza .0 per compatibilità)
+            "model_scalar": "1.3.6.1.4.1.41112.1.6.3.3.0",  # Versione scalare
+            "version": "1.3.6.1.4.1.41112.1.6.3.6",  # Firmware UniFi (senza .0 per compatibilità)
+            "version_scalar": "1.3.6.1.4.1.41112.1.6.3.6.0",  # Versione scalare
             "mac": "1.3.6.1.4.1.41112.1.6.3.1.0",
             # Ubiquiti advanced
             "cpu_usage": "1.3.6.1.4.1.41112.1.4.7.1.5.1",
             "mem_usage": "1.3.6.1.4.1.41112.1.4.7.1.5.2",
             "temperature": "1.3.6.1.4.1.41112.1.4.7.1.5.3",
+            # WiFi clients
+            "wifi_clients": "1.3.6.1.4.1.41112.1.6.1.2.1.8",  # Client WiFi connessi
+            # Host Resources MIB (standard per Linux-based devices)
+            "load_average_1m": "1.3.6.1.4.1.2021.10.1.3.1",  # Load Average 1 minuto
+            "ram_available": "1.3.6.1.4.1.2021.4.6.0",  # RAM Disponibile (MB)
         },
         # MikroTik (14988)
         "mikrotik": {
@@ -357,9 +364,28 @@ async def probe(
         # ==========================================
         if detected_vendor and detected_vendor in vendor_oids:
             for name, oid in vendor_oids[detected_vendor].items():
+                # Skip scalar versions if base OID exists
+                if name.endswith("_scalar"):
+                    continue
                 value = await query_oid(oid)
+                if not value and name + "_scalar" in vendor_oids[detected_vendor]:
+                    # Try scalar version as fallback
+                    scalar_oid = vendor_oids[detected_vendor][name + "_scalar"]
+                    value = await query_oid(scalar_oid)
                 if value:
                     info[f"vendor_{name}"] = value
+                    # Per Ubiquiti, salva anche direttamente in info per compatibilità
+                    if detected_vendor == "ubiquiti":
+                        if name == "model":
+                            info["ubiquiti_model"] = value
+                        elif name == "version":
+                            info["ubiquiti_firmware"] = value
+                        elif name == "wifi_clients":
+                            info["wifi_clients"] = value
+                        elif name == "load_average_1m":
+                            info["load_average_1m"] = value
+                        elif name == "ram_available":
+                            info["ram_available_mb"] = value
         
         # ==========================================
         # DETERMINE DEVICE TYPE AND CATEGORY

@@ -1005,7 +1005,10 @@ async def auto_detect_device(
                         # Campi SNMP
                         "sysDescr", "sysName", "sysObjectID", "sysUpTime", "sysServices",
                         "entPhysicalDescr", "entPhysicalModelName", "entPhysicalName", 
-                        "entPhysicalSerialNum", "entPhysicalSoftwareRev"
+                        "entPhysicalSerialNum", "entPhysicalSoftwareRev",
+                        # Campi Ubiquiti specifici
+                        "ubiquiti_model", "ubiquiti_firmware", "wifi_clients", 
+                        "load_average_1m", "ram_available_mb", "vendor_model", "vendor_version"
                     ]
                     
                     for field in extra_field_names:

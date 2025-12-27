@@ -4601,6 +4601,11 @@ async function viewInventoryDevice(deviceId) {
                         ${device.sysDescr ? `<tr><th>SysDescr:</th><td><small>${device.sysDescr}</small></td></tr>` : ''}
                         ${device.sysName ? `<tr><th>SysName:</th><td>${device.sysName}</td></tr>` : ''}
                         ${device.sysObjectID ? `<tr><th>SysObjectID:</th><td><code style="font-size: 0.8em;">${device.sysObjectID}</code></td></tr>` : ''}
+                        ${cf.ubiquiti_model || cf.vendor_model ? `<tr><th>Modello UniFi:</th><td>${cf.ubiquiti_model || cf.vendor_model}</td></tr>` : ''}
+                        ${cf.ubiquiti_firmware || cf.vendor_version ? `<tr><th>Firmware UniFi:</th><td>${cf.ubiquiti_firmware || cf.vendor_version}</td></tr>` : ''}
+                        ${cf.wifi_clients ? `<tr><th>Client WiFi:</th><td>${cf.wifi_clients}</td></tr>` : ''}
+                        ${cf.load_average_1m ? `<tr><th>Load Average (1m):</th><td>${cf.load_average_1m}</td></tr>` : ''}
+                        ${cf.ram_available_mb ? `<tr><th>RAM Disponibile:</th><td>${(cf.ram_available_mb / 1024).toFixed(2)} GB</td></tr>` : ''}
                         <tr><th>Ultima vista:</th><td>${device.last_seen ? new Date(device.last_seen).toLocaleString('it-IT') : '-'}</td></tr>
                     </table>
                 </div>
