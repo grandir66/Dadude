@@ -1056,6 +1056,26 @@ async def auto_detect_device(
                                     )
                                     session.add(md)
                                     logger.info(f"Created MikroTikDetails for device {data.device_id}")
+                            
+                            # Salva routing e ARP in custom_fields se raccolti durante auto-detect
+                            if scan_result.get("routing_table") or scan_result.get("arp_table"):
+                                if not device.custom_fields:
+                                    device.custom_fields = {}
+                                if isinstance(device.custom_fields, str):
+                                    try:
+                                        device.custom_fields = json.loads(device.custom_fields)
+                                    except:
+                                        device.custom_fields = {}
+                                
+                                if scan_result.get("routing_table"):
+                                    device.custom_fields["routing_table"] = scan_result.get("routing_table")
+                                    device.custom_fields["routing_count"] = scan_result.get("routing_count", 0)
+                                
+                                if scan_result.get("arp_table"):
+                                    device.custom_fields["arp_table"] = scan_result.get("arp_table")
+                                    device.custom_fields["arp_count"] = scan_result.get("arp_count", 0)
+                                
+                                logger.info(f"Saved routing/ARP data to custom_fields for MikroTik device {data.device_id}")
                         except Exception as e:
                             logger.error(f"Error saving MikroTikDetails: {e}", exc_info=True)
                     
