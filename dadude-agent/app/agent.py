@@ -30,7 +30,7 @@ except ImportError:
 
 
 # Version
-AGENT_VERSION = "2.3.13"
+AGENT_VERSION = "2.4.0"
 
 
 class DaDudeAgent:

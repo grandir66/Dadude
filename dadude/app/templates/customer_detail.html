@@ -4901,7 +4901,7 @@ async function viewInventoryDevice(deviceId) {
                     ` : ''}
                     ${cf.routing_table && cf.routing_table.length > 0 ? `
                     <hr>
-                    <h6 class="text-muted mb-3"><i class="bi bi-signpost-split"></i> Routing Table MikroTik (${cf.routing_count || cf.routing_table.length})</h6>
+                    <h6 class="text-muted mb-3"><i class="bi bi-signpost-split"></i> Routing Table (${cf.routing_count || cf.routing_table.length})</h6>
                     <div class="table-responsive" style="max-height: 250px; overflow-y: auto;">
                         <table class="table table-sm table-striped">
                             <thead><tr><th>Destinazione</th><th>Gateway</th><th>Distanza</th><th>Interfaccia</th></tr></thead>
@@ -4913,7 +4913,7 @@ async function viewInventoryDevice(deviceId) {
                     ` : ''}
                     ${cf.arp_table && cf.arp_table.length > 0 ? `
                     <hr>
-                    <h6 class="text-muted mb-3"><i class="bi bi-table"></i> ARP Table MikroTik (${cf.arp_count || cf.arp_table.length})</h6>
+                    <h6 class="text-muted mb-3"><i class="bi bi-table"></i> ARP Table (${cf.arp_count || cf.arp_table.length})</h6>
                     <div class="table-responsive" style="max-height: 250px; overflow-y: auto;">
                         <table class="table table-sm table-striped">
                             <thead><tr><th>IP</th><th>MAC</th><th>Interfaccia</th><th>Stato</th></tr></thead>
@@ -4922,6 +4922,18 @@ async function viewInventoryDevice(deviceId) {
                             </tbody>
                         </table>
                         ${cf.arp_table.length > 100 ? '<div class="text-muted text-center">Mostrati 100 di ' + cf.arp_table.length + ' entries</div>' : ''}
+                    </div>
+                    ` : ''}
+                    ${cf.interfaces && cf.interfaces.length > 0 ? `
+                    <hr>
+                    <h6 class="text-muted mb-3"><i class="bi bi-ethernet"></i> Interfacce di Rete (${cf.interfaces_count || cf.interfaces.length})</h6>
+                    <div class="table-responsive" style="max-height: 300px; overflow-y: auto;">
+                        <table class="table table-sm table-striped">
+                            <thead><tr><th>Nome</th><th>MAC</th><th>Velocità</th><th>Admin Status</th><th>Oper Status</th></tr></thead>
+                            <tbody>
+                                ${cf.interfaces.map(iface => '<tr><td><code>' + (iface.name || '-') + '</code></td><td><small>' + (iface.mac_address || '-') + '</small></td><td>' + (iface.speed_mbps ? iface.speed_mbps + ' Mbps' : '-') + '</td><td><span class="badge bg-' + (iface.admin_status === 'up' ? 'success' : 'secondary') + '">' + (iface.admin_status || '-') + '</span></td><td><span class="badge bg-' + (iface.oper_status === 'up' ? 'success' : 'secondary') + '">' + (iface.oper_status || '-') + '</span></td></tr>').join('')}
+                            </tbody>
+                        </table>
                     </div>
                     ` : ''}
                     ${(device.server_roles || cf.server_roles) && (device.server_roles || cf.server_roles).length > 0 ? `

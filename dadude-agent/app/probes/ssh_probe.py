@@ -239,8 +239,458 @@ async def probe(
                     info["arp_count"] = len(arp_entries)
         
         else:
-            # ===== LINUX/UNIX/OTHER =====
-            logger.debug(f"SSH probe: Detecting Linux/Unix on {target}")
+            # ===== PROVA CISCO IOS/IOS-XE =====
+            cisco_version = exec_cmd("show version", timeout=10)
+            if cisco_version and ("cisco" in cisco_version.lower() or "ios" in cisco_version.lower() or "ios-xe" in cisco_version.lower()):
+                logger.info(f"SSH probe: Detected Cisco IOS/IOS-XE on {target}")
+                info["device_type"] = "router"
+                info["os_name"] = "IOS"
+                info["manufacturer"] = "Cisco"
+                info["category"] = "network"
+                
+                # Parse show version
+                for line in cisco_version.split('\n'):
+                    line_lower = line.lower()
+                    if 'version' in line_lower and 'software' in line_lower:
+                        parts = line.split(',')
+                        for part in parts:
+                            if 'version' in part.lower():
+                                info["os_version"] = part.split('Version')[1].strip() if 'Version' in part else part.strip()
+                    elif 'processor' in line_lower and 'with' in line_lower:
+                        # Extract CPU info
+                        if 'processor' in line_lower:
+                            info["cpu_model"] = line.split('processor')[1].split('with')[0].strip() if 'with' in line_lower else line.split('processor')[1].strip()
+                    elif 'bytes of memory' in line_lower or 'k bytes of memory' in line_lower:
+                        # Extract memory
+                        try:
+                            mem_str = line.split('bytes')[0].strip()
+                            mem_str = mem_str.split()[-1]  # Get last number
+                            if 'k' in mem_str.lower():
+                                info["ram_total_mb"] = int(mem_str.replace('k', '').replace('K', '')) // 1024
+                            elif 'm' in mem_str.lower():
+                                info["ram_total_mb"] = int(mem_str.replace('m', '').replace('M', ''))
+                        except:
+                            pass
+                    elif 'uptime is' in line_lower:
+                        info["uptime"] = line.split('uptime is')[1].strip() if 'uptime is' in line_lower else ""
+                    elif 'model number' in line_lower or 'model:' in line_lower:
+                        model_part = line.split(':')[-1].strip() if ':' in line else line.split('model')[1].strip()
+                        if not info.get("model"):
+                            info["model"] = model_part.split()[0] if model_part.split() else model_part
+                
+                # Get hostname
+                hostname_out = exec_cmd("show running-config | include hostname", timeout=5)
+                if hostname_out:
+                    for line in hostname_out.split('\n'):
+                        if 'hostname' in line.lower():
+                            info["hostname"] = line.split()[1].strip() if len(line.split()) > 1 else ""
+                
+                # CDP Neighbors
+                cdp_out = exec_cmd("show cdp neighbors detail", timeout=10)
+                if cdp_out:
+                    neighbors = []
+                    current_neighbor = {}
+                    for line in cdp_out.split('\n'):
+                        line = line.strip()
+                        if not line:
+                            if current_neighbor:
+                                neighbors.append(current_neighbor)
+                                current_neighbor = {}
+                            continue
+                        
+                        if 'device id:' in line.lower():
+                            if current_neighbor:
+                                neighbors.append(current_neighbor)
+                            current_neighbor = {"discovered_by": "cdp"}
+                            info["remote_device_name"] = line.split(':')[1].strip() if ':' in line else line
+                        elif 'platform:' in line.lower():
+                            current_neighbor["platform"] = line.split(':')[1].strip() if ':' in line else ""
+                        elif 'capabilities:' in line.lower():
+                            current_neighbor["capabilities"] = line.split(':')[1].strip() if ':' in line else ""
+                        elif 'interface:' in line.lower():
+                            current_neighbor["local_interface"] = line.split(':')[1].strip().split(',')[0] if ':' in line else ""
+                        elif 'port id (outgoing port):' in line.lower():
+                            current_neighbor["remote_interface"] = line.split(':')[1].strip() if ':' in line else ""
+                        elif 'software version' in line.lower() or 'version' in line.lower():
+                            current_neighbor["version"] = line.split(':')[1].strip() if ':' in line else ""
+                    
+                    if current_neighbor:
+                        neighbors.append(current_neighbor)
+                    
+                    if neighbors:
+                        info["neighbors"] = neighbors
+                        info["neighbors_count"] = len(neighbors)
+                
+                # LLDP Neighbors (if available)
+                lldp_out = exec_cmd("show lldp neighbors detail", timeout=10)
+                if lldp_out and not info.get("neighbors"):
+                    neighbors = []
+                    current_neighbor = {}
+                    for line in lldp_out.split('\n'):
+                        line = line.strip()
+                        if not line:
+                            if current_neighbor:
+                                neighbors.append(current_neighbor)
+                                current_neighbor = {}
+                            continue
+                        
+                        if 'chassis id:' in line.lower():
+                            if current_neighbor:
+                                neighbors.append(current_neighbor)
+                            current_neighbor = {"discovered_by": "lldp"}
+                        elif 'system name:' in line.lower():
+                            current_neighbor["remote_device_name"] = line.split(':')[1].strip() if ':' in line else ""
+                        elif 'port id:' in line.lower():
+                            current_neighbor["remote_interface"] = line.split(':')[1].strip() if ':' in line else ""
+                        elif 'system description:' in line.lower():
+                            current_neighbor["platform"] = line.split(':')[1].strip() if ':' in line else ""
+                    
+                    if current_neighbor:
+                        neighbors.append(current_neighbor)
+                    
+                    if neighbors:
+                        info["neighbors"] = neighbors
+                        info["neighbors_count"] = len(neighbors)
+                
+                # Routing Table
+                route_out = exec_cmd("show ip route", timeout=10)
+                if route_out:
+                    routes = []
+                    for line in route_out.split('\n'):
+                        if line.strip().startswith(('C', 'S', 'R', 'O', 'D', 'B', 'i', 'L')) and '/' in line:
+                            parts = line.split()
+                            if len(parts) >= 2:
+                                route = {
+                                    "dst": parts[1] if '/' in parts[1] else parts[1],
+                                    "gateway": parts[2] if len(parts) > 2 and not parts[2].startswith('[') else "",
+                                    "interface": parts[-1] if len(parts) > 2 else ""
+                                }
+                                routes.append(route)
+                    if routes:
+                        info["routing_table"] = routes[:100]  # Limit to 100
+                        info["routing_count"] = len(routes)
+                
+                # ARP Table (solo per router)
+                arp_out = exec_cmd("show ip arp", timeout=10)
+                if arp_out:
+                    arp_entries = []
+                    for line in arp_out.split('\n'):
+                        if line.strip() and not line.startswith('Protocol') and not line.startswith('-'):
+                            parts = line.split()
+                            if len(parts) >= 4:
+                                arp_entry = {
+                                    "address": parts[1],
+                                    "mac-address": parts[3],
+                                    "interface": parts[-1] if len(parts) > 4 else ""
+                                }
+                                arp_entries.append(arp_entry)
+                    if arp_entries:
+                        info["arp_table"] = arp_entries[:100]  # Limit to 100
+                        info["arp_count"] = len(arp_entries)
+            
+            # ===== PROVA HP COMWARE =====
+            elif exec_cmd("display version", timeout=5) and ("comware" in exec_cmd("display version", timeout=5).lower() or "hp" in exec_cmd("display version", timeout=5).lower()):
+                hp_comware_version = exec_cmd("display version", timeout=10)
+                logger.info(f"SSH probe: Detected HP Comware on {target}")
+                info["device_type"] = "switch"
+                info["os_name"] = "Comware"
+                info["manufacturer"] = "HP"
+                info["category"] = "network"
+                
+                # Parse display version
+                for line in hp_comware_version.split('\n'):
+                    if 'version' in line.lower():
+                        info["os_version"] = line.split(':')[1].strip() if ':' in line else line.strip()
+                    elif 'hp' in line.lower() and ('switch' in line.lower() or 'router' in line.lower()):
+                        parts = line.split()
+                        for i, part in enumerate(parts):
+                            if part.lower() in ['hp', 'hpe'] and i + 1 < len(parts):
+                                info["model"] = parts[i+1]
+                                break
+                
+                # LLDP Neighbors
+                lldp_out = exec_cmd("display lldp neighbor-information", timeout=10)
+                if lldp_out:
+                    neighbors = []
+                    current_neighbor = {}
+                    for line in lldp_out.split('\n'):
+                        line = line.strip()
+                        if 'neighbor index' in line.lower():
+                            if current_neighbor:
+                                neighbors.append(current_neighbor)
+                            current_neighbor = {"discovered_by": "lldp"}
+                        elif 'system name:' in line.lower():
+                            current_neighbor["remote_device_name"] = line.split(':')[1].strip() if ':' in line else ""
+                        elif 'port id:' in line.lower():
+                            current_neighbor["remote_interface"] = line.split(':')[1].strip() if ':' in line else ""
+                    
+                    if current_neighbor:
+                        neighbors.append(current_neighbor)
+                    
+                    if neighbors:
+                        info["neighbors"] = neighbors
+                        info["neighbors_count"] = len(neighbors)
+                
+                # Routing Table
+                route_out = exec_cmd("display ip routing-table", timeout=10)
+                if route_out:
+                    routes = []
+                    for line in route_out.split('\n'):
+                        if '/' in line and ('dest' in line.lower() or line.strip().startswith(('0.', '1.', '2.', '3.', '4.', '5.', '6.', '7.', '8.', '9.'))):
+                            parts = line.split()
+                            if len(parts) >= 2:
+                                route = {
+                                    "dst": parts[0] if '/' in parts[0] else parts[0],
+                                    "gateway": parts[1] if len(parts) > 1 else "",
+                                    "interface": parts[-1] if len(parts) > 2 else ""
+                                }
+                                routes.append(route)
+                    if routes:
+                        info["routing_table"] = routes[:100]
+                        info["routing_count"] = len(routes)
+                
+                # ARP Table (solo se router)
+                if info.get("device_type") == "router":
+                    arp_out = exec_cmd("display arp", timeout=10)
+                    if arp_out:
+                        arp_entries = []
+                        for line in arp_out.split('\n'):
+                            if line.strip() and not line.startswith('IP') and not line.startswith('-'):
+                                parts = line.split()
+                                if len(parts) >= 3:
+                                    arp_entry = {
+                                        "address": parts[0],
+                                        "mac-address": parts[1],
+                                        "interface": parts[-1] if len(parts) > 2 else ""
+                                    }
+                                    arp_entries.append(arp_entry)
+                        if arp_entries:
+                            info["arp_table"] = arp_entries[:100]
+                            info["arp_count"] = len(arp_entries)
+            
+            # ===== PROVA HP PROCURVE/ARUBAOS =====
+            elif exec_cmd("show version", timeout=5) and ("procurve" in exec_cmd("show version", timeout=5).lower() or "arubaos" in exec_cmd("show version", timeout=5).lower() or "aruba" in exec_cmd("show version", timeout=5).lower()):
+                hp_procurve_version = exec_cmd("show version", timeout=10)
+                logger.info(f"SSH probe: Detected HP ProCurve/ArubaOS on {target}")
+                info["device_type"] = "switch"
+                info["os_name"] = "ProCurve" if "procurve" in hp_procurve_version.lower() else "ArubaOS"
+                info["manufacturer"] = "HP"
+                info["category"] = "network"
+                
+                # Parse show version
+                for line in hp_procurve_version.split('\n'):
+                    if 'version' in line.lower():
+                        info["os_version"] = line.split(':')[1].strip() if ':' in line else line.strip()
+                    elif 'model' in line.lower():
+                        info["model"] = line.split(':')[1].strip() if ':' in line else line.strip()
+                
+                # LLDP Neighbors
+                lldp_out = exec_cmd("show lldp info remote-device", timeout=10)
+                if lldp_out:
+                    neighbors = []
+                    current_neighbor = {}
+                    for line in lldp_out.split('\n'):
+                        line = line.strip()
+                        if 'remote chassis id:' in line.lower():
+                            if current_neighbor:
+                                neighbors.append(current_neighbor)
+                            current_neighbor = {"discovered_by": "lldp"}
+                        elif 'remote system name:' in line.lower():
+                            current_neighbor["remote_device_name"] = line.split(':')[1].strip() if ':' in line else ""
+                        elif 'remote port id:' in line.lower():
+                            current_neighbor["remote_interface"] = line.split(':')[1].strip() if ':' in line else ""
+                    
+                    if current_neighbor:
+                        neighbors.append(current_neighbor)
+                    
+                    if neighbors:
+                        info["neighbors"] = neighbors
+                        info["neighbors_count"] = len(neighbors)
+                
+                # Routing Table
+                route_out = exec_cmd("show ip route", timeout=10)
+                if route_out:
+                    routes = []
+                    for line in route_out.split('\n'):
+                        if '/' in line and line.strip().startswith(('0.', '1.', '2.', '3.', '4.', '5.', '6.', '7.', '8.', '9.')):
+                            parts = line.split()
+                            if len(parts) >= 2:
+                                route = {
+                                    "dst": parts[0],
+                                    "gateway": parts[1] if len(parts) > 1 else "",
+                                    "interface": parts[-1] if len(parts) > 2 else ""
+                                }
+                                routes.append(route)
+                    if routes:
+                        info["routing_table"] = routes[:100]
+                        info["routing_count"] = len(routes)
+                
+                # ARP Table (solo se router)
+                if info.get("device_type") == "router":
+                    arp_out = exec_cmd("show arp", timeout=10)
+                    if arp_out:
+                        arp_entries = []
+                        for line in arp_out.split('\n'):
+                            if line.strip() and not line.startswith('IP') and not line.startswith('-'):
+                                parts = line.split()
+                                if len(parts) >= 3:
+                                    arp_entry = {
+                                        "address": parts[0],
+                                        "mac-address": parts[1],
+                                        "interface": parts[-1] if len(parts) > 2 else ""
+                                    }
+                                    arp_entries.append(arp_entry)
+                        if arp_entries:
+                            info["arp_table"] = arp_entries[:100]
+                            info["arp_count"] = len(arp_entries)
+            
+            # ===== PROVA UBIQUITI EDGEOS =====
+            elif exec_cmd("show version", timeout=5) and ("edgeos" in exec_cmd("show version", timeout=5).lower() or "vyatta" in exec_cmd("show version", timeout=5).lower()):
+                edgeos_version = exec_cmd("show version", timeout=10)
+                logger.info(f"SSH probe: Detected Ubiquiti EdgeOS on {target}")
+                info["device_type"] = "router"
+                info["os_name"] = "EdgeOS"
+                info["manufacturer"] = "Ubiquiti"
+                info["category"] = "network"
+                
+                # Parse show version
+                for line in edgeos_version.split('\n'):
+                    if 'version' in line.lower():
+                        info["os_version"] = line.split(':')[1].strip() if ':' in line else line.strip()
+                    elif 'model' in line.lower():
+                        info["model"] = line.split(':')[1].strip() if ':' in line else line.strip()
+                
+                # LLDP Neighbors
+                lldp_out = exec_cmd("show lldp neighbors", timeout=10)
+                if lldp_out:
+                    neighbors = []
+                    for line in lldp_out.split('\n'):
+                        if line.strip() and not line.startswith('Interface'):
+                            parts = line.split()
+                            if len(parts) >= 3:
+                                neighbor = {
+                                    "local_interface": parts[0],
+                                    "remote_device_name": parts[1],
+                                    "remote_interface": parts[2] if len(parts) > 2 else "",
+                                    "discovered_by": "lldp"
+                                }
+                                neighbors.append(neighbor)
+                    if neighbors:
+                        info["neighbors"] = neighbors
+                        info["neighbors_count"] = len(neighbors)
+                
+                # Routing Table
+                route_out = exec_cmd("show ip route", timeout=10)
+                if route_out:
+                    routes = []
+                    for line in route_out.split('\n'):
+                        if '/' in line and line.strip().startswith(('K', 'C', 'S', 'O', 'B', 'D')):
+                            parts = line.split()
+                            if len(parts) >= 2:
+                                route = {
+                                    "dst": parts[1] if '/' in parts[1] else parts[1],
+                                    "gateway": parts[2] if len(parts) > 2 else "",
+                                    "interface": parts[-1] if len(parts) > 2 else ""
+                                }
+                                routes.append(route)
+                    if routes:
+                        info["routing_table"] = routes[:100]
+                        info["routing_count"] = len(routes)
+                
+                # ARP Table (solo se router)
+                if info.get("device_type") == "router":
+                    arp_out = exec_cmd("show arp", timeout=10)
+                    if arp_out:
+                        arp_entries = []
+                        for line in arp_out.split('\n'):
+                            if line.strip() and not line.startswith('IP') and not line.startswith('-'):
+                                parts = line.split()
+                                if len(parts) >= 3:
+                                    arp_entry = {
+                                        "address": parts[0],
+                                        "mac-address": parts[1],
+                                        "interface": parts[-1] if len(parts) > 2 else ""
+                                    }
+                                    arp_entries.append(arp_entry)
+                        if arp_entries:
+                            info["arp_table"] = arp_entries[:100]
+                            info["arp_count"] = len(arp_entries)
+            
+            # ===== PROVA OMADA/TP-LINK =====
+            elif exec_cmd("show version", timeout=5) and ("omada" in exec_cmd("show version", timeout=5).lower() or "tp-link" in exec_cmd("show version", timeout=5).lower() or "tplink" in exec_cmd("show version", timeout=5).lower()):
+                omada_version = exec_cmd("show version", timeout=10)
+                logger.info(f"SSH probe: Detected Omada/TP-Link on {target}")
+                info["device_type"] = "switch"
+                info["os_name"] = "Omada"
+                info["manufacturer"] = "TP-Link"
+                info["category"] = "network"
+                
+                # Parse show version
+                for line in omada_version.split('\n'):
+                    if 'version' in line.lower():
+                        info["os_version"] = line.split(':')[1].strip() if ':' in line else line.strip()
+                    elif 'model' in line.lower():
+                        info["model"] = line.split(':')[1].strip() if ':' in line else line.strip()
+                
+                # LLDP Neighbors
+                lldp_out = exec_cmd("show lldp neighbors", timeout=10)
+                if lldp_out:
+                    neighbors = []
+                    for line in lldp_out.split('\n'):
+                        if line.strip() and not line.startswith('Interface'):
+                            parts = line.split()
+                            if len(parts) >= 3:
+                                neighbor = {
+                                    "local_interface": parts[0],
+                                    "remote_device_name": parts[1],
+                                    "remote_interface": parts[2] if len(parts) > 2 else "",
+                                    "discovered_by": "lldp"
+                                }
+                                neighbors.append(neighbor)
+                    if neighbors:
+                        info["neighbors"] = neighbors
+                        info["neighbors_count"] = len(neighbors)
+                
+                # Routing Table
+                route_out = exec_cmd("show ip route", timeout=10)
+                if route_out:
+                    routes = []
+                    for line in route_out.split('\n'):
+                        if '/' in line:
+                            parts = line.split()
+                            if len(parts) >= 2:
+                                route = {
+                                    "dst": parts[0] if '/' in parts[0] else parts[0],
+                                    "gateway": parts[1] if len(parts) > 1 else "",
+                                    "interface": parts[-1] if len(parts) > 2 else ""
+                                }
+                                routes.append(route)
+                    if routes:
+                        info["routing_table"] = routes[:100]
+                        info["routing_count"] = len(routes)
+                
+                # ARP Table (solo se router)
+                if info.get("device_type") == "router":
+                    arp_out = exec_cmd("show arp", timeout=10)
+                    if arp_out:
+                        arp_entries = []
+                        for line in arp_out.split('\n'):
+                            if line.strip() and not line.startswith('IP') and not line.startswith('-'):
+                                parts = line.split()
+                                if len(parts) >= 3:
+                                    arp_entry = {
+                                        "address": parts[0],
+                                        "mac-address": parts[1],
+                                        "interface": parts[-1] if len(parts) > 2 else ""
+                                    }
+                                    arp_entries.append(arp_entry)
+                        if arp_entries:
+                            info["arp_table"] = arp_entries[:100]
+                            info["arp_count"] = len(arp_entries)
+            
+            else:
+                # ===== LINUX/UNIX/OTHER =====
+                logger.debug(f"SSH probe: Detecting Linux/Unix on {target}")
             
             # Hostname
             info["hostname"] = exec_cmd("hostname")

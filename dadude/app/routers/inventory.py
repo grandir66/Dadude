@@ -1478,6 +1478,76 @@ async def auto_detect_device(
                         except Exception as e:
                             logger.error(f"Error saving interfaces: {e}", exc_info=True)
                     
+                    # Salva dati avanzati per dispositivi SNMP e SSH network (Cisco, HP, Ubiquiti, Omada, etc.)
+                    # Non MikroTik (già gestito sopra)
+                    is_mikrotik = (
+                        device.device_type == "mikrotik" or 
+                        "mikrotik" in (device.vendor or "").lower() or 
+                        "routeros" in (scan_result.get("os_name") or "").lower()
+                    )
+                    is_network_device = (
+                        device.device_type in ["router", "switch", "ap", "network"] or
+                        device.category == "network" or
+                        scan_result.get("device_type") in ["router", "switch", "ap", "network"] or
+                        scan_result.get("category") == "network"
+                    )
+                    is_snmp_or_ssh_network = (
+                        "snmp" in scan_result.get("identified_by", "").lower() or
+                        ("ssh" in scan_result.get("identified_by", "").lower() and is_network_device) or
+                        scan_result.get("vendor") in ["Cisco", "HP", "Ubiquiti", "TP-Link"] or
+                        scan_result.get("os_name") in ["IOS", "Comware", "ProCurve", "ArubaOS", "EdgeOS", "Omada"]
+                    )
+                    
+                    if is_network_device and is_snmp_or_ssh_network and not is_mikrotik:
+                        try:
+                            # Salva neighbors, routing_table, arp_table, interfaces in custom_fields
+                            network_data = {}
+                            
+                            # Neighbors (LLDP/CDP)
+                            if scan_result.get("neighbors") or scan_result.get("lldp_neighbors") or scan_result.get("cdp_neighbors"):
+                                neighbors_list = []
+                                if scan_result.get("neighbors"):
+                                    neighbors_list = scan_result.get("neighbors")
+                                elif scan_result.get("lldp_neighbors"):
+                                    neighbors_list = scan_result.get("lldp_neighbors")
+                                elif scan_result.get("cdp_neighbors"):
+                                    neighbors_list = scan_result.get("cdp_neighbors")
+                                
+                                if neighbors_list:
+                                    network_data["neighbors"] = neighbors_list
+                                    network_data["neighbors_count"] = len(neighbors_list)
+                            
+                            # Routing Table
+                            if scan_result.get("routing_table"):
+                                network_data["routing_table"] = scan_result.get("routing_table")
+                                network_data["routing_count"] = scan_result.get("routing_count", len(scan_result.get("routing_table", [])))
+                            
+                            # ARP Table (solo per router)
+                            if scan_result.get("arp_table") and (device.device_type == "router" or scan_result.get("device_type") == "router"):
+                                network_data["arp_table"] = scan_result.get("arp_table")
+                                network_data["arp_count"] = scan_result.get("arp_count", len(scan_result.get("arp_table", [])))
+                            
+                            # Interfaces
+                            if scan_result.get("interfaces"):
+                                network_data["interfaces"] = scan_result.get("interfaces")
+                                network_data["interfaces_count"] = scan_result.get("interfaces_count", len(scan_result.get("interfaces", [])))
+                            
+                            # Salva in custom_fields se ci sono dati
+                            if network_data:
+                                if not device.custom_fields:
+                                    device.custom_fields = {}
+                                if isinstance(device.custom_fields, str):
+                                    try:
+                                        device.custom_fields = json.loads(device.custom_fields)
+                                    except:
+                                        device.custom_fields = {}
+                                
+                                device.custom_fields.update(network_data)
+                                flag_modified(device, "custom_fields")
+                                logger.info(f"Saved network data to custom_fields for device {data.device_id}: {list(network_data.keys())}")
+                        except Exception as e:
+                            logger.error(f"Error saving network device data: {e}", exc_info=True)
+                    
                     # Salva informazioni Proxmox se disponibili (raccolte durante autodetect)
                     if scan_result.get("proxmox_host_info") or scan_result.get("proxmox_vms") or scan_result.get("proxmox_storage"):
                         try:
