@@ -336,19 +336,37 @@ async def auto_detect_device(
                 open_ports=open_ports
             )
             
+            # Decripta le password delle credenziali di default
+            from ..services.encryption_service import get_encryption_service
+            encryption = get_encryption_service()
+            
             for cred in creds:
                 # Skip se già presente (stessa credenziale assegnata)
                 if any(c["id"] == cred.id for c in credentials_list):
                     continue
+                
+                # Decripta password
+                password = None
+                try:
+                    password = encryption.decrypt(cred.password) if cred.password else None
+                except Exception as e:
+                    logger.error(f"Auto-detect: Failed to decrypt password for credential {cred.id}: {e}")
+                
+                # Decripta SSH private key se presente
+                ssh_key = None
+                try:
+                    ssh_key = encryption.decrypt(cred.ssh_private_key) if cred.ssh_private_key else None
+                except Exception as e:
+                    logger.debug(f"Auto-detect: Failed to decrypt SSH key for credential {cred.id} (may not exist): {e}")
                     
                 credentials_list.append({
                     "id": cred.id,
                     "name": cred.name,
                     "type": cred.credential_type,
                     "username": cred.username,
-                    "password": cred.password,
+                    "password": password,
                     "ssh_port": getattr(cred, 'ssh_port', 22),
-                    "ssh_private_key": getattr(cred, 'ssh_private_key', None),
+                    "ssh_private_key": ssh_key,
                     "snmp_community": getattr(cred, 'snmp_community', None),
                     "snmp_version": getattr(cred, 'snmp_version', '2c'),
                     "snmp_port": getattr(cred, 'snmp_port', 161),
