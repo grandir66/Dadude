@@ -1453,6 +1453,54 @@ async def get_inventory_device(device_id: str):
                 "uptime": md.uptime,
             }
         
+        # Se il device è Proxmox/hypervisor con credenziali ma senza dati avanzati, avvia autodetect in background
+        is_proxmox = (
+            device.device_type == "hypervisor" or 
+            (device.manufacturer and "proxmox" in device.manufacturer.lower()) or
+            (device.os_family and "proxmox" in device.os_family.lower())
+        )
+        
+        if is_proxmox and device.primary_ip and device.credential_id:
+            from ..models.inventory import ProxmoxHost
+            has_proxmox_data = session.query(ProxmoxHost).filter(
+                ProxmoxHost.device_id == device_id
+            ).first() is not None
+            
+            if not has_proxmox_data:
+                logger.info(f"Device {device_id} is Proxmox with credentials but no advanced data, triggering auto-detect in background")
+                try:
+                    import asyncio
+                    from .inventory import AutoDetectRequest
+                    
+                    async def run_autodetect():
+                        try:
+                            await auto_detect_device(
+                                AutoDetectRequest(
+                                    address=device.primary_ip,
+                                    mac_address=device.primary_mac,
+                                    device_id=device_id,
+                                    use_assigned_credential=True,
+                                    use_default_credentials=False,
+                                    use_agent=True,
+                                    save_results=True
+                                ),
+                                customer_id=device.customer_id
+                            )
+                            logger.info(f"Auto-detect completed for device {device_id}")
+                        except Exception as e:
+                            logger.error(f"Error in background auto-detect for device {device_id}: {e}", exc_info=True)
+                    
+                    try:
+                        loop = asyncio.get_event_loop()
+                        if loop.is_running():
+                            loop.create_task(run_autodetect())
+                        else:
+                            asyncio.run(run_autodetect())
+                    except RuntimeError:
+                        asyncio.run(run_autodetect())
+                except Exception as auto_detect_error:
+                    logger.warning(f"Failed to trigger auto-detect for device {device_id}: {auto_detect_error}")
+        
         return result
         
     finally:
