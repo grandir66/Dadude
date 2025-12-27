@@ -744,25 +744,42 @@ async def auto_detect_device(
                     identified_by = scan_result.get("identified_by") or scan_result.get("probe_type")
                     
                     # Determina device_type in base al metodo di identificazione e ai dati raccolti
-                    # PRIORITÀ: 1) scan_result.device_type, 2) identified_by, 3) os_family, 4) os_version
+                    # PRIORITÀ: 1) scan_result.device_type, 2) os_name, 3) identified_by, 4) os_family, 5) os_version
+                    os_name_check = scan_result.get("os_name") or ""
+                    os_name_lower = os_name_check.lower()
+                    
                     if scan_result.get("device_type") and scan_result["device_type"] != "unknown":
                         device.device_type = scan_result["device_type"]
                         logger.info(f"Setting device_type from scan_result: {device.device_type}")
+                    
+                    # Priorità alta: determina da os_name (più affidabile)
+                    elif os_name_check and (not device.device_type or device.device_type == "other" or device.device_type == "unknown"):
+                        if "windows" in os_name_lower or "microsoft" in os_name_lower:
+                            device.device_type = "windows"
+                            logger.info(f"Setting device_type from os_name: windows (os_name={os_name_check})")
+                        elif any(x in os_name_lower for x in ["ubuntu", "debian", "centos", "rhel", "linux", "alpine", "suse", "arch"]):
+                            device.device_type = "linux"
+                            logger.info(f"Setting device_type from os_name: linux (os_name={os_name_check})")
+                        elif "routeros" in os_name_lower or "mikrotik" in os_name_lower:
+                            device.device_type = "mikrotik"
+                            logger.info(f"Setting device_type from os_name: mikrotik (os_name={os_name_check})")
+                    
                     elif not device.device_type or device.device_type == "other" or device.device_type == "unknown":
                         if identified_by:
+                            # Supporta sia "wmi" che "agent_wmi", "probe_wmi", ecc.
                             if "wmi" in identified_by.lower() or "windows" in identified_by.lower():
                                 device.device_type = "windows"
-                                logger.info(f"Setting device_type from identified_by: windows")
+                                logger.info(f"Setting device_type from identified_by: windows (identified_by={identified_by})")
                             elif "ssh" in identified_by.lower() or "linux" in identified_by.lower():
                                 device.device_type = "linux"
-                                logger.info(f"Setting device_type from identified_by: linux")
+                                logger.info(f"Setting device_type from identified_by: linux (identified_by={identified_by})")
                             elif "mikrotik" in identified_by.lower() or "routeros" in identified_by.lower():
                                 device.device_type = "mikrotik"
-                                logger.info(f"Setting device_type from identified_by: mikrotik")
+                                logger.info(f"Setting device_type from identified_by: mikrotik (identified_by={identified_by})")
                             elif "snmp" in identified_by.lower():
                                 # SNMP può essere router, switch, server, etc.
                                 device.device_type = "network"
-                                logger.info(f"Setting device_type from identified_by: network")
+                                logger.info(f"Setting device_type from identified_by: network (identified_by={identified_by})")
                         
                         # Fallback: determina da os_family o os_version
                         if (not device.device_type or device.device_type == "other" or device.device_type == "unknown"):
@@ -787,7 +804,7 @@ async def auto_detect_device(
                             # Ultimo fallback: controlla os_version per Windows
                             if (not device.device_type or device.device_type == "other" or device.device_type == "unknown") and os_version_to_check:
                                 os_version_lower = os_version_to_check.lower()
-                                if "windows" in os_version_lower or "microsoft" in os_version_lower or "server" in os_version_lower:
+                                if "windows" in os_version_lower or "microsoft" in os_version_lower:
                                     device.device_type = "windows"
                                     logger.info(f"Setting device_type from os_version: windows")
                     
@@ -934,8 +951,20 @@ async def auto_detect_device(
                     # Salva WindowsDetails se disponibili (dati WMI o dati Windows rilevati)
                     # I dati vengono mergeati direttamente in scan_result, non in extra_info
                     # Salva anche se il device è una VM Windows (non necessariamente identificata via WMI)
-                    is_windows_device = device.device_type == "windows" or "windows" in (device.os_family or "").lower() or "windows" in (scan_result.get("os_family") or "").lower()
-                    has_wmi_data = scan_result.get("identified_by", "").startswith("probe_wmi") or scan_result.get("domain") or scan_result.get("server_roles") or scan_result.get("installed_software")
+                    is_windows_device = (
+                        device.device_type == "windows" or 
+                        "windows" in (device.os_family or "").lower() or 
+                        "windows" in (scan_result.get("os_family") or "").lower() or
+                        "windows" in (scan_result.get("os_name") or "").lower() or
+                        "microsoft" in (scan_result.get("os_name") or "").lower()
+                    )
+                    has_wmi_data = (
+                        "wmi" in scan_result.get("identified_by", "").lower() or  # Supporta probe_wmi, agent_wmi, etc.
+                        scan_result.get("domain") or 
+                        scan_result.get("server_roles") or 
+                        scan_result.get("installed_software") or
+                        scan_result.get("local_users")
+                    )
                     
                     if is_windows_device and has_wmi_data:
                         try:
@@ -2088,16 +2117,30 @@ async def get_inventory_device(device_id: str):
             for d in device.disks
         ]
         
-        # Type-specific details
+        # Type-specific details - Restituisce TUTTI i campi disponibili
         if device.device_type == "windows" and device.windows_details:
             wd = device.windows_details
             result["windows_details"] = {
                 "edition": wd.edition,
+                "product_key": wd.product_key,
+                "activation_status": wd.activation_status,
                 "domain_role": wd.domain_role,
                 "domain_name": wd.domain_name,
+                "ou_path": wd.ou_path,
+                "bios_version": wd.bios_version,
+                "bios_date": wd.bios_date.isoformat() if wd.bios_date else None,
+                "secure_boot": wd.secure_boot,
+                "tpm_version": wd.tpm_version,
                 "last_update_check": wd.last_update_check.isoformat() if wd.last_update_check else None,
+                "pending_updates": wd.pending_updates,
+                "last_reboot": wd.last_reboot.isoformat() if wd.last_reboot else None,
+                "uptime_days": wd.uptime_days,
                 "antivirus_name": wd.antivirus_name,
                 "antivirus_status": wd.antivirus_status,
+                "firewall_enabled": wd.firewall_enabled,
+                "bitlocker_status": wd.bitlocker_status,
+                "local_admins": wd.local_admins,
+                "logged_users": wd.logged_users,
             }
         
         if device.device_type == "linux" and device.linux_details:
@@ -2105,8 +2148,23 @@ async def get_inventory_device(device_id: str):
             result["linux_details"] = {
                 "distro_name": ld.distro_name,
                 "distro_version": ld.distro_version,
+                "distro_codename": ld.distro_codename,
                 "kernel_version": ld.kernel_version,
+                "kernel_arch": ld.kernel_arch,
+                "package_manager": ld.package_manager,
+                "packages_installed": ld.packages_installed,
+                "packages_upgradable": ld.packages_upgradable,
+                "init_system": ld.init_system,
+                "selinux_status": ld.selinux_status,
+                "virtualization": ld.virtualization,
+                "last_reboot": ld.last_reboot.isoformat() if ld.last_reboot else None,
+                "uptime_days": ld.uptime_days,
+                "load_average": ld.load_average,
+                "root_login_enabled": ld.root_login_enabled,
+                "ssh_port": ld.ssh_port,
+                "logged_users": ld.logged_users,
                 "docker_installed": ld.docker_installed,
+                "docker_version": ld.docker_version,
                 "containers_running": ld.containers_running,
             }
         
@@ -2114,11 +2172,21 @@ async def get_inventory_device(device_id: str):
             md = device.mikrotik_details
             result["mikrotik_details"] = {
                 "routeros_version": md.routeros_version,
+                "routeros_channel": md.routeros_channel,
+                "firmware_version": md.firmware_version,
+                "factory_firmware": md.factory_firmware,
                 "board_name": md.board_name,
+                "platform": md.platform,
+                "identity": md.identity,
                 "license_level": md.license_level,
                 "cpu_load": md.cpu_load,
+                "cpu_frequency": md.cpu_frequency,
+                "memory_total_mb": md.memory_total_mb,
                 "memory_free_mb": md.memory_free_mb,
+                "disk_total_mb": md.disk_total_mb,
+                "disk_free_mb": md.disk_free_mb,
                 "uptime": md.uptime,
+                "dude_agent_enabled": md.dude_agent_enabled,
             }
         
         # Se il device è Proxmox/hypervisor con credenziali ma senza dati avanzati completi, avvia autodetect in background
