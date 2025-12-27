@@ -808,10 +808,12 @@ async def auto_detect_device(
                     device.last_scan = datetime.utcnow()
                     
                     # Salva WindowsDetails se disponibili (dati WMI)
-                    if device.device_type == "windows" and (scan_result.get("extra_info") or scan_result.get("identified_by", "").startswith("probe_wmi")):
+                    # I dati vengono mergeati direttamente in scan_result, non in extra_info
+                    if device.device_type == "windows" and scan_result.get("identified_by", "").startswith("probe_wmi"):
                         try:
                             from ..models.inventory import WindowsDetails
-                            extra_info = scan_result.get("extra_info") or {}
+                            # I dati WMI sono mergeati direttamente in scan_result
+                            extra_info = scan_result
                             
                             # Estrai dati Windows da extra_info o da scan_result direttamente
                             windows_data = {}
@@ -898,10 +900,12 @@ async def auto_detect_device(
                             logger.error(f"Error saving WindowsDetails: {e}", exc_info=True)
                     
                     # Salva LinuxDetails se disponibili (dati SSH)
-                    if device.device_type == "linux" and (scan_result.get("extra_info") or scan_result.get("identified_by", "").startswith("probe_ssh")):
+                    # I dati vengono mergeati direttamente in scan_result, non in extra_info
+                    if device.device_type == "linux" and scan_result.get("identified_by", "").startswith("probe_ssh"):
                         try:
                             from ..models.inventory import LinuxDetails
-                            extra_info = scan_result.get("extra_info") or {}
+                            # I dati SSH sono mergeati direttamente in scan_result
+                            extra_info = scan_result
                             
                             linux_data = {}
                             
@@ -946,10 +950,13 @@ async def auto_detect_device(
                             logger.error(f"Error saving LinuxDetails: {e}", exc_info=True)
                     
                     # Salva MikroTikDetails se disponibili
-                    if device.device_type == "mikrotik" and (scan_result.get("extra_info") or scan_result.get("identified_by", "").startswith("probe_")):
+                    # I dati vengono mergeati direttamente in scan_result, non in extra_info
+                    # MikroTik può essere identificato come probe_mikrotik_api o probe_ssh
+                    if device.device_type == "mikrotik" and scan_result.get("identified_by"):
                         try:
                             from ..models.inventory import MikroTikDetails
-                            extra_info = scan_result.get("extra_info") or {}
+                            # I dati MikroTik sono mergeati direttamente in scan_result
+                            extra_info = scan_result
                             
                             mikrotik_data = {}
                             
@@ -4067,12 +4074,95 @@ async def refresh_advanced_info(customer_id: str, device_id: str):
             except Exception as e:
                 logger.error(f"Error collecting interface details: {e}")
         
-        # MikroTik: raccogli routing e ARP
-        if device_type_lower == "mikrotik" and credentials_list:
-            logger.info(f"Device {device_id} identified as MikroTik, collecting routing/ARP...")
+        # MikroTik: raccogli routing, ARP e dettagli
+        is_mikrotik = device_type_lower == "mikrotik" or "mikrotik" in vendor_lower
+        if is_mikrotik and credentials_list:
+            logger.info(f"Device {device_id} identified as MikroTik, collecting details/routing/ARP...")
             from ..services.mikrotik_service import get_mikrotik_service
+            from ..models.inventory import MikroTikDetails
             import json
             mikrotik_service = get_mikrotik_service()
+            
+            # Raccogli dettagli MikroTik via API
+            try:
+                cred = credentials_list[0]
+                api = mikrotik_service._get_connection(
+                    device.primary_ip,
+                    cred.get("mikrotik_api_port", 8728),
+                    cred.get("username", ""),
+                    cred.get("password", ""),
+                    use_ssl=cred.get("use_ssl", False)
+                )
+                
+                mikrotik_data = {}
+                
+                # System resource
+                try:
+                    resource_resource = api.get_resource('/system/resource')
+                    resources = resource_resource.get()
+                    if resources:
+                        res = resources[0]
+                        mikrotik_data["routeros_version"] = res.get("version", "")
+                        mikrotik_data["cpu_model"] = res.get("cpu", "")
+                        mikrotik_data["cpu_count"] = int(res.get("cpu-count", 1)) if res.get("cpu-count") else None
+                        mikrotik_data["memory_total_mb"] = int(res.get("total-memory", 0)) if res.get("total-memory") else None
+                        mikrotik_data["memory_free_mb"] = int(res.get("free-memory", 0)) if res.get("free-memory") else None
+                        mikrotik_data["uptime"] = res.get("uptime", "")
+                        mikrotik_data["cpu_load"] = float(res.get("cpu-load", 0)) if res.get("cpu-load") else None
+                except Exception as e:
+                    logger.debug(f"Error getting system resource: {e}")
+                
+                # Routerboard info
+                try:
+                    rb_resource = api.get_resource('/system/routerboard')
+                    rbs = rb_resource.get()
+                    if rbs:
+                        rb = rbs[0]
+                        mikrotik_data["board_name"] = rb.get("board-name", "")
+                        mikrotik_data["platform"] = rb.get("platform", "")
+                        mikrotik_data["firmware_version"] = rb.get("current-firmware", "")
+                        mikrotik_data["factory_firmware"] = rb.get("factory-firmware", "")
+                except Exception as e:
+                    logger.debug(f"Error getting routerboard info: {e}")
+                
+                # Identity
+                try:
+                    identity_resource = api.get_resource('/system/identity')
+                    identities = identity_resource.get()
+                    if identities:
+                        mikrotik_data["identity"] = identities[0].get("name", "")
+                except Exception as e:
+                    logger.debug(f"Error getting identity: {e}")
+                
+                # License
+                try:
+                    license_resource = api.get_resource('/system/license')
+                    licenses = license_resource.get()
+                    if licenses:
+                        lic = licenses[0]
+                        mikrotik_data["license_level"] = lic.get("nlevel", "")
+                        mikrotik_data["license_key"] = lic.get("software-id", "")
+                except Exception as e:
+                    logger.debug(f"Error getting license: {e}")
+                
+                # Salva o aggiorna MikroTikDetails
+                existing_md = session.query(MikroTikDetails).filter(MikroTikDetails.device_id == device_id).first()
+                if existing_md:
+                    for key, value in mikrotik_data.items():
+                        if hasattr(existing_md, key) and value is not None:
+                            setattr(existing_md, key, value)
+                    existing_md.last_updated = datetime.now()
+                else:
+                    if mikrotik_data:
+                        md = MikroTikDetails(
+                            id=uuid.uuid4().hex[:8],
+                            device_id=device_id,
+                            **{k: v for k, v in mikrotik_data.items() if hasattr(MikroTikDetails, k)}
+                        )
+                        session.add(md)
+                        logger.info(f"Created MikroTikDetails for device {device_id}")
+            except Exception as e:
+                logger.error(f"Error collecting MikroTik details: {e}", exc_info=True)
             
             # Raccogli routing table
             try:
