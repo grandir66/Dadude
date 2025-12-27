@@ -1036,8 +1036,22 @@ async def auto_detect_device(
                     # Salva LinuxDetails se disponibili (dati SSH o dati Linux rilevati)
                     # I dati vengono mergeati direttamente in scan_result, non in extra_info
                     # Salva anche se il device è una VM Linux (non necessariamente identificata via SSH)
-                    is_linux_device = device.device_type == "linux" or "linux" in (device.os_family or "").lower() or "linux" in (scan_result.get("os_family") or "").lower() or any(x in (scan_result.get("os_family") or "").lower() for x in ["ubuntu", "debian", "centos", "rhel", "alpine", "suse", "arch"])
-                    has_ssh_data = scan_result.get("identified_by", "").startswith("probe_ssh") or scan_result.get("kernel") or scan_result.get("distro_name") or scan_result.get("docker_installed")
+                    os_name_lower = (scan_result.get("os_name") or "").lower()
+                    os_id_lower = (scan_result.get("os_id") or "").lower()
+                    is_linux_device = (
+                        device.device_type == "linux" or 
+                        "linux" in (device.os_family or "").lower() or 
+                        "linux" in (scan_result.get("os_family") or "").lower() or 
+                        any(x in os_name_lower for x in ["ubuntu", "debian", "centos", "rhel", "alpine", "suse", "arch", "linux"]) or
+                        any(x in os_id_lower for x in ["ubuntu", "debian", "centos", "rhel", "alpine", "suse", "arch"])
+                    )
+                    has_ssh_data = (
+                        scan_result.get("identified_by", "").startswith("probe_ssh") or 
+                        "agent_ssh" in scan_result.get("identified_by", "") or
+                        scan_result.get("kernel") or 
+                        scan_result.get("distro_name") or 
+                        scan_result.get("docker_installed")
+                    )
                     
                     if is_linux_device and has_ssh_data:
                         try:
@@ -1047,47 +1061,66 @@ async def auto_detect_device(
                             
                             linux_data = {}
                             
-                            # Distro - usa scan_result direttamente
-                            if scan_result.get("os_family"):
-                                linux_data["distro_name"] = scan_result.get("os_family")
-                            elif scan_result.get("os_pretty_name"):
-                                # Estrai nome distro da PRETTY_NAME se disponibile
-                                pretty_name = scan_result.get("os_pretty_name", "")
-                                if "Ubuntu" in pretty_name:
-                                    linux_data["distro_name"] = "Ubuntu"
-                                elif "Debian" in pretty_name:
-                                    linux_data["distro_name"] = "Debian"
-                                elif "CentOS" in pretty_name or "Rocky" in pretty_name or "AlmaLinux" in pretty_name:
-                                    linux_data["distro_name"] = "RHEL"
-                                elif "SUSE" in pretty_name:
-                                    linux_data["distro_name"] = "SUSE"
-                                elif "Arch" in pretty_name:
-                                    linux_data["distro_name"] = "Arch"
-                                elif "Alpine" in pretty_name:
-                                    linux_data["distro_name"] = "Alpine"
+                            # Distro - controlla os_name, os_id, os_family, os_pretty_name
+                            distro_name = None
+                            if scan_result.get("os_id"):
+                                # os_id è solitamente il nome della distro in minuscolo (ubuntu, debian, etc)
+                                distro_name = scan_result.get("os_id").capitalize()
+                            elif scan_result.get("os_family") and scan_result.get("os_family") != "Linux":
+                                distro_name = scan_result.get("os_family")
+                            elif scan_result.get("os_name"):
+                                # Estrai nome distro da os_name (es: "Ubuntu 24.04.2 LTS")
+                                os_name = scan_result.get("os_name", "")
+                                if "Ubuntu" in os_name:
+                                    distro_name = "Ubuntu"
+                                elif "Debian" in os_name:
+                                    distro_name = "Debian"
+                                elif "CentOS" in os_name or "Rocky" in os_name or "AlmaLinux" in os_name:
+                                    distro_name = "RHEL"
+                                elif "SUSE" in os_name:
+                                    distro_name = "SUSE"
+                                elif "Arch" in os_name:
+                                    distro_name = "Arch"
+                                elif "Alpine" in os_name:
+                                    distro_name = "Alpine"
                             
+                            if distro_name:
+                                linux_data["distro_name"] = distro_name
+                            
+                            # Distro version
                             if scan_result.get("os_version"):
                                 linux_data["distro_version"] = scan_result.get("os_version")
                             
-                            # Kernel - usa scan_result direttamente
+                            # Kernel - controlla kernel e architecture
                             if scan_result.get("kernel"):
                                 linux_data["kernel_version"] = scan_result.get("kernel")
-                            if scan_result.get("arch"):
+                            if scan_result.get("architecture"):
+                                linux_data["kernel_arch"] = scan_result.get("architecture")
+                            elif scan_result.get("arch"):
                                 linux_data["kernel_arch"] = scan_result.get("arch")
                             
                             # Uptime - prova a parsare se disponibile
                             if scan_result.get("uptime"):
-                                uptime_str = scan_result.get("uptime", "")
-                                # Prova a parsare uptime se è in formato leggibile
-                                linux_data["uptime_days"] = None  # Parsing uptime è complesso, lasciamo None per ora
+                                uptime_str = str(scan_result.get("uptime", ""))
+                                # Prova a estrarre giorni dall'uptime
+                                if "day" in uptime_str.lower():
+                                    try:
+                                        import re
+                                        days_match = re.search(r'(\d+)\s*day', uptime_str.lower())
+                                        if days_match:
+                                            linux_data["uptime_days"] = float(days_match.group(1))
+                                    except:
+                                        pass
                             
                             # Docker - usa scan_result direttamente
                             if scan_result.get("docker_installed"):
                                 linux_data["docker_installed"] = True
                                 linux_data["docker_version"] = scan_result.get("docker_version")
                             
-                            # Virtualization - determina da manufacturer/model se è VM
-                            if scan_result.get("manufacturer"):
+                            # Virtualization - usa direttamente se presente, altrimenti determina da manufacturer/model
+                            if scan_result.get("virtualization"):
+                                linux_data["virtualization"] = scan_result.get("virtualization")
+                            elif scan_result.get("manufacturer"):
                                 manufacturer_lower = scan_result.get("manufacturer", "").lower()
                                 if "qemu" in manufacturer_lower or "vmware" in manufacturer_lower or "microsoft" in manufacturer_lower or "virtualbox" in manufacturer_lower:
                                     linux_data["virtualization"] = scan_result.get("manufacturer")
@@ -1109,9 +1142,16 @@ async def auto_detect_device(
                                     linux_data["package_manager"] = "apk"
                             
                             # Init system - la maggior parte dei Linux moderni usa systemd
-                            if scan_result.get("os_family") and scan_result.get("os_family") != "Linux":
-                                # Se è una distro specifica, probabilmente usa systemd
+                            if linux_data.get("distro_name"):
                                 linux_data["init_system"] = "systemd"
+                            
+                            # SSH port
+                            if scan_result.get("ssh_port"):
+                                linux_data["ssh_port"] = scan_result.get("ssh_port")
+                            
+                            # Logged users
+                            if scan_result.get("shell_users"):
+                                linux_data["logged_users"] = scan_result.get("shell_users")
                             
                             logger.info(f"Linux data collected: {list(linux_data.keys())}")
                             
