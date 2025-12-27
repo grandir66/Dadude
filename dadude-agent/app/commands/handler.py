@@ -342,8 +342,15 @@ class CommandHandler:
             result = await self._ssh_probe.probe(
                 target, username, password, private_key, port
             )
+            # Log summary dei dati raccolti
+            if isinstance(result, dict):
+                result_keys = list(result.keys())
+                logger.info(f"SSH probe handler: Returning {len(result_keys)} fields: {sorted(result_keys)[:30]}")
+                if result.get("running_services_count"):
+                    logger.info(f"SSH probe handler: running_services_count={result.get('running_services_count')}, cron_jobs_count={result.get('cron_jobs_count')}, neighbors_count={result.get('neighbors_count')}")
             return CommandResult(success=True, status="success", data=result)
         except Exception as e:
+            logger.error(f"SSH probe handler error: {e}", exc_info=True)
             return CommandResult(success=False, status="error", error=str(e))
     
     async def _probe_snmp(self, params: Dict) -> CommandResult:

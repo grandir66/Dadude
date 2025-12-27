@@ -194,6 +194,10 @@ async def probe(
                     info["neighbors"] = neighbors
                     info["neighbors_count"] = len(neighbors)
                     logger.info(f"SSH probe: Collected {len(neighbors)} MikroTik neighbors")
+                else:
+                    logger.debug(f"SSH probe: No MikroTik neighbors found (neighbor_out empty or parse failed)")
+            else:
+                logger.debug(f"SSH probe: MikroTik neighbor command failed or returned empty")
             
             # ===== ROUTING TABLE =====
             routes_out = exec_cmd("/ip route print terse where active", timeout=10)
@@ -440,6 +444,7 @@ async def probe(
                 if all_services:
                     info["running_services"] = all_services[:100]  # Limita a 100 servizi
                     info["running_services_count"] = len(all_services)
+                    logger.debug(f"SSH probe: Collected {len(all_services)} running services")
                     
                     # Filtra servizi importanti/critici separatamente
                     important = ["nginx", "apache", "httpd", "mysql", "mariadb", "postgresql", "redis", 
@@ -449,6 +454,9 @@ async def probe(
                     filtered = [s for s in all_services if any(imp in s.lower() for imp in important)]
                     if filtered:
                         info["important_services"] = filtered
+                        logger.debug(f"SSH probe: Found {len(filtered)} important services")
+            else:
+                logger.debug(f"SSH probe: No services output (services_out empty or failed)")
             
             # ===== CRON JOBS =====
             cron_jobs = []
@@ -477,6 +485,9 @@ async def probe(
             if cron_jobs:
                 info["cron_jobs"] = cron_jobs[:50]  # Limita a 50
                 info["cron_jobs_count"] = len(cron_jobs)
+                logger.debug(f"SSH probe: Collected {len(cron_jobs)} cron jobs")
+            else:
+                logger.debug(f"SSH probe: No cron jobs found")
             
             # ===== HARDWARE DETTAGLIATO (lshw/dmidecode) =====
             # Prova lshw (più completo)
@@ -551,6 +562,9 @@ async def probe(
                         })
                 if ip_addresses:
                     info["ip_addresses"] = ip_addresses
+                    logger.debug(f"SSH probe: Collected {len(ip_addresses)} IP addresses")
+            else:
+                logger.debug(f"SSH probe: No IP addresses output")
             
             # Routing table
             routes_out = exec_cmd("ip route show 2>/dev/null | head -20")
@@ -615,7 +629,12 @@ async def probe(
         
         client.close()
         
-        logger.info(f"SSH probe successful: {info.get('hostname')} ({info.get('os_name', 'Unknown')})")
+        # Log summary dei dati raccolti
+        collected_keys = [k for k in info.keys() if k not in ['address', 'mac_address', 'device_type', 'category', 'identified_by']]
+        logger.info(f"SSH probe successful: {info.get('hostname')} ({info.get('os_name', 'Unknown')}), collected {len(collected_keys)} fields: {sorted(collected_keys)[:20]}")
+        if info.get("running_services_count"):
+            logger.info(f"SSH probe: running_services_count={info.get('running_services_count')}, cron_jobs_count={info.get('cron_jobs_count')}, neighbors_count={info.get('neighbors_count')}")
+        
         return info
     
     return await loop.run_in_executor(_executor, connect)
