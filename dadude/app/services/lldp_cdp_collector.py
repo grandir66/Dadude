@@ -166,7 +166,9 @@ class LLDPCDPCollector:
         neighbors = []
         
         for cred in credentials:
-            if cred.get("type") != "mikrotik":
+            # Accetta credenziali mikrotik, ssh o api (tutte possono avere username/password per MikroTik)
+            cred_type = str(cred.get("type", "")).lower()
+            if cred_type not in ["mikrotik", "ssh", "api", ""] and not cred.get("mikrotik_api_port"):
                 continue
             
             try:
@@ -218,7 +220,9 @@ class LLDPCDPCollector:
         interfaces = []
         
         for cred in credentials:
-            if cred.get("type") != "mikrotik":
+            # Accetta credenziali mikrotik, ssh o api (tutte possono avere username/password per MikroTik)
+            cred_type = str(cred.get("type", "")).lower()
+            if cred_type not in ["mikrotik", "ssh", "api", ""] and not cred.get("mikrotik_api_port"):
                 continue
             
             try:
