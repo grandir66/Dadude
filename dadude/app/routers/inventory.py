@@ -743,12 +743,19 @@ async def auto_detect_device(
                         device.hostname = hostname
                     
                     # OS
+                    # Priorità: os_family da scan_result (più affidabile per Synology/QNAP)
                     if scan_result.get("os_family"):
                         device.os_family = scan_result["os_family"]
+                    # os_name viene usato solo se os_family non è già impostato
+                    elif scan_result.get("os_name"):
+                        # Per Synology/QNAP, os_name è "DSM"/"QTS", quindi impostiamo os_family come Linux
+                        os_name_val = scan_result.get("os_name", "").lower()
+                        if os_name_val in ["dsm", "qts"]:
+                            device.os_family = "Linux"
+                        else:
+                            device.os_family = scan_result["os_name"]
                     if scan_result.get("os_version") or scan_result.get("version"):
                         device.os_version = scan_result.get("os_version") or scan_result.get("version")
-                    if scan_result.get("os_name"):
-                        device.os_family = scan_result["os_name"]
                     
                     # Vendor/Manufacturer
                     manufacturer = (scan_result.get("manufacturer") or scan_result.get("vendor") or 
@@ -830,7 +837,13 @@ async def auto_detect_device(
                             logger.info(f"Setting device_type from os_name: mikrotik (os_name={os_name_check})")
                     
                     elif not device.device_type or device.device_type == "other" or device.device_type == "unknown":
-                        if identified_by:
+                        # Verifica se è Synology/QNAP prima di altri controlli
+                        manufacturer_lower = (scan_result.get("manufacturer") or scan_result.get("vendor") or "").lower()
+                        if "synology" in manufacturer_lower or "qnap" in manufacturer_lower:
+                            device.device_type = "storage"
+                            device.category = "storage"
+                            logger.info(f"Setting device_type from manufacturer: storage (manufacturer={manufacturer_lower})")
+                        elif identified_by:
                             # Supporta sia "wmi" che "agent_wmi", "probe_wmi", ecc.
                             if "wmi" in identified_by.lower() or "windows" in identified_by.lower():
                                 device.device_type = "windows"
