@@ -239,10 +239,26 @@ async def auto_detect_device(
         # 1. Scansiona le porte - SEMPRE scan completo durante autodetect
         logger.info(f"Auto-detect: Performing FULL port scan on {data.address}...")
         
+        # Recupera credenziali SNMP disponibili per il port scan UDP 161
+        snmp_communities = []
+        if data.use_default_credentials:
+            default_creds = customer_service.get_default_credentials(customer_id)
+            for cred in default_creds:
+                if cred.get("type") == "snmp" and cred.get("password"):
+                    from ..services.encryption_service import get_encryption_service
+                    encryption = get_encryption_service()
+                    try:
+                        snmp_community = encryption.decrypt(cred["password"])
+                        if snmp_community and snmp_community not in snmp_communities:
+                            snmp_communities.append(snmp_community)
+                    except:
+                        pass
+        
         # Durante autodetect, sempre usa scan completo con tutte le porte comuni
         # Non limitare a DEFAULT_PORTS anche se viene usato un agent
         # Questo garantisce che tutte le porte importanti vengano scansionate
-        open_ports = await probe_service.scan_services(data.address)
+        # Passa le credenziali SNMP per il probe UDP 161
+        open_ports = await probe_service.scan_services(data.address, snmp_communities=snmp_communities if snmp_communities else None)
         
         result["open_ports"] = open_ports
         open_count = len([p for p in open_ports if p.get("open")])
@@ -1482,7 +1498,7 @@ async def auto_detect_device(
                     # Non MikroTik (già gestito sopra)
                     is_mikrotik = (
                         device.device_type == "mikrotik" or 
-                        "mikrotik" in (device.vendor or "").lower() or 
+                        "mikrotik" in (scan_result.get("vendor") or scan_result.get("manufacturer") or "").lower() or 
                         "routeros" in (scan_result.get("os_name") or "").lower()
                     )
                     is_network_device = (

@@ -268,6 +268,7 @@ async def probe(
         vendor_patterns = {
             "1.3.6.1.4.1.41112": ("Ubiquiti", "ubiquiti"),
             "1.3.6.1.4.1.10002": ("Ubiquiti", "ubiquiti"),  # UBNT
+            "1.3.6.1.4.1.4413": ("Ubiquiti", "ubiquiti"),  # Ubiquiti Networks (USW, USXG, etc.)
             "1.3.6.1.4.1.14988": ("MikroTik", "mikrotik"),
             "1.3.6.1.4.1.9.": ("Cisco", "cisco"),
             "1.3.6.1.4.1.11.": ("HP", "hp"),
@@ -392,7 +393,10 @@ async def probe(
         is_network_device = device_type in ["router", "switch", "ap", "network"]
         is_router = device_type == "router"
         
+        logger.debug(f"SNMP probe: device_type={device_type}, category={category}, vendor={info.get('vendor')}, is_network_device={is_network_device}, is_router={is_router}")
+        
         if is_network_device:
+            logger.info(f"SNMP probe: Collecting advanced data for network device {target} (type={device_type}, vendor={info.get('vendor', 'unknown')})")
             # ==========================================
             # LLDP NEIGHBORS (IEEE 802.1AB)
             # ==========================================
@@ -553,7 +557,7 @@ async def probe(
                 # ROUTING TABLE (IP Forwarding Table MIB)
                 # ==========================================
                 try:
-                    logger.debug(f"Collecting routing table for {target}...")
+                    logger.info(f"SNMP probe: Collecting routing table for {target}...")
                     routes = []
                     
                     # IP Route Table OIDs
@@ -608,16 +612,18 @@ async def probe(
                     if routes:
                         info["routing_table"] = routes
                         info["routing_count"] = len(routes)
-                        logger.debug(f"Found {len(routes)} routes")
+                        logger.info(f"SNMP probe: Found {len(routes)} routes")
+                    else:
+                        logger.debug(f"SNMP probe: No routes found (route_dests={len(route_dests)}, next_hops={len(next_hops)})")
                 except Exception as e:
-                    logger.debug(f"Routing table query failed: {e}")
+                    logger.warning(f"SNMP probe: Routing table query failed for {target}: {e}", exc_info=True)
                 
                 # ==========================================
                 # ARP TABLE (SOLO per Router)
                 # ==========================================
                 if is_router:
                     try:
-                        logger.debug(f"Collecting ARP table for router {target}...")
+                        logger.info(f"SNMP probe: Collecting ARP table for router {target}...")
                         arp_entries = []
                         
                         # ARP Table OIDs
@@ -671,15 +677,17 @@ async def probe(
                         if arp_entries:
                             info["arp_table"] = arp_entries
                             info["arp_count"] = len(arp_entries)
-                            logger.debug(f"Found {len(arp_entries)} ARP entries")
+                            logger.info(f"SNMP probe: Found {len(arp_entries)} ARP entries")
+                        else:
+                            logger.debug(f"SNMP probe: No ARP entries found (arp_ips={len(arp_ips)}, arp_macs={len(arp_macs)})")
                     except Exception as e:
-                        logger.debug(f"ARP table query failed: {e}")
+                        logger.warning(f"SNMP probe: ARP table query failed for {target}: {e}", exc_info=True)
                 
                 # ==========================================
                 # INTERFACES DETTAGLIATE (IF-MIB)
                 # ==========================================
                 try:
-                    logger.debug(f"Collecting detailed interfaces for {target}...")
+                    logger.info(f"SNMP probe: Collecting detailed interfaces for {target}...")
                     interfaces = []
                     
                     # IF-MIB OIDs
@@ -792,9 +800,27 @@ async def probe(
                     if interfaces:
                         info["interfaces"] = interfaces
                         info["interfaces_count"] = len(interfaces)
-                        logger.debug(f"Found {len(interfaces)} interfaces")
+                        info["interface_details"] = interfaces  # Alias per compatibilità
+                        logger.info(f"SNMP probe: Found {len(interfaces)} interfaces")
+                    else:
+                        logger.debug(f"SNMP probe: No interfaces found (if_descriptions={len(if_descriptions)}, if_speeds={len(if_speeds)})")
                 except Exception as e:
-                    logger.debug(f"Interfaces query failed: {e}")
+                    logger.warning(f"SNMP probe: Interface details query failed for {target}: {e}", exc_info=True)
+        
+        # Log summary of advanced data collected
+        advanced_data_summary = []
+        if info.get("neighbors") or info.get("lldp_neighbors") or info.get("cdp_neighbors"):
+            neighbors_count = len(info.get("neighbors", [])) or len(info.get("lldp_neighbors", [])) or len(info.get("cdp_neighbors", []))
+            advanced_data_summary.append(f"{neighbors_count} neighbors")
+        if info.get("routing_table"):
+            advanced_data_summary.append(f"{len(info.get('routing_table', []))} routes")
+        if info.get("arp_table"):
+            advanced_data_summary.append(f"{len(info.get('arp_table', []))} ARP entries")
+        if info.get("interfaces"):
+            advanced_data_summary.append(f"{len(info.get('interfaces', []))} interfaces")
+        
+        if advanced_data_summary:
+            logger.info(f"SNMP probe: Advanced data collected for {target}: {', '.join(advanced_data_summary)}")
         
     finally:
         dispatcher.transport_dispatcher.close_dispatcher()
