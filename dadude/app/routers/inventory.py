@@ -979,7 +979,7 @@ async def auto_detect_device(
                     # Salva dati extra nel campo custom_fields
                     extra_fields = {}
                     
-                    # Dati Windows/Linux dettagliati
+                    # Dati Windows/Linux dettagliati + SNMP
                     extra_field_names = [
                         "server_roles", "installed_software", "network_adapters", "local_users",
                         "important_services", "memory_modules", "disks", "antivirus",
@@ -988,7 +988,11 @@ async def auto_detect_device(
                         "cpu_speed_mhz", "cpu_threads", "cpu_manufacturer", "bios_version", "bios_manufacturer",
                         "shell_users", "docker_containers_running", "lxc_containers", "vms",
                         "virtualization", "timezone", "uptime", "last_login", "kernel",
-                        "interface_count", "license_level", "firmware"
+                        "interface_count", "license_level", "firmware", "firmware_version",
+                        # Campi SNMP
+                        "sysDescr", "sysName", "sysObjectID", "sysUpTime", "sysServices",
+                        "entPhysicalDescr", "entPhysicalModelName", "entPhysicalName", 
+                        "entPhysicalSerialNum", "entPhysicalSoftwareRev"
                     ]
                     
                     for field in extra_field_names:
@@ -2307,9 +2311,35 @@ async def get_inventory_device(device_id: str):
             "identified_by": device.identified_by,
             "credential_used": device.credential_used,
             "credential_id": device.credential_id,
+            "firmware_version": getattr(device, 'firmware_version', None),
+            "interface_count": getattr(device, 'interface_count', None),
             "created_at": device.created_at.isoformat() if device.created_at else None,
             "updated_at": device.updated_at.isoformat() if device.updated_at else None,
         }
+        
+        # Aggiungi campi SNMP da custom_fields se presenti
+        if device.custom_fields:
+            import json
+            try:
+                if isinstance(device.custom_fields, str):
+                    cf = json.loads(device.custom_fields)
+                else:
+                    cf = device.custom_fields
+                
+                # Estrai campi SNMP da custom_fields
+                if isinstance(cf, dict):
+                    if "firmware_version" in cf and not result.get("firmware_version"):
+                        result["firmware_version"] = cf["firmware_version"]
+                    if "interface_count" in cf and not result.get("interface_count"):
+                        result["interface_count"] = cf["interface_count"]
+                    if "sysDescr" in cf:
+                        result["sysDescr"] = cf["sysDescr"]
+                    if "sysName" in cf:
+                        result["sysName"] = cf["sysName"]
+                    if "sysObjectID" in cf:
+                        result["sysObjectID"] = cf["sysObjectID"]
+            except:
+                pass
         
         # Network interfaces
         result["network_interfaces"] = [
