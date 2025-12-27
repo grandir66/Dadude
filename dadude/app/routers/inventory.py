@@ -3560,19 +3560,20 @@ async def refresh_advanced_info(customer_id: str, device_id: str):
                                 logger.info(f"Saved {len(vms)} Proxmox VMs for device {device_id}")
                             except Exception as flush_error:
                                 logger.error(f"Error flushing VMs to database: {flush_error}", exc_info=True)
-                                # Non fare rollback completo, solo delle VM aggiunte in questa transazione
-                                # L'host è già stato salvato con flush precedente
+                                import traceback
+                                logger.error(f"VM flush traceback: {traceback.format_exc()}")
+                                # Commit parziale: salva solo l'host, non le VM
                                 try:
+                                    # Rimuovi le VM dalla sessione per evitare che vengano incluse nel commit
+                                    for vm in session.new:
+                                        if isinstance(vm, ProxmoxVM) and vm.host_id == host_id:
+                                            session.expunge(vm)
+                                    session.commit()  # Commit solo dell'host
+                                    logger.info(f"Host info committed despite VM save failure")
+                                except Exception as commit_error:
+                                    logger.error(f"Error committing host after VM failure: {commit_error}", exc_info=True)
                                     session.rollback()
-                                    # Ricarica l'host dopo rollback
-                                    existing_host = session.query(ProxmoxHost).filter(
-                                        ProxmoxHost.device_id == device_id
-                                    ).first()
-                                    if existing_host:
-                                        host_id = existing_host.id
-                                except:
-                                    pass
-                                # Non fare raise, continua con lo storage
+                                # Continua con lo storage anche se le VM sono fallite
                                 logger.warning(f"VM save failed, continuing with storage collection")
                         else:
                             logger.warning(f"No VMs collected for device {device_id}")
