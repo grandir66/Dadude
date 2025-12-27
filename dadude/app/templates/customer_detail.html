@@ -4740,6 +4740,24 @@ async function viewInventoryDevice(deviceId) {
             }
         }
         
+        // Debug: verifica se i dati sono presenti
+        if (device.device_type === 'linux' && Object.keys(cf).length > 0) {
+            console.log('Linux device custom_fields:', {
+                keys: Object.keys(cf),
+                has_running_services: !!cf.running_services,
+                running_services_count: cf.running_services ? cf.running_services.length : 0,
+                has_cron_jobs: !!cf.cron_jobs,
+                cron_jobs_count: cf.cron_jobs ? cf.cron_jobs.length : 0
+            });
+        }
+        if (device.device_type === 'mikrotik' && Object.keys(cf).length > 0) {
+            console.log('MikroTik device custom_fields:', {
+                keys: Object.keys(cf),
+                has_neighbors: !!cf.neighbors,
+                neighbors_count: cf.neighbors ? cf.neighbors.length : 0
+            });
+        }
+        
         // Determina se mostrare tab avanzate
         // Converti sempre in stringa per evitare errori con operatori 'in'
         let deviceType = '';
