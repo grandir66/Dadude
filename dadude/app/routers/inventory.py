@@ -262,39 +262,61 @@ async def auto_detect_device(
                     InventoryDevice.id == data.device_id
                 ).first()
                 
+                logger.info(f"Auto-detect: Looking for assigned credential for device {data.device_id}: device_record={device_record is not None}, credential_id={device_record.credential_id if device_record else None}")
+                
                 if device_record and device_record.credential_id:
                     cred = session.query(CredentialDB).filter(
                         CredentialDB.id == device_record.credential_id
                     ).first()
                     
+                    logger.info(f"Auto-detect: Found credential record: {cred is not None}, cred_id={cred.id if cred else None}, cred_name={cred.name if cred else None}, cred_type={cred.credential_type if cred else None}, username={cred.username if cred else None}")
+                    
                     if cred:
                         # Decripta la password
                         from ..services.encryption_service import get_encryption_service
                         encryption = get_encryption_service()
-                        password = encryption.decrypt(cred.password) if cred.password else None
+                        password = None
+                        try:
+                            password = encryption.decrypt(cred.password) if cred.password else None
+                            logger.info(f"Auto-detect: Password decrypted successfully: {'Yes' if password else 'No'}")
+                        except Exception as e:
+                            logger.error(f"Auto-detect: Failed to decrypt password: {e}")
                         
-                        credentials_list.append({
+                        ssh_key = None
+                        try:
+                            ssh_key = encryption.decrypt(cred.ssh_private_key) if cred.ssh_private_key else None
+                        except Exception as e:
+                            logger.debug(f"Auto-detect: Failed to decrypt SSH key (may not exist): {e}")
+                        
+                        cred_dict = {
                             "id": cred.id,
                             "name": cred.name,
                             "type": cred.credential_type,
                             "username": cred.username,
                             "password": password,
                             "ssh_port": cred.ssh_port or 22,
-                            "ssh_private_key": encryption.decrypt(cred.ssh_private_key) if cred.ssh_private_key else None,
+                            "ssh_private_key": ssh_key,
                             "snmp_community": cred.snmp_community,
                             "snmp_version": cred.snmp_version or '2c',
                             "snmp_port": cred.snmp_port or 161,
                             "wmi_domain": cred.wmi_domain,
                             "mikrotik_api_port": cred.mikrotik_api_port or 8728,
-                        })
+                        }
+                        credentials_list.append(cred_dict)
                         result["credentials_tested"].append({
                             "id": cred.id,
                             "name": cred.name,
                             "type": cred.credential_type,
                             "source": "device_assigned",
                         })
-                        logger.info(f"Auto-detect: Using device-assigned credential '{cred.name}' ({cred.credential_type})")
+                        logger.info(f"Auto-detect: ✓ Using device-assigned credential '{cred.name}' ({cred.credential_type}) - username={cred.username}, password={'***' if password else 'None'}, ssh_port={cred.ssh_port or 22}")
                         has_assigned_credential = True
+                    else:
+                        logger.warning(f"Auto-detect: Credential ID {device_record.credential_id} not found in database")
+                else:
+                    logger.warning(f"Auto-detect: Device {data.device_id} has no credential_id assigned")
+            except Exception as e:
+                logger.error(f"Auto-detect: Error retrieving assigned credential: {e}", exc_info=True)
             finally:
                 session.close()
         
@@ -341,8 +363,14 @@ async def auto_detect_device(
         
         if not credentials_list:
             logger.warning(f"Auto-detect: No credentials found for {data.address}!")
+            logger.warning(f"Auto-detect: device_id={data.device_id}, use_assigned_credential={data.use_assigned_credential}, use_default_credentials={data.use_default_credentials}, has_assigned_credential={has_assigned_credential}, open_count={open_count}")
+            result["error"] = "No credentials found"
+            if not has_assigned_credential and open_count == 0:
+                result["error"] += " and no open ports found"
+            return result
         else:
             logger.info(f"Auto-detect: Testing {len(credentials_list)} credentials on {data.address}: {[c.get('type') for c in credentials_list]}")
+            logger.info(f"Auto-detect: Credential details: {[(c.get('id'), c.get('name'), c.get('type'), c.get('username'), 'password=' + ('Yes' if c.get('password') else 'No')) for c in credentials_list]}")
         
         # 3. Esegui probe con credenziali
         # Se abbiamo un agent Docker, usalo per i probe
