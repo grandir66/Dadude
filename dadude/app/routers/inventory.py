@@ -879,7 +879,16 @@ async def auto_detect_device(
                                         except Exception as vm_error:
                                             logger.error("Error saving VM %s: %s", vm_data.get('vm_id', 'unknown'), str(vm_error), exc_info=True)
                                             continue
-                                    logger.info(f"Auto-detect: Saved {len(scan_result['proxmox_vms'])} Proxmox VMs for device {data.device_id}")
+                                    
+                                    try:
+                                        session.flush()  # Flush prima del commit per verificare errori
+                                        logger.info("Auto-detect: Flushed %d Proxmox VMs for device %s", len(scan_result['proxmox_vms']), data.device_id)
+                                    except Exception as flush_error:
+                                        import traceback
+                                        flush_trace = traceback.format_exc()
+                                        flush_msg = f"Error flushing VMs to database: {str(flush_error)}\n{flush_trace}"
+                                        logger.error(flush_msg, exc_info=False)
+                                        raise
                                 
                                 # Salva storage
                                 if scan_result.get("proxmox_storage"):
