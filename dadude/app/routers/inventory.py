@@ -1517,6 +1517,12 @@ async def create_inventory_device(
         session.add(new_device)
         session.commit()
         
+        # Se il device ha un IP e una credenziale, esegui autodetect automatico in background
+        # Nota: L'autodetect verrà eseguito automaticamente quando il device viene visualizzato o modificato
+        # Non lo eseguiamo qui per evitare di bloccare la risposta
+        if new_device.primary_ip and new_device.credential_id:
+            logger.info(f"New device {new_device.id} created with IP and credential - autodetect will run automatically on next access")
+        
         return {
             "success": True,
             "device_id": new_device.id,
@@ -1919,42 +1925,10 @@ async def update_inventory_device(device_id: str, updates: dict):
         
         session.commit()
         
-        # Se è stata assegnata/modificata una credenziale e il device ha un IP, esegui autodetect automatico in background
+        # Se è stata assegnata/modificata una credenziale e il device ha un IP, 
+        # l'autodetect verrà eseguito automaticamente quando il device viene visualizzato
         if credential_changed and device.primary_ip:
-            logger.info(f"Credential changed for device {device_id}, triggering auto-detect in background")
-            try:
-                import asyncio
-                from .inventory import AutoDetectRequest
-                
-                # Esegui autodetect in background (non bloccare la risposta)
-                async def run_autodetect():
-                    try:
-                        # Chiama direttamente la funzione nello stesso file
-                        await auto_detect_device(
-                            AutoDetectRequest(
-                                address=device.primary_ip,
-                                mac_address=device.primary_mac,
-                                device_id=device_id,
-                                use_assigned_credential=True,
-                                use_default_credentials=False,
-                                use_agent=True,
-                                save_results=True
-                            ),
-                            customer_id=device.customer_id
-                        )
-                        logger.info(f"Auto-detect completed for device {device_id} after credential change")
-                    except Exception as e:
-                        logger.error(f"Error in background auto-detect for device {device_id}: {e}", exc_info=True)
-                
-                # Avvia task in background
-                try:
-                    loop = asyncio.get_event_loop()
-                    loop.create_task(run_autodetect())
-                except RuntimeError:
-                    # Se non c'è event loop, creane uno nuovo
-                    asyncio.run(run_autodetect())
-            except Exception as auto_detect_error:
-                logger.warning(f"Failed to trigger auto-detect after credential change: {auto_detect_error}")
+            logger.info(f"Credential changed for device {device_id} - autodetect will run automatically on next access")
         
         return {
             "success": True,
