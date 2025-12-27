@@ -1033,36 +1033,63 @@ async def auto_detect_device(
                         except Exception as e:
                             logger.error(f"Error saving WindowsDetails: {e}", exc_info=True)
                     
-                    # Salva LinuxDetails se disponibili (dati SSH)
+                    # Salva LinuxDetails se disponibili (dati SSH o dati Linux rilevati)
                     # I dati vengono mergeati direttamente in scan_result, non in extra_info
-                    if device.device_type == "linux" and scan_result.get("identified_by", "").startswith("probe_ssh"):
+                    # Salva anche se il device è una VM Linux (non necessariamente identificata via SSH)
+                    is_linux_device = device.device_type == "linux" or "linux" in (device.os_family or "").lower() or "linux" in (scan_result.get("os_family") or "").lower() or any(x in (scan_result.get("os_family") or "").lower() for x in ["ubuntu", "debian", "centos", "rhel", "alpine", "suse", "arch"])
+                    has_ssh_data = scan_result.get("identified_by", "").startswith("probe_ssh") or scan_result.get("kernel") or scan_result.get("distro_name") or scan_result.get("docker_installed")
+                    
+                    if is_linux_device and has_ssh_data:
                         try:
                             from ..models.inventory import LinuxDetails
                             # I dati SSH sono mergeati direttamente in scan_result
-                            extra_info = scan_result
+                            logger.info(f"Saving LinuxDetails for device {data.device_id}, scan_result keys: {list(scan_result.keys())[:30]}")
                             
                             linux_data = {}
                             
-                            # Distro
-                            if extra_info.get("os_family"):
-                                linux_data["distro_name"] = extra_info.get("os_family")
-                            if extra_info.get("os_version"):
-                                linux_data["distro_version"] = extra_info.get("os_version")
+                            # Distro - usa scan_result direttamente
+                            if scan_result.get("os_family"):
+                                linux_data["distro_name"] = scan_result.get("os_family")
+                            elif scan_result.get("os_pretty_name"):
+                                # Estrai nome distro da PRETTY_NAME se disponibile
+                                pretty_name = scan_result.get("os_pretty_name", "")
+                                if "Ubuntu" in pretty_name:
+                                    linux_data["distro_name"] = "Ubuntu"
+                                elif "Debian" in pretty_name:
+                                    linux_data["distro_name"] = "Debian"
+                                elif "CentOS" in pretty_name or "Rocky" in pretty_name or "AlmaLinux" in pretty_name:
+                                    linux_data["distro_name"] = "RHEL"
+                                elif "SUSE" in pretty_name:
+                                    linux_data["distro_name"] = "SUSE"
+                                elif "Arch" in pretty_name:
+                                    linux_data["distro_name"] = "Arch"
+                                elif "Alpine" in pretty_name:
+                                    linux_data["distro_name"] = "Alpine"
                             
-                            # Kernel
-                            if extra_info.get("kernel"):
-                                linux_data["kernel_version"] = extra_info.get("kernel")
-                            if extra_info.get("arch"):
-                                linux_data["kernel_arch"] = extra_info.get("arch")
+                            if scan_result.get("os_version"):
+                                linux_data["distro_version"] = scan_result.get("os_version")
                             
-                            # Uptime
-                            if extra_info.get("uptime"):
+                            # Kernel - usa scan_result direttamente
+                            if scan_result.get("kernel"):
+                                linux_data["kernel_version"] = scan_result.get("kernel")
+                            if scan_result.get("arch"):
+                                linux_data["kernel_arch"] = scan_result.get("arch")
+                            
+                            # Uptime - prova a parsare se disponibile
+                            if scan_result.get("uptime"):
+                                uptime_str = scan_result.get("uptime", "")
+                                # Prova a parsare uptime se è in formato leggibile
                                 linux_data["uptime_days"] = None  # Parsing uptime è complesso, lasciamo None per ora
                             
-                            # Docker
-                            if extra_info.get("docker_installed"):
+                            # Docker - usa scan_result direttamente
+                            if scan_result.get("docker_installed"):
                                 linux_data["docker_installed"] = True
-                                linux_data["docker_version"] = extra_info.get("docker_version")
+                                linux_data["docker_version"] = scan_result.get("docker_version")
+                            
+                            # Virtualization
+                            if scan_result.get("virtualization"):
+                                # Questo campo potrebbe non esistere in LinuxDetails, ma proviamo
+                                pass  # Gestito in custom_fields se necessario
                             
                             # Crea o aggiorna LinuxDetails
                             existing_ld = session.query(LinuxDetails).filter(LinuxDetails.device_id == data.device_id).first()
@@ -1071,6 +1098,7 @@ async def auto_detect_device(
                                     if hasattr(existing_ld, key) and value is not None:
                                         setattr(existing_ld, key, value)
                                 existing_ld.last_updated = datetime.now()
+                                logger.info(f"Updated LinuxDetails for device {data.device_id} with {len(linux_data)} fields")
                             else:
                                 if linux_data:
                                     ld = LinuxDetails(
@@ -1079,7 +1107,9 @@ async def auto_detect_device(
                                         **{k: v for k, v in linux_data.items() if hasattr(LinuxDetails, k)}
                                     )
                                     session.add(ld)
-                                    logger.info(f"Created LinuxDetails for device {data.device_id}")
+                                    logger.info(f"Created LinuxDetails for device {data.device_id} with fields: {list(linux_data.keys())}")
+                                else:
+                                    logger.warning(f"No Linux data to save for device {data.device_id}, available keys: {list(scan_result.keys())[:30]}")
                         except Exception as e:
                             logger.error(f"Error saving LinuxDetails: {e}", exc_info=True)
                     
