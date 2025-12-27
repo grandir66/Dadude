@@ -4729,7 +4729,7 @@ async function viewInventoryDevice(deviceId) {
                 </table>
             `;
         }
-
+        
         // Parse custom_fields for extra data
         let cf = {};
         if (device.custom_fields) {
@@ -4747,6 +4747,107 @@ async function viewInventoryDevice(deviceId) {
         
         // Parse storage_info da custom_fields
         const storageInfo = cf.storage_info || {};
+        
+        // Sezione Storage Information (Synology/QNAP)
+        if (storageInfo.volumes || storageInfo.disks || storageInfo.raid) {
+            detailsHtml += `
+                <hr>
+                <h6 class="text-muted mb-3"><i class="bi bi-hdd-stack"></i> Storage Information</h6>
+                
+                ${storageInfo.volumes && storageInfo.volumes.length > 0 ? `
+                <div class="mb-3">
+                    <strong>Volumi (${storageInfo.volumes.length}):</strong>
+                    <div class="table-responsive mt-2">
+                        <table class="table table-sm table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Nome</th>
+                                    <th>Mount Point</th>
+                                    <th>Totale</th>
+                                    <th>Utilizzato</th>
+                                    <th>Libero</th>
+                                    <th>Uso %</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${storageInfo.volumes.map(v => `
+                                    <tr>
+                                        <td><code>${v.name || '-'}</code></td>
+                                        <td>${v.mount_point || '-'}</td>
+                                        <td>${v.total_gb ? v.total_gb.toFixed(1) + ' GB' : '-'}</td>
+                                        <td>${v.used_gb ? v.used_gb.toFixed(1) + ' GB' : '-'}</td>
+                                        <td>${v.free_gb ? v.free_gb.toFixed(1) + ' GB' : '-'}</td>
+                                        <td>
+                                            <div class="progress" style="height: 20px;">
+                                                <div class="progress-bar bg-${v.usage_percent > 90 ? 'danger' : v.usage_percent > 75 ? 'warning' : 'success'}" 
+                                                     style="width: ${v.usage_percent || 0}%">
+                                                    ${v.usage_percent ? v.usage_percent.toFixed(1) + '%' : '-'}
+                                                </div>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                ` : ''}
+                
+                ${storageInfo.raid ? `
+                <div class="mb-3">
+                    <strong>RAID:</strong>
+                    <table class="table table-sm">
+                        <tr><th width="30%">Livello:</th><td>${storageInfo.raid.level || '-'}</td></tr>
+                        <tr><th>Stato:</th><td><span class="badge bg-${storageInfo.raid.status === 'active' ? 'success' : 'warning'}">${storageInfo.raid.status || '-'}</span></td></tr>
+                        <tr><th>Dispositivi:</th><td>${storageInfo.raid.devices ? storageInfo.raid.devices.join(', ') : '-'}</td></tr>
+                        ${storageInfo.raid.degraded ? '<tr><th>Degradato:</th><td><span class="badge bg-danger">Sì</span></td></tr>' : ''}
+                    </table>
+                </div>
+                ` : ''}
+                
+                ${storageInfo.disks && storageInfo.disks.length > 0 ? `
+                <div class="mb-3">
+                    <strong>Dischi (${storageInfo.disks.length}):</strong>
+                    <div class="table-responsive mt-2">
+                        <table class="table table-sm table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Nome</th>
+                                    <th>Modello</th>
+                                    <th>Dimensione</th>
+                                    <th>Seriale</th>
+                                    <th>Salute</th>
+                                    <th>Temperatura</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${storageInfo.disks.map(d => `
+                                    <tr>
+                                        <td><code>${d.name || '-'}</code></td>
+                                        <td>${d.model || '-'}</td>
+                                        <td>${d.size_gb ? d.size_gb.toFixed(1) + ' GB' : '-'}</td>
+                                        <td><small>${d.serial || '-'}</small></td>
+                                        <td><span class="badge bg-${d.health === 'good' ? 'success' : 'warning'}">${d.health || '-'}</span></td>
+                                        <td>${d.temperature ? d.temperature + '°C' : '-'}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                ` : ''}
+                
+                ${storageInfo.temperature ? `
+                <div class="mb-3">
+                    <strong>Temperatura:</strong>
+                    <table class="table table-sm">
+                        ${storageInfo.temperature.cpu ? '<tr><th width="30%">CPU:</th><td>' + storageInfo.temperature.cpu + '°C</td></tr>' : ''}
+                        ${storageInfo.temperature.system ? '<tr><th>Sistema:</th><td>' + storageInfo.temperature.system + '°C</td></tr>' : ''}
+                    </table>
+                </div>
+                ` : ''}
+            `;
+        }
         
         // Determina se mostrare tab avanzate
         // Converti sempre in stringa per evitare errori con operatori 'in'
