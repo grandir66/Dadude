@@ -3655,11 +3655,23 @@ async function loadInventory() {
                     </select>
                 `;
 
+                // Migliora visualizzazione per VM Proxmox
+                let deviceNameHtml = `${recognitionIcon}<strong>${dev.name}</strong>`;
+                if (dev.name && dev.name.includes('(VM)')) {
+                    deviceNameHtml = `${recognitionIcon}<i class="bi bi-cloud text-info me-1"></i><strong>${dev.name}</strong>`;
+                    if (dev.description && dev.description.includes('Proxmox')) {
+                        const vmType = dev.description.includes('LXC') ? 'LXC' : 'QEMU';
+                        deviceNameHtml += `<br><small class="text-muted"><span class="badge bg-secondary">${vmType}</span></small>`;
+                    }
+                }
+                if (dev.hostname && !dev.name.includes(dev.hostname)) {
+                    deviceNameHtml += `<br><small class="text-muted">${dev.hostname}</small>`;
+                }
+                
                 tbody.innerHTML += `
                     <tr data-device-id="${dev.id}">
                         <td>
-                            ${recognitionIcon}<strong>${dev.name}</strong>
-                            ${dev.hostname ? '<br><small class="text-muted">' + dev.hostname + '</small>' : ''}
+                            ${deviceNameHtml}
                         </td>
                         <td><code class="small">${dev.primary_ip || '-'}</code></td>
                         <td><code class="small">${dev.mac_address || '-'}</code></td>
