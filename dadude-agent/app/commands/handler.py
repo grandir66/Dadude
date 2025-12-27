@@ -985,13 +985,24 @@ class CommandHandler:
                 
                 # Prova docker compose up -d --force-recreate
                 # Questo dovrebbe funzionare se abbiamo accesso al socket Docker
-                recreate_result = subprocess.run(
-                    ["docker", "compose", "up", "-d", "--force-recreate"],
-                    cwd=compose_dir,
-                    capture_output=True,
-                    text=True,
-                    timeout=120,
-                )
+                # Prova prima docker compose (v2), poi docker-compose (v1)
+                recreate_result = None
+                for cmd in [["docker", "compose", "up", "-d", "--force-recreate"], ["docker-compose", "up", "-d", "--force-recreate"]]:
+                    try:
+                        recreate_result = subprocess.run(
+                            cmd,
+                            cwd=compose_dir,
+                            capture_output=True,
+                            text=True,
+                            timeout=120,
+                        )
+                        if recreate_result.returncode == 0:
+                            break
+                    except FileNotFoundError:
+                        continue
+                
+                if recreate_result is None:
+                    raise FileNotFoundError("Neither 'docker compose' nor 'docker-compose' found")
                 
                 if recreate_result.returncode == 0:
                     logger.success("Container restarted successfully")
