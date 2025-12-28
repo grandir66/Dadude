@@ -617,7 +617,7 @@ async def register_with_server():
             "python_version": platform.python_version(),
         }
         
-        async with httpx.AsyncClient(timeout=30) as client:
+        async with httpx.AsyncClient(timeout=30, verify=False) as client:
             response = await client.post(
                 f"{settings.server_url}/api/v1/agents/register",
                 json=registration_data,
@@ -657,7 +657,7 @@ async def send_heartbeat():
             "detected_ip": local_ip,
         }
         
-        async with httpx.AsyncClient(timeout=10) as client:
+        async with httpx.AsyncClient(timeout=10, verify=False) as client:
             response = await client.post(
                 f"{settings.server_url}/api/v1/agents/heartbeat",
                 json=heartbeat_data,
