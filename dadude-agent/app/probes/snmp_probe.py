@@ -402,16 +402,30 @@ async def probe(
         # ==========================================
         # QUERY VENDOR-SPECIFIC OIDs
         # ==========================================
-        if detected_vendor and detected_vendor in vendor_oids:
-            logger.info(f"SNMP probe: Querying vendor-specific OIDs for {detected_vendor}")
-            for name, oid in vendor_oids[detected_vendor].items():
+        # Mappa vendor detection a vendor_oids keys
+        vendor_oid_key = detected_vendor
+        if detected_vendor == "hp_procurve" and "hp_procurve" not in vendor_oids:
+            vendor_oid_key = "hp"  # Fallback a hp generico
+        elif detected_vendor == "hp_comware" and "hp_comware" not in vendor_oids:
+            vendor_oid_key = "hp"  # Fallback a hp generico
+        
+        if detected_vendor and vendor_oid_key in vendor_oids:
+            logger.info(f"SNMP probe: Querying vendor-specific OIDs for {detected_vendor} (using {vendor_oid_key} OIDs)")
+            # Prova prima vendor-specific, poi fallback
+            oids_to_query = {}
+            if detected_vendor in vendor_oids:
+                oids_to_query = vendor_oids[detected_vendor]
+            elif vendor_oid_key in vendor_oids:
+                oids_to_query = vendor_oids[vendor_oid_key]
+            
+            for name, oid in oids_to_query.items():
                 # Skip scalar versions if base OID exists
                 if name.endswith("_scalar"):
                     continue
                 value = await query_oid(oid)
-                if not value and name + "_scalar" in vendor_oids[detected_vendor]:
+                if not value and name + "_scalar" in oids_to_query:
                     # Try scalar version as fallback
-                    scalar_oid = vendor_oids[detected_vendor][name + "_scalar"]
+                    scalar_oid = oids_to_query[name + "_scalar"]
                     logger.debug(f"SNMP probe: Trying scalar OID {scalar_oid} for {name}")
                     value = await query_oid(scalar_oid)
                 if value:
