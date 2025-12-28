@@ -4564,6 +4564,9 @@ async function addToDude(deviceId) {
 }
 
 async function viewInventoryDevice(deviceId) {
+    // Inizializza cf PRIMA di tutto per evitare errori di "Cannot access before initialization"
+    let cf = {};
+    
     try {
         // Carica dettagli dispositivo
         const response = await fetch(`/api/v1/inventory/devices/${deviceId}`);
@@ -4575,7 +4578,6 @@ async function viewInventoryDevice(deviceId) {
         }
 
         // Parse custom_fields for extra data (BEFORE using it in detailsHtml)
-        let cf = {};
         if (device.custom_fields) {
             if (typeof device.custom_fields === 'string') {
                 try {
