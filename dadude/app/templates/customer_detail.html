@@ -4735,22 +4735,7 @@ async function viewInventoryDevice(deviceId) {
             `;
         }
         
-        // Parse custom_fields for extra data
-        let cf = {};
-        if (device.custom_fields) {
-            if (typeof device.custom_fields === 'string') {
-                try {
-                    cf = JSON.parse(device.custom_fields);
-                } catch (e) {
-                    console.warn('Error parsing custom_fields as JSON:', e);
-                    cf = {};
-                }
-            } else if (typeof device.custom_fields === 'object' && device.custom_fields !== null) {
-                cf = device.custom_fields;
-            }
-        }
-        
-        // Parse storage_info da custom_fields
+        // Parse storage_info da custom_fields (cf è già inizializzato sopra)
         const storageInfo = cf.storage_info || {};
         
         // Sezione Storage Information (Synology/QNAP)
