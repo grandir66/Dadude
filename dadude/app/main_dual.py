@@ -617,6 +617,38 @@ async def admin_probe_device(request: Request):
 
 
 # ==========================================
+# PROXY: SSH Advanced Scan (needs WebSocket Hub)
+# ==========================================
+
+@admin_app.post("/api/v1/inventory/ssh-advanced-scan", tags=["Admin"])
+async def admin_ssh_advanced_scan(request: Request):
+    """
+    Proxy SSH advanced scan to Agent API (port 8000).
+    
+    SSH advanced scan requires WebSocket Hub access to communicate with agents.
+    """
+    logger.info("Admin UI proxying SSH advanced scan request")
+    try:
+        base_url = _get_agent_api_base_url()
+        query_string = str(request.url.query)
+        url = f"{base_url}/api/v1/inventory/ssh-advanced-scan"
+        if query_string:
+            url += f"?{query_string}"
+        
+        body = await request.json()
+        
+        async with _get_httpx_client(timeout=180.0) as client:
+            response = await client.post(url, json=body)
+            return JSONResponse(
+                status_code=response.status_code,
+                content=response.json() if response.content else {}
+            )
+    except Exception as e:
+        logger.error(f"SSH advanced scan proxy error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==========================================
 # PROXY: Customer Agents List (needs WebSocket Hub for real-time status)
 # ==========================================
 
