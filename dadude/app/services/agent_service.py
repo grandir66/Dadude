@@ -128,14 +128,17 @@ class AgentService:
         agent_name_norm = normalize(agent_name) if agent_name else ""
         
         # Cerca connessione WebSocket
-        for conn_id in hub._connections.keys():
+        connected_agents = list(hub._connections.keys())
+        logger.info(f"Looking for WebSocket agent '{agent_name}' (normalized: '{agent_name_norm}'). Connected agents: {connected_agents}")
+        
+        for conn_id in connected_agents:
             conn_id_norm = normalize(conn_id)
             # Match esatto normalizzato o contenimento
             if agent_name_norm and (agent_name_norm == conn_id_norm or agent_name_norm in conn_id_norm or conn_id_norm in agent_name_norm):
-                logger.debug(f"WebSocket agent matched: {conn_id} for {agent_name}")
+                logger.info(f"WebSocket agent matched: {conn_id} for {agent_name}")
                 return conn_id
         
-        logger.warning(f"WebSocket agent not found for: {agent_name}")
+        logger.warning(f"WebSocket agent not found for: {agent_name}. Connected: {connected_agents}")
         return None
     
     async def _execute_via_websocket(
