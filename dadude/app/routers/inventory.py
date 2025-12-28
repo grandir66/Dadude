@@ -1014,6 +1014,11 @@ async def auto_detect_device(
                     for field in extra_field_names:
                         if field in scan_result and scan_result[field]:
                             extra_fields[field] = scan_result[field]
+                            logger.debug(f"Auto-detect: Saving extra field {field}={scan_result[field]}")
+                    
+                    # Log summary of extra fields
+                    if extra_fields:
+                        logger.info(f"Auto-detect: Saving {len(extra_fields)} extra fields to custom_fields: {list(extra_fields.keys())[:10]}")
                     
                     if extra_fields:
                         # Merge con custom_fields esistenti
