@@ -1027,10 +1027,26 @@ async def auto_detect_device(
                         if field in scan_result and scan_result[field]:
                             extra_fields[field] = scan_result[field]
                             logger.debug(f"Auto-detect: Saving extra field {field}={scan_result[field]}")
+                        # Prova anche con prefisso vendor_ per campi vendor-specific
+                        elif f"vendor_{field}" in scan_result and scan_result[f"vendor_{field}"]:
+                            extra_fields[field] = scan_result[f"vendor_{field}"]
+                            logger.debug(f"Auto-detect: Saving vendor field vendor_{field}={scan_result[f'vendor_{field}']}")
+                    
+                    # Aggiungi anche tutti i campi che iniziano con vendor_ se non già inclusi
+                    for key, value in scan_result.items():
+                        if key.startswith("vendor_") and value and key not in extra_fields:
+                            # Rimuovi prefisso vendor_ per salvare direttamente
+                            field_name = key.replace("vendor_", "")
+                            if field_name not in extra_fields:
+                                extra_fields[key] = value  # Mantieni anche con prefisso
+                                extra_fields[field_name] = value  # Salva anche senza prefisso
+                                logger.debug(f"Auto-detect: Saving vendor field {key}={value}")
                     
                     # Log summary of extra fields
                     if extra_fields:
-                        logger.info(f"Auto-detect: Saving {len(extra_fields)} extra fields to custom_fields: {list(extra_fields.keys())[:10]}")
+                        logger.info(f"Auto-detect: Saving {len(extra_fields)} extra fields to custom_fields: {list(extra_fields.keys())[:20]}")
+                    else:
+                        logger.warning(f"Auto-detect: No extra fields found in scan_result. Available keys: {list(scan_result.keys())[:30]}")
                     
                     if extra_fields:
                         # Merge con custom_fields esistenti
@@ -2405,9 +2421,58 @@ async def get_inventory_device(device_id: str):
                         result["load_average_1m"] = cf["load_average_1m"]
                     if "ram_available_mb" in cf:
                         result["ram_available_mb"] = cf["ram_available_mb"]
+                    # Campi HP ProCurve
+                    if "vendor_os_version" in cf:
+                        result["vendor_os_version"] = cf["vendor_os_version"]
+                    if "vendor_rom_version" in cf:
+                        result["vendor_rom_version"] = cf["vendor_rom_version"]
+                    if "vendor_product_number" in cf:
+                        result["vendor_product_number"] = cf["vendor_product_number"]
+                    if "vendor_mem_total" in cf:
+                        result["vendor_mem_total"] = cf["vendor_mem_total"]
+                    if "vendor_mem_free" in cf:
+                        result["vendor_mem_free"] = cf["vendor_mem_free"]
+                    if "cpu_usage_percent" in cf:
+                        result["cpu_usage_percent"] = cf["cpu_usage_percent"]
+                    # Campi HP Comware
+                    if "vendor_cpu_usage" in cf:
+                        result["vendor_cpu_usage"] = cf["vendor_cpu_usage"]
+                    if "vendor_mem_usage" in cf:
+                        result["vendor_mem_usage"] = cf["vendor_mem_usage"]
+                    if "vendor_temperature" in cf:
+                        result["vendor_temperature"] = cf["vendor_temperature"]
+                    if "vendor_fan_status" in cf:
+                        result["vendor_fan_status"] = cf["vendor_fan_status"]
+                    if "vendor_power_status" in cf:
+                        result["vendor_power_status"] = cf["vendor_power_status"]
+                    if "memory_usage_percent" in cf:
+                        result["memory_usage_percent"] = cf["memory_usage_percent"]
+                    # Campi ArubaOS
+                    if "vendor_sw_version" in cf:
+                        result["vendor_sw_version"] = cf["vendor_sw_version"]
+                    if "vendor_hw_version" in cf:
+                        result["vendor_hw_version"] = cf["vendor_hw_version"]
+                    if "vendor_switch_serial" in cf:
+                        result["vendor_switch_serial"] = cf["vendor_switch_serial"]
+                    if "vendor_storage_usage" in cf:
+                        result["vendor_storage_usage"] = cf["vendor_storage_usage"]
+                    # Campi TP-Link Omada
+                    if "vendor_description" in cf:
+                        result["vendor_description"] = cf["vendor_description"]
+                    if "vendor_fw_version" in cf:
+                        result["vendor_fw_version"] = cf["vendor_fw_version"]
+                    if "vendor_mac" in cf:
+                        result["vendor_mac"] = cf["vendor_mac"]
+                    if "hardware_version" in cf:
+                        result["hardware_version"] = cf["hardware_version"]
                     # Storage info (Synology/QNAP)
                     if "storage_info" in cf:
                         result["storage_info"] = cf["storage_info"]
+                    
+                    # Aggiungi anche tutti i campi vendor_* direttamente per debug
+                    for key, value in cf.items():
+                        if key.startswith("vendor_") and key not in result:
+                            result[key] = value
             except:
                 pass
         
