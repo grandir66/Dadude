@@ -776,57 +776,6 @@ class AgentService:
                         cred.get("ssh_private_key"),
                         cred.get("ssh_port", 22),
                     )
-                    
-                    # Se il probe SSH base ha successo e identifica Linux/Storage/Hypervisor, 
-                    # esegui anche la scansione avanzata
-                    if result.success and result.data:
-                        device_type = result.data.get("device_type", "").lower()
-                        os_family = (result.data.get("os_family") or "").lower()
-                        os_name = (result.data.get("os_name") or "").lower()
-                        
-                        is_linux = (
-                            device_type in ["linux", "storage", "hypervisor"] or
-                            "linux" in os_family or
-                            any(x in os_name for x in ["ubuntu", "debian", "centos", "rhel", "alpine", "suse", "arch"]) or
-                            "synology" in os_name or
-                            "qnap" in os_name or
-                            "proxmox" in os_name or
-                            "dsm" in os_name or
-                            "qts" in os_name
-                        )
-                        
-                        if is_linux:
-                            logger.info(f"Agent auto_probe: Linux/Storage/Hypervisor detected, running advanced SSH scan...")
-                            try:
-                                advanced_result = await self.probe_ssh_advanced(
-                                    agent_info,
-                                    target,
-                                    cred.get("username", ""),
-                                    cred.get("password"),
-                                    cred.get("ssh_private_key"),
-                                    cred.get("ssh_port", 22),
-                                )
-                                
-                                if advanced_result.success and advanced_result.data:
-                                    # Merge dati avanzati con dati base
-                                    if isinstance(result.data, dict) and isinstance(advanced_result.data, dict):
-                                        # IMPORTANTE: Lo scanner avanzato ora include già i dati base direttamente nel risultato
-                                        # Quindi possiamo semplicemente fare merge mantenendo i dati base del probe normale
-                                        base_data = result.data.copy()
-                                        advanced_data = advanced_result.data.copy()
-                                        
-                                        # I dati base dello scanner avanzato sono già estratti, ma preferiamo quelli del probe normale se presenti
-                                        # Merge: dati base del probe normale hanno priorità, poi dati avanzati (include anche dati base estratti)
-                                        merged_data = {**advanced_data, **base_data}  # base_data ha priorità (viene dopo)
-                                        result.data = merged_data
-                                        logger.info(f"Agent auto_probe: Advanced SSH scan completed, merged data. Base fields: {len([k for k in base_data.keys() if k not in ['system_info', 'cpu', 'memory', 'disks', 'volumes', 'raid_arrays', 'network_interfaces', 'services', 'docker', 'vms']])}, Advanced fields: {len(advanced_data)}")
-                                    else:
-                                        logger.warning(f"Agent auto_probe: Advanced SSH scan returned non-dict data")
-                                else:
-                                    logger.warning(f"Agent auto_probe: Advanced SSH scan failed: {advanced_result.error}")
-                            except Exception as e:
-                                logger.error(f"Agent auto_probe: Advanced SSH scan error: {e}", exc_info=True)
-                                # Continua con i dati base
                 else:
                     continue
                 

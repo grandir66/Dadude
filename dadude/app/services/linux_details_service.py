@@ -218,7 +218,6 @@ def save_advanced_linux_data(
                     setattr(existing_ld, key, value)
             existing_ld.last_updated = datetime.now()
             logger.info(f"Updated LinuxDetails for device {device_id} with {len(linux_data)} fields")
-            return existing_ld
         else:
             # Crea nuovo LinuxDetails
             if linux_data:
@@ -230,7 +229,12 @@ def save_advanced_linux_data(
                 )
                 session.add(ld)
                 logger.info(f"Created LinuxDetails for device {device_id} with fields: {list(linux_data.keys())}")
-                return ld
+        
+        # IMPORTANTE: Assicurati che i campi base del dispositivo siano aggiornati
+        # Questo è necessario per il modal che legge direttamente dal dispositivo
+        session.flush()  # Assicura che le modifiche al device siano salvate
+        
+        return existing_ld if existing_ld else ld if linux_data else None
         
     except Exception as e:
         logger.error(f"Error saving advanced Linux data for device {device_id}: {e}", exc_info=True)

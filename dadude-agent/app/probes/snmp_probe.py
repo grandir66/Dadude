@@ -1091,14 +1091,17 @@ async def probe(
         # - device_type è router/switch/ap/network
         # - category è network
         # - vendor è un vendor di rete (Cisco, HP, Ubiquiti, etc.)
+        vendor_lower = info.get("vendor", "").lower()
         is_network_device = (
             device_type in ["router", "switch", "ap", "network"] or
             category == "network" or
-            info.get("vendor", "").lower() in ["cisco", "hp", "ubiquiti", "mikrotik", "aruba", "juniper", "fortinet", "dell", "tp-link"]
+            vendor_lower in ["cisco", "hp", "ubiquiti", "mikrotik", "aruba", "juniper", "fortinet", "dell", "tp-link"]
         )
         is_router = device_type == "router"
         
-        logger.info(f"SNMP probe: device_type={device_type}, category={category}, vendor={info.get('vendor', 'unknown')}, sysObjectID={sys_oid}, is_network_device={is_network_device}, is_router={is_router}")
+        logger.info(f"SNMP probe: device_type={device_type}, category={category}, vendor={info.get('vendor', 'unknown')}, vendor_lower={vendor_lower}, sysObjectID={sys_oid}")
+        logger.info(f"SNMP probe: is_network_device check: device_type in network_types={device_type in ['router', 'switch', 'ap', 'network']}, category==network={category == 'network'}, vendor in network_vendors={vendor_lower in ['cisco', 'hp', 'ubiquiti', 'mikrotik', 'aruba', 'juniper', 'fortinet', 'dell', 'tp-link']}")
+        logger.info(f"SNMP probe: is_network_device={is_network_device}, is_router={is_router}")
         
         if is_network_device:
             logger.info(f"SNMP probe: Starting advanced data collection for network device {target}")
