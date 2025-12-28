@@ -964,25 +964,40 @@ async def probe(
         # ==========================================
         # Model
         info["model"] = (
+            info.get("model") or  # Già impostato da vendor-specific
             info.get("entPhysicalModelName") or
             info.get("vendor_model") or
+            info.get("vendor_product_number") or  # HP ProCurve product_number
             info.get("entPhysicalName") or
             _extract_model_from_descr(info.get("sysDescr", ""))
         )
         
         # Serial
         info["serial_number"] = (
+            info.get("serial_number") or  # Già impostato da vendor-specific
             info.get("entPhysicalSerialNum") or
-            info.get("vendor_serial")
+            info.get("vendor_serial") or
+            info.get("vendor_switch_serial")  # Aruba switch serial
         )
         
         # Firmware
         info["firmware_version"] = (
+            info.get("firmware_version") or  # Già impostato da vendor-specific
             info.get("entPhysicalFirmwareRev") or
             info.get("vendor_firmware") or
             info.get("vendor_version") or
+            info.get("vendor_os_version") or  # HP ProCurve os_version
+            info.get("vendor_sw_version") or  # ArubaOS sw_version
+            info.get("vendor_fw_version") or  # TP-Link fw_version
             info.get("entPhysicalSoftwareRev")
         )
+        
+        # Hardware version
+        if not info.get("hardware_version"):
+            info["hardware_version"] = (
+                info.get("vendor_hw_version") or
+                info.get("entPhysicalHardwareRev")
+            )
         
         # Manufacturer
         info["manufacturer"] = (
