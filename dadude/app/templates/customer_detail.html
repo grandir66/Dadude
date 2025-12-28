@@ -3736,6 +3736,9 @@ async function loadInventory() {
                                     <button class="btn btn-warning" onclick="autoDetectDevice('${dev.id}', '${dev.primary_ip}')" title="Auto-Detect">
                                         <i class="bi bi-bullseye"></i>
                                     </button>
+                                    <button class="btn btn-outline-primary" onclick="sshAdvancedScan('${dev.id}', '${dev.primary_ip}')" title="SSH Advanced Scan">
+                                        <i class="bi bi-terminal"></i>
+                                    </button>
                                     ${getDeviceActionButtons(dev)}
                                 </div>
                                 <button class="btn btn-outline-danger btn-sm ms-2" onclick="deleteInventoryDevice('${dev.id}')" title="Elimina">
@@ -5338,15 +5341,27 @@ async function viewInventoryDevice(deviceId) {
             </div>
         `;
 
-        // Mostra modal
-        showModal('Dettagli Dispositivo: ' + device.name, modalContent, 'xl');
+        // Determina se è un dispositivo Linux/Storage/Hypervisor per mostrare pulsante SSH Advanced Scan
+        const isLinuxStorageHypervisor = device.os_family === 'Linux' || 
+                                         device.device_type === 'storage' || 
+                                         device.device_type === 'hypervisor' ||
+                                         (device.linux_details !== null && device.linux_details !== undefined);
+        
+        // Mostra modal con pulsante SSH Advanced Scan se applicabile
+        showModal('Dettagli Dispositivo: ' + device.name, modalContent, 'xl', isLinuxStorageHypervisor ? {
+            buttons: [{
+                text: '<i class="bi bi-terminal"></i> SSH Advanced Scan',
+                class: 'btn btn-outline-primary',
+                onclick: `sshAdvancedScan('${deviceId}', '${device.primary_ip || ''}')`
+            }]
+        } : null);
 
     } catch (e) {
         alert('Errore caricamento dettagli: ' + e.message);
     }
 }
 
-function showModal(title, content, size = 'md') {
+function showModal(title, content, size = 'md', footerButtons = null) {
     // Crea o riusa modal esistente
     let modal = document.getElementById('dynamicModal');
     if (!modal) {
@@ -5374,6 +5389,29 @@ function showModal(title, content, size = 'md') {
     modal.querySelector('.modal-title').textContent = title;
     modal.querySelector('.modal-body').innerHTML = content;
     modal.querySelector('.modal-dialog').className = `modal-dialog modal-${size} modal-dialog-scrollable`;
+    
+    // Aggiorna footer con pulsanti aggiuntivi se specificati
+    const footer = modal.querySelector('.modal-footer');
+    if (footerButtons && footerButtons.buttons) {
+        footer.innerHTML = '';
+        footerButtons.buttons.forEach(btn => {
+            const button = document.createElement('button');
+            button.className = btn.class;
+            button.innerHTML = btn.text;
+            button.onclick = () => {
+                eval(btn.onclick);
+            };
+            footer.appendChild(button);
+        });
+        const closeBtn = document.createElement('button');
+        closeBtn.type = 'button';
+        closeBtn.className = 'btn btn-secondary';
+        closeBtn.setAttribute('data-bs-dismiss', 'modal');
+        closeBtn.textContent = 'Chiudi';
+        footer.appendChild(closeBtn);
+    } else {
+        footer.innerHTML = '<button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Chiudi</button>';
+    }
 
     // Mostra modal
     const bsModal = new bootstrap.Modal(modal);
@@ -6354,5 +6392,87 @@ async function createVmInventoryDevices(deviceId) {
         btn.disabled = false;
     }
 }
+
+// SSH Advanced Scan
+async function sshAdvancedScan(deviceId, address) {
+    // Chiudi modal dettagli se aperto
+    const detailModal = bootstrap.Modal.getInstance(document.getElementById('dynamicModal'));
+    if (detailModal) {
+        detailModal.hide();
+    }
+    
+    const btn = event?.target?.closest('button');
+    const originalHtml = btn ? btn.innerHTML : '';
+    if (btn) {
+        btn.innerHTML = '<i class="bi bi-hourglass-split"></i>';
+        btn.disabled = true;
+    }
+    
+    try {
+        const response = await fetch(`/api/v1/inventory/ssh-advanced-scan?customer_id=${customerId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                device_id: deviceId,
+                address: address,
+                use_assigned_credential: true,
+                use_default_credentials: true,
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success && result.data) {
+            // Mostra modal con dati raw
+            const modal = new bootstrap.Modal(document.getElementById('sshAdvancedScanModal'));
+            const modalBody = document.getElementById('sshAdvancedScanData');
+            
+            // Formatta JSON con indentazione
+            const jsonStr = JSON.stringify(result.data, null, 2);
+            modalBody.innerHTML = `<pre class="bg-dark text-light p-3 rounded" style="max-height: 70vh; overflow: auto;"><code>${escapeHtml(jsonStr)}</code></pre>`;
+            
+            // Aggiorna header con indirizzo
+            document.getElementById('sshAdvancedScanAddress').textContent = address;
+            
+            modal.show();
+        } else {
+            alert(`❌ Scan SSH Avanzato Fallito\n\nIndirizzo: ${address}\nErrore: ${result.error || 'Errore sconosciuto'}`);
+        }
+    } catch (e) {
+        alert('Errore: ' + e.message);
+    } finally {
+        if (btn) {
+            btn.innerHTML = originalHtml;
+            btn.disabled = false;
+        }
+    }
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
 </script>
+
+<!-- Modal SSH Advanced Scan -->
+<div class="modal fade" id="sshAdvancedScanModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-terminal"></i> SSH Advanced Scan - <span id="sshAdvancedScanAddress"></span>
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="sshAdvancedScanData"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Chiudi</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% endblock %}

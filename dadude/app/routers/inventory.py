@@ -1922,6 +1922,153 @@ async def auto_detect_device(
     return result
 
 
+class SSHAdvancedScanRequest(BaseModel):
+    """Schema per scan SSH avanzato"""
+    device_id: str
+    address: str
+    use_assigned_credential: bool = True
+    use_default_credentials: bool = True
+
+
+@router.post("/ssh-advanced-scan")
+async def ssh_advanced_scan(
+    data: SSHAdvancedScanRequest,
+    customer_id: str = Query(...),
+):
+    """
+    Esegue scan SSH avanzato su un dispositivo Linux/Storage/Hypervisor.
+    Ritorna i dati raw completi raccolti dallo scanner avanzato.
+    """
+    from ..services.customer_service import get_customer_service
+    from ..services.agent_service import get_agent_service
+    from ..models.inventory import InventoryDevice
+    from ..models.database import Credential as CredentialDB
+    
+    customer_service = get_customer_service()
+    agent_service = get_agent_service()
+    
+    result = {
+        "success": False,
+        "address": data.address,
+        "device_id": data.device_id,
+        "data": None,
+        "error": None,
+    }
+    
+    try:
+        # 1. Recupera agent per il cliente
+        agent_info = agent_service.get_agent_for_customer(customer_id)
+        if not agent_info:
+            result["error"] = "Nessun agent disponibile per questo cliente"
+            return result
+        
+        if agent_info.get("agent_type") != "docker":
+            result["error"] = "Lo scan SSH avanzato richiede un agent Docker"
+            return result
+        
+        # 2. Recupera credenziali SSH
+        ssh_credential = None
+        session = customer_service._get_session()
+        
+        try:
+            # Prima prova credenziale assegnata al device
+            if data.use_assigned_credential:
+                device_record = session.query(InventoryDevice).filter(
+                    InventoryDevice.id == data.device_id
+                ).first()
+                
+                if device_record and device_record.credential_id:
+                    cred = session.query(CredentialDB).filter(
+                        CredentialDB.id == device_record.credential_id
+                    ).first()
+                    
+                    if cred and cred.credential_type == "ssh":
+                        from ..services.encryption_service import get_encryption_service
+                        encryption = get_encryption_service()
+                        
+                        password = None
+                        if cred.password:
+                            try:
+                                password = encryption.decrypt(cred.password)
+                            except:
+                                pass
+                        
+                        ssh_key = None
+                        if cred.ssh_private_key:
+                            try:
+                                ssh_key = encryption.decrypt(cred.ssh_private_key)
+                            except:
+                                pass
+                        
+                        ssh_credential = {
+                            "username": cred.username,
+                            "password": password,
+                            "private_key": ssh_key,
+                            "port": cred.ssh_port or 22,
+                        }
+            
+            # Fallback a credenziali di default SSH
+            if not ssh_credential and data.use_default_credentials:
+                default_creds = customer_service.get_default_credentials_by_type(
+                    customer_id=customer_id,
+                    credential_types=["ssh"]
+                )
+                
+                if default_creds and "ssh" in default_creds:
+                    cred = default_creds["ssh"]
+                    from ..services.encryption_service import get_encryption_service
+                    encryption = get_encryption_service()
+                    
+                    password = None
+                    if cred.password:
+                        try:
+                            password = encryption.decrypt(cred.password)
+                        except:
+                            pass
+                    
+                    ssh_key = None
+                    if cred.ssh_private_key:
+                        try:
+                            ssh_key = encryption.decrypt(cred.ssh_private_key)
+                        except:
+                            pass
+                    
+                    ssh_credential = {
+                        "username": cred.username,
+                        "password": password,
+                        "private_key": ssh_key,
+                        "port": cred.ssh_port or 22,
+                    }
+        finally:
+            session.close()
+        
+        if not ssh_credential:
+            result["error"] = "Nessuna credenziale SSH trovata per questo dispositivo"
+            return result
+        
+        # 3. Esegui scan SSH avanzato via agent
+        probe_result = await agent_service.probe_ssh_advanced(
+            agent_info=agent_info,
+            target=data.address,
+            username=ssh_credential["username"],
+            password=ssh_credential.get("password"),
+            private_key=ssh_credential.get("private_key"),
+            port=ssh_credential.get("port", 22),
+        )
+        
+        if probe_result.success and probe_result.data:
+            result["success"] = True
+            result["data"] = probe_result.data
+        else:
+            result["error"] = probe_result.error or "Scan SSH avanzato fallito"
+            
+    except Exception as e:
+        logger.error(f"SSH advanced scan failed for {data.address}: {e}", exc_info=True)
+        result["error"] = str(e)
+    
+    return result
+
+
 @router.post("/auto-detect-batch")
 async def auto_detect_batch(
     data: BulkAutoDetectRequest,
