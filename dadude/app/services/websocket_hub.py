@@ -309,7 +309,9 @@ class AgentWebSocketHub:
         
         try:
             # Invia comando
-            await self._send(connection, command.to_dict())
+            command_dict = command.to_dict()
+            logger.info(f"WebSocket Hub: Sending command {action.value} to agent {agent_id} (command_id={command.id})")
+            await self._send(connection, command_dict)
             
             # Attendi risposta
             result = await asyncio.wait_for(future, timeout=timeout)
