@@ -523,29 +523,35 @@ async def auto_detect_device(
                 # Trova credenziali SSH che hanno funzionato per il probe normale
                 ssh_cred = None
                 
-                # Cerca il probe SSH che ha avuto successo
+                # Cerca il probe SSH che ha avuto successo e usa la credenziale tracciata
                 if probe_result.get("probes"):
                     for probe in probe_result["probes"]:
                         if probe.get("type") == "ssh" and probe.get("success"):
-                            # Trovato probe SSH riuscito, cerca la credenziale corrispondente
-                            # Il probe contiene i dati che includono username/hostname
-                            probe_data = probe.get("data", {})
-                            probe_username = probe_data.get("username") or probe_data.get("hostname")
-                            
-                            # Cerca nella lista delle credenziali quella che corrisponde
-                            for cred in credentials_list:
-                                if cred.get("type") == "ssh":
-                                    # Se abbiamo un username dal probe, confrontalo
-                                    if probe_username:
-                                        if cred.get("username") == probe_username:
+                            # Il probe contiene la credenziale usata
+                            probe_cred = probe.get("credential")
+                            if probe_cred:
+                                # Cerca la credenziale nella lista usando ID o username
+                                for cred in credentials_list:
+                                    if cred.get("type") == "ssh":
+                                        if probe_cred.get("id") and cred.get("id") == probe_cred.get("id"):
                                             ssh_cred = cred
-                                            logger.info(f"Auto-detect: Found working SSH credential from probe result (username match): {cred.get('name', cred.get('username'))}")
+                                            logger.info(f"Auto-detect: Found working SSH credential from probe (ID match): {cred.get('name', cred.get('username'))}")
                                             break
-                                    else:
-                                        # Se non abbiamo username dal probe, usa la prima credenziale SSH
-                                        ssh_cred = cred
-                                        logger.info(f"Auto-detect: Using SSH credential (no username match): {cred.get('name', cred.get('username'))}")
-                                        break
+                                        elif probe_cred.get("username") and cred.get("username") == probe_cred.get("username"):
+                                            ssh_cred = cred
+                                            logger.info(f"Auto-detect: Found working SSH credential from probe (username match): {cred.get('name', cred.get('username'))}")
+                                            break
+                            
+                            # Se non trovata tramite tracciamento, cerca per username nei dati del probe
+                            if not ssh_cred:
+                                probe_data = probe.get("data", {})
+                                probe_username = probe_data.get("username") or probe_data.get("hostname")
+                                if probe_username:
+                                    for cred in credentials_list:
+                                        if cred.get("type") == "ssh" and cred.get("username") == probe_username:
+                                            ssh_cred = cred
+                                            logger.info(f"Auto-detect: Found SSH credential by username from probe data: {cred.get('name', cred.get('username'))}")
+                                            break
                             
                             if ssh_cred:
                                 break

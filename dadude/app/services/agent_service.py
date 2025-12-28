@@ -779,12 +779,19 @@ class AgentService:
                 else:
                     continue
                 
-                results["probes"].append({
+                probe_info = {
                     "type": probe_type,
                     "success": result.success,
                     "data": result.data,
                     "error": result.error,
-                })
+                    "credential": {  # Traccia quale credenziale è stata usata
+                        "id": cred.get("id"),
+                        "name": cred.get("name"),
+                        "username": cred.get("username"),
+                        "type": cred.get("type"),
+                    }
+                }
+                results["probes"].append(probe_info)
                 
                 if result.success and not results["best_result"]:
                     data_keys = list(result.data.keys()) if isinstance(result.data, dict) else []
@@ -794,6 +801,7 @@ class AgentService:
                     results["best_result"] = {
                         "type": probe_type,
                         "data": result.data,
+                        "credential": probe_info["credential"],  # Includi anche la credenziale nel best_result
                     }
                     
             except Exception as e:
