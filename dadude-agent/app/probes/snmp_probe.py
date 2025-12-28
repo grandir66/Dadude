@@ -72,8 +72,22 @@ async def probe(
     vendor_oids = {
         # Ubiquiti (41112)
         "ubiquiti": {
+            # UniFi AP OIDs
+            "ap_model": "1.3.6.1.4.1.41112.1.6.1.1",
+            "ap_version": "1.3.6.1.4.1.41112.1.6.1.2",
+            "ap_uptime": "1.3.6.1.4.1.41112.1.6.1.3",
+            "ap_hostname": "1.3.6.1.4.1.41112.1.6.1.4",
+            "ap_ip": "1.3.6.1.4.1.41112.1.6.1.5",
+            "ap_mac": "1.3.6.1.4.1.41112.1.6.1.6",
+            # UniFi Switch OIDs
+            "sw_model": "1.3.6.1.4.1.41112.1.4.1.1.1",
+            "sw_version": "1.3.6.1.4.1.41112.1.4.1.1.2",
+            "sw_serial": "1.3.6.1.4.1.41112.1.4.1.1.3",
+            # Generic UniFi OIDs (scalari con .0)
             "model": "1.3.6.1.4.1.41112.1.6.3.3.0",  # Modello UniFi (scalare con .0)
+            "model_scalar": "1.3.6.1.4.1.41112.1.6.3.3",  # Senza .0 per compatibilità
             "version": "1.3.6.1.4.1.41112.1.6.3.6.0",  # Firmware UniFi (scalare con .0)
+            "version_scalar": "1.3.6.1.4.1.41112.1.6.3.6",  # Senza .0 per compatibilità
             "mac": "1.3.6.1.4.1.41112.1.6.3.1.0",
             # Ubiquiti advanced
             "cpu_usage": "1.3.6.1.4.1.41112.1.4.7.1.5.1",
