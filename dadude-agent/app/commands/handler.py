@@ -22,6 +22,7 @@ class CommandAction(str, Enum):
     # Device probing
     PROBE_WMI = "probe_wmi"
     PROBE_SSH = "probe_ssh"
+    PROBE_SSH_ADVANCED = "probe_ssh_advanced"
     PROBE_SNMP = "probe_snmp"
     
     # ARP table lookup (MikroTik API o SNMP)
@@ -164,6 +165,9 @@ class CommandHandler:
         
         elif action == CommandAction.PROBE_SSH.value:
             return await self._probe_ssh(params)
+        
+        elif action == CommandAction.PROBE_SSH_ADVANCED.value:
+            return await self._probe_ssh_advanced(params)
         
         elif action == CommandAction.PROBE_SNMP.value:
             logger.info(f"[HANDLER] PROBE_SNMP action matched, calling _probe_snmp with params: {list(params.keys())}")
@@ -352,6 +356,52 @@ class CommandHandler:
             return CommandResult(success=True, status="success", data=result)
         except Exception as e:
             logger.error(f"SSH probe handler error: {e}", exc_info=True)
+            return CommandResult(success=False, status="error", error=str(e))
+    
+    async def _probe_ssh_advanced(self, params: Dict) -> CommandResult:
+        """Probe SSH Advanced - scan completo"""
+        target = params.get("target")
+        username = params.get("username")
+        password = params.get("password")
+        private_key = params.get("private_key")
+        port = params.get("port", 22)
+        
+        if not target or not username:
+            return CommandResult(
+                success=False,
+                status="error",
+                error="Missing required parameters: target, username"
+            )
+        
+        if not password and not private_key:
+            return CommandResult(
+                success=False,
+                status="error",
+                error="Either password or private_key required"
+            )
+        
+        try:
+            from ..probes.ssh_advanced_scanner import scan_advanced
+            
+            logger.info(f"SSH Advanced probe: target={target}, user={username}, port={port}")
+            result = await scan_advanced(
+                target=target,
+                username=username,
+                password=password,
+                private_key=private_key,
+                port=port,
+                timeout=30,
+            )
+            
+            # Log summary dei dati raccolti
+            if isinstance(result, dict):
+                result_keys = list(result.keys())
+                logger.info(f"SSH Advanced probe handler: Returning {len(result_keys)} fields")
+            return CommandResult(success=True, status="success", data=result)
+        except Exception as e:
+            import traceback
+            logger.error(f"SSH Advanced probe handler error: {e}")
+            logger.error(traceback.format_exc())
             return CommandResult(success=False, status="error", error=str(e))
     
     async def _probe_snmp(self, params: Dict) -> CommandResult:

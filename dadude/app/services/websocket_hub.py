@@ -37,6 +37,7 @@ class CommandType(str, Enum):
     SCAN_NETWORK = "scan_network"
     PROBE_WMI = "probe_wmi"
     PROBE_SSH = "probe_ssh"
+    PROBE_SSH_ADVANCED = "probe_ssh_advanced"
     PROBE_SNMP = "probe_snmp"
     PORT_SCAN = "port_scan"
     SCAN_PORTS = "port_scan"  # Alias per compatibilità

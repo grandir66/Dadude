@@ -375,19 +375,22 @@ class AgentService:
             )
         
         try:
-            # Prima prova WebSocket (se supportato)
+            # Prima prova WebSocket
             ws_agent_id = self._get_ws_agent_id(agent_info)
             
             if ws_agent_id:
-                # Per ora usa HTTP, WebSocket può essere aggiunto in futuro
-                logger.info(f"Executing SSH advanced probe via HTTP to {target}")
-                client = self._get_docker_client(agent_info)
-                result = await client.probe_ssh_advanced(
-                    target=target,
-                    username=username,
-                    password=password,
-                    private_key=private_key,
-                    port=port,
+                logger.info(f"Executing SSH advanced probe via WebSocket to {target}")
+                result = await self._execute_via_websocket(
+                    ws_agent_id,
+                    CommandType.PROBE_SSH_ADVANCED,
+                    params={
+                        "target": target,
+                        "username": username,
+                        "password": password,
+                        "private_key": private_key,
+                        "port": port,
+                    },
+                    timeout=120.0,  # Timeout più lungo per scan avanzato
                 )
             else:
                 # Fallback a HTTP
