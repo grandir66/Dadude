@@ -1308,6 +1308,34 @@ async def auto_detect_device(
                             # I dati SSH sono mergeati direttamente in scan_result
                             logger.info(f"Saving LinuxDetails for device {data.device_id}, scan_result keys: {list(scan_result.keys())[:30]}")
                             
+                            # IMPORTANTE: Aggiorna prima i campi base del device per il modal
+                            # Questo deve essere fatto sempre, anche per dati non avanzati
+                            if scan_result.get("hostname") and not device.hostname:
+                                device.hostname = scan_result.get("hostname")
+                            if scan_result.get("os_name") or scan_result.get("os_family"):
+                                if not device.os_family or device.os_family == "unknown":
+                                    device.os_family = scan_result.get("os_family") or "Linux"
+                                if not device.os_version:
+                                    device.os_version = scan_result.get("os_version")
+                            if scan_result.get("cpu_model") and not device.cpu_model:
+                                device.cpu_model = scan_result.get("cpu_model")
+                            if scan_result.get("cpu_cores") and not device.cpu_cores:
+                                device.cpu_cores = scan_result.get("cpu_cores")
+                            if scan_result.get("ram_total_gb"):
+                                device.ram_total_gb = scan_result.get("ram_total_gb")
+                            elif scan_result.get("ram_total_mb"):
+                                device.ram_total_gb = round(scan_result.get("ram_total_mb") / 1024, 2)
+                            elif scan_result.get("memory_total_mb"):
+                                device.ram_total_gb = round(scan_result.get("memory_total_mb") / 1024, 2)
+                            if scan_result.get("model") and not device.model:
+                                device.model = scan_result.get("model")
+                            if scan_result.get("manufacturer") and not device.manufacturer:
+                                device.manufacturer = scan_result.get("manufacturer")
+                            if scan_result.get("serial_number") and not device.serial_number:
+                                device.serial_number = scan_result.get("serial_number")
+                            if scan_result.get("device_type") and (not device.device_type or device.device_type == "other"):
+                                device.device_type = scan_result.get("device_type")
+                            
                             # Controlla se abbiamo dati avanzati (da scanner avanzato)
                             has_advanced_data = (
                                 scan_result.get("system_info") or
@@ -1343,6 +1371,9 @@ async def auto_detect_device(
                                 # Salva dati avanzati (questo aggiorna anche i campi base di InventoryDevice e LinuxDetails)
                                 save_advanced_linux_data(session, data.device_id, advanced_data)
                                 logger.info(f"Advanced Linux data saved for device {data.device_id}")
+                                
+                                # IMPORTANTE: Ricarica il device per assicurarsi che abbia i dati aggiornati
+                                session.refresh(device)
                             
                             linux_data = {}
                             
