@@ -652,6 +652,7 @@ class AgentService:
         # SNMP - prova sempre se ci sono credenziali SNMP (UDP potrebbe non essere rilevato)
         for cred in credentials:
             if cred.get("type") == "snmp":
+                logger.info(f"Agent auto_probe: Adding SNMP probe for {target} (community: {cred.get('snmp_community', 'public')})")
                 probe_order.append(("snmp", cred))
                 break
         
@@ -677,6 +678,7 @@ class AgentService:
                         cred.get("wmi_domain", ""),
                     )
                 elif probe_type == "snmp":
+                    logger.info(f"Agent auto_probe: Executing SNMP probe for {target} via agent {agent_info.get('id')}")
                     result = await self.probe_snmp(
                         agent_info,
                         target,
@@ -684,6 +686,16 @@ class AgentService:
                         cred.get("snmp_version", "2c"),
                         cred.get("snmp_port", 161),
                     )
+                    logger.info(f"Agent auto_probe: SNMP probe result: success={result.success}, has_data={result.data is not None}, error={result.error}")
+                    if result.data:
+                        data_keys = list(result.data.keys()) if isinstance(result.data, dict) else []
+                        logger.info(f"Agent auto_probe: SNMP probe returned {len(data_keys)} fields: {sorted(data_keys)[:30]}")
+                        if isinstance(result.data, dict):
+                            neighbors_count = len(result.data.get("neighbors", [])) or len(result.data.get("lldp_neighbors", []))
+                            if neighbors_count > 0:
+                                logger.info(f"Agent auto_probe: SNMP probe found {neighbors_count} neighbors")
+                            else:
+                                logger.warning(f"Agent auto_probe: SNMP probe found NO neighbors (device_type={result.data.get('device_type')}, is_network={result.data.get('device_type') in ['router', 'switch', 'ap', 'network']})")
                 elif probe_type == "ssh":
                     result = await self.probe_ssh(
                         agent_info,
