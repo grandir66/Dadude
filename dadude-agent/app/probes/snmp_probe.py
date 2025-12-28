@@ -87,11 +87,33 @@ async def probe(
         },
         # MikroTik (14988)
         "mikrotik": {
-            "version": "1.3.6.1.4.1.14988.1.1.4.4.0",
+            # License info
+            "license_software_id": "1.3.6.1.4.1.14988.1.1.4.1.0",
+            "license_version": "1.3.6.1.4.1.14988.1.1.4.4.0",
+            # System info
             "serial": "1.3.6.1.4.1.14988.1.1.7.3.0",
+            "firmware_version": "1.3.6.1.4.1.14988.1.1.7.4.0",
+            "firmware_upgrade_version": "1.3.6.1.4.1.14988.1.1.7.7.0",
+            "board_name": "1.3.6.1.4.1.14988.1.1.7.8.0",
             "model": "1.3.6.1.4.1.14988.1.1.7.1.0",
-            "firmware": "1.3.6.1.4.1.14988.1.1.7.4.0",
-            "license": "1.3.6.1.4.1.14988.1.1.4.1.0",
+            "version": "1.3.6.1.4.1.14988.1.1.4.4.0",  # Alias per compatibilità
+            "firmware": "1.3.6.1.4.1.14988.1.1.7.4.0",  # Alias per compatibilità
+            "license": "1.3.6.1.4.1.14988.1.1.4.1.0",  # Alias per compatibilità
+            # Health monitoring
+            "cpu_temperature": "1.3.6.1.4.1.14988.1.1.3.10.0",
+            "board_temperature": "1.3.6.1.4.1.14988.1.1.3.11.0",
+            "voltage": "1.3.6.1.4.1.14988.1.1.3.8.0",
+            "active_fan": "1.3.6.1.4.1.14988.1.1.3.9.0",
+            "temperature": "1.3.6.1.4.1.14988.1.1.3.100.0",
+            # System resources (HOST-RESOURCES-MIB)
+            "processor_load": "1.3.6.1.2.1.25.3.3.1.2",
+            "storage_size": "1.3.6.1.2.1.25.2.3.1.5",
+            "storage_used": "1.3.6.1.2.1.25.2.3.1.6",
+            # Wireless (per AP mode)
+            "wl_ap_ssid": "1.3.6.1.4.1.14988.1.1.1.3.1.4",
+            "wl_ap_band": "1.3.6.1.4.1.14988.1.1.1.3.1.5",
+            "wl_ap_noise_floor": "1.3.6.1.4.1.14988.1.1.1.3.1.9",
+            "wl_ap_client_count": "1.3.6.1.4.1.14988.1.1.1.3.1.6",
         },
         # Cisco (9)
         "cisco": {
@@ -113,6 +135,12 @@ async def probe(
             "mem_total": "1.3.6.1.4.1.11.2.14.11.5.1.1.2.1.1.1.5",
             "mem_free": "1.3.6.1.4.1.11.2.14.11.5.1.1.2.1.1.1.6",
             "temperature": "1.3.6.1.4.1.11.2.14.11.1.2.6.1.4",
+            # Entity MIB per info moduli
+            "entPhysicalDescr": "1.3.6.1.2.1.47.1.1.1.1.2",
+            "entPhysicalName": "1.3.6.1.2.1.47.1.1.1.1.7",
+            "entPhysicalSerialNum": "1.3.6.1.2.1.47.1.1.1.1.11",
+            "entPhysicalModelName": "1.3.6.1.2.1.47.1.1.1.1.13",
+            "entPhysicalSoftwareRev": "1.3.6.1.2.1.47.1.1.1.1.10",
         },
         # HP Comware/H3C (25506)
         "hp_comware": {
@@ -121,6 +149,12 @@ async def probe(
             "temperature": "1.3.6.1.4.1.25506.2.6.1.1.1.1.12",
             "fan_status": "1.3.6.1.4.1.25506.8.35.9.1.1.1.2",
             "power_status": "1.3.6.1.4.1.25506.8.35.9.1.2.1.2",
+            # Entity MIB
+            "entPhysicalDescr": "1.3.6.1.2.1.47.1.1.1.1.2",
+            "entPhysicalSerialNum": "1.3.6.1.2.1.47.1.1.1.1.11",
+            "entPhysicalModelName": "1.3.6.1.2.1.47.1.1.1.1.13",
+            "entPhysicalSoftwareRev": "1.3.6.1.2.1.47.1.1.1.1.10",
+            "entPhysicalHardwareRev": "1.3.6.1.2.1.47.1.1.1.1.8",
         },
         # HP/Aruba (11, 25506) - Legacy compatibility
         "hp": {
@@ -142,6 +176,11 @@ async def probe(
             "storage_usage": "1.3.6.1.4.1.14823.2.2.1.2.1.32.0",
             # Aruba Switch specific
             "switch_serial": "1.3.6.1.4.1.14823.2.3.1.2.1.2.0",
+            # Aruba AP info (table)
+            "ap_serial": "1.3.6.1.4.1.14823.2.2.1.5.2.1.4.1.3",
+            "ap_model": "1.3.6.1.4.1.14823.2.2.1.5.2.1.4.1.4",
+            "ap_sw_version": "1.3.6.1.4.1.14823.2.2.1.5.2.1.4.1.6",
+            "ap_status": "1.3.6.1.4.1.14823.2.2.1.5.2.1.4.1.19",
         },
         # Dell (674)
         "dell": {
