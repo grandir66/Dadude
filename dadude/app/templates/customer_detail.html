@@ -3623,7 +3623,7 @@ async function loadInventory() {
                             onclick="toggleMonitoring('${dev.id}')" 
                             title="${isMonitored && monitoringType !== 'none' ? 'Monitoraggio attivo' : 'Abilita monitoraggio'}">
                         <i class="bi ${isMonitored && monitoringType !== 'none' ? 'bi-toggle-on' : 'bi-toggle-off'}"></i>
-                    </button>
+                        </button>
                 `;
 
                 // Servizi aperti
@@ -3660,7 +3660,7 @@ async function loadInventory() {
                 if (dev.hostname && !dev.name.includes(dev.hostname)) {
                     deviceNameHtml += `<br><small class="text-muted">${dev.hostname}</small>`;
                 }
-                
+
                 tbody.innerHTML += `
                     <tr data-device-id="${dev.id}">
                         <td>
@@ -4571,6 +4571,21 @@ async function viewInventoryDevice(deviceId) {
             return;
         }
 
+        // Parse custom_fields for extra data (BEFORE using it in detailsHtml)
+        let cf = {};
+        if (device.custom_fields) {
+            if (typeof device.custom_fields === 'string') {
+                try {
+                    cf = JSON.parse(device.custom_fields);
+                } catch (e) {
+                    console.warn('Error parsing custom_fields as JSON:', e);
+                    cf = {};
+                }
+            } else if (typeof device.custom_fields === 'object' && device.custom_fields !== null) {
+                cf = device.custom_fields;
+            }
+        }
+
         // Crea contenuto modal
         let detailsHtml = `
             <div class="row">
@@ -4734,7 +4749,7 @@ async function viewInventoryDevice(deviceId) {
                 </table>
             `;
         }
-        
+
         // Parse storage_info da custom_fields (cf è già inizializzato sopra)
         const storageInfo = cf.storage_info || {};
         
@@ -4918,7 +4933,7 @@ async function viewInventoryDevice(deviceId) {
                     <h6 class="text-muted mb-3"><i class="bi bi-gear-fill"></i> Servizi Attivi (${cf.running_services_count || cf.running_services.length})</h6>
                     <div class="mb-2">
                         ${cf.important_services ? '<strong>Servizi Importanti:</strong> ' + cf.important_services.map(s => '<span class="badge bg-primary me-1">' + s + '</span>').join('') : ''}
-                    </div>
+                </div>
                     <details class="mb-2">
                         <summary class="text-muted" style="cursor: pointer;">Mostra tutti i servizi (${cf.running_services.length})</summary>
                         <div class="mt-2" style="max-height: 200px; overflow-y: auto;">
@@ -4941,8 +4956,8 @@ async function viewInventoryDevice(deviceId) {
                     ${cf.neighbors && cf.neighbors.length > 0 ? `
                     <hr>
                     <h6 class="text-muted mb-3"><i class="bi bi-diagram-3-fill"></i> Network Neighbors - LLDP/CDP/MNDP (${cf.neighbors_count || cf.neighbors.length})</h6>
-                    <div class="table-responsive">
-                        <table class="table table-sm table-striped">
+                <div class="table-responsive">
+                    <table class="table table-sm table-striped">
                             <thead>
                                 <tr>
                                     <th>Interfaccia Locale</th>
@@ -4953,7 +4968,7 @@ async function viewInventoryDevice(deviceId) {
                                     <th>Scoperto via</th>
                                 </tr>
                             </thead>
-                            <tbody>
+                        <tbody>
                                 ${cf.neighbors.map(n => `
                                     <tr>
                                         <td><code>${n.local_interface || '-'}</code></td>
@@ -4968,11 +4983,11 @@ async function viewInventoryDevice(deviceId) {
                                             ${n.version ? '<br><small class="text-muted">' + n.version.substring(0, 30) + '</small>' : ''}
                                         </td>
                                         <td><span class="badge bg-info">${n.discovered_by || '-'}</span></td>
-                                    </tr>
-                                `).join('')}
-                            </tbody>
-                        </table>
-                    </div>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
                     ` : ''}
                     ${cf.ip_addresses && cf.ip_addresses.length > 0 ? `
                     <hr>
@@ -5060,55 +5075,55 @@ async function viewInventoryDevice(deviceId) {
                     ${(device.network_adapters || cf.network_adapters) && (device.network_adapters || cf.network_adapters).length > 0 ? `
                     <hr>
                     <h6 class="text-muted mb-3"><i class="bi bi-ethernet"></i> Schede di Rete (${(device.network_adapters || cf.network_adapters).length})</h6>
-                    <div class="table-responsive">
-                        <table class="table table-sm table-striped">
-                            <thead><tr><th>Nome</th><th>MAC</th><th>IP</th><th>Gateway</th><th>DNS</th></tr></thead>
-                            <tbody>
+                <div class="table-responsive">
+                    <table class="table table-sm table-striped">
+                        <thead><tr><th>Nome</th><th>MAC</th><th>IP</th><th>Gateway</th><th>DNS</th></tr></thead>
+                        <tbody>
                                 ${(device.network_adapters || cf.network_adapters).map(nic => {
                                     const ips = Array.isArray(nic.ips) ? nic.ips.filter(ip => !ip.includes(':')).join(', ') : (nic.ips || '-');
                                     const gateway = Array.isArray(nic.gateway) ? nic.gateway.join(', ') : (nic.gateway || '-');
                                     const dns = Array.isArray(nic.dns) ? nic.dns.join(', ') : (nic.dns || '-');
                                     return '<tr><td><small>' + (nic.name || nic.description || '-') + '</small></td><td><code>' + (nic.mac || '-') + '</code></td><td><small>' + ips + '</small></td><td><small>' + gateway + '</small></td><td><small>' + dns + '</small></td></tr>';
                                 }).join('')}
-                            </tbody>
-                        </table>
-                    </div>
+                        </tbody>
+                    </table>
+                </div>
                     ` : ''}
                     ${(device.installed_software || cf.installed_software) && (device.installed_software || cf.installed_software).length > 0 ? `
                     <hr>
                     <h6 class="text-muted mb-3"><i class="bi bi-box-seam"></i> Software Installato (${(device.installed_software || cf.installed_software).length})</h6>
-                    <div class="table-responsive" style="max-height: 300px; overflow-y: auto;">
-                        <table class="table table-sm table-striped">
-                            <thead><tr><th>Nome</th><th>Versione</th><th>Produttore</th></tr></thead>
-                            <tbody>
+                <div class="table-responsive" style="max-height: 300px; overflow-y: auto;">
+                    <table class="table table-sm table-striped">
+                        <thead><tr><th>Nome</th><th>Versione</th><th>Produttore</th></tr></thead>
+                        <tbody>
                                 ${(device.installed_software || cf.installed_software).slice(0, 50).map(sw => {
                                     const swObj = typeof sw === 'string' ? {name: sw} : sw;
                                     return '<tr><td>' + (swObj.name || '-') + '</td><td><small>' + (swObj.version || '-') + '</small></td><td><small>' + (swObj.vendor || swObj.manufacturer || '-') + '</small></td></tr>';
                                 }).join('')}
-                            </tbody>
-                        </table>
+                        </tbody>
+                    </table>
                         ${(device.installed_software || cf.installed_software).length > 50 ? '<div class="text-muted text-center">Mostrati 50 di ' + (device.installed_software || cf.installed_software).length + ' software</div>' : ''}
-                    </div>
+                </div>
                     ` : ''}
                     ${(device.local_users || cf.local_users) && (device.local_users || cf.local_users).length > 0 ? `
                     <hr>
                     <h6 class="text-muted mb-3"><i class="bi bi-people"></i> Utenti Locali (${(device.local_users || cf.local_users).length})</h6>
-                    <div class="d-flex flex-wrap gap-2">
+                <div class="d-flex flex-wrap gap-2">
                         ${(device.local_users || cf.local_users).map(user => {
                             const userObj = typeof user === 'string' ? {name: user} : user;
                             return '<span class="badge ' + (userObj.disabled ? 'bg-secondary' : 'bg-info') + '">' + (userObj.name || user) + (userObj.disabled ? ' (disabilitato)' : '') + '</span>';
                         }).join('')}
-                    </div>
+                </div>
                     ` : ''}
                     ${(device.memory_modules || cf.memory_modules) && (device.memory_modules || cf.memory_modules).length > 0 ? `
                     <hr>
                     <h6 class="text-muted mb-3"><i class="bi bi-memory"></i> Moduli RAM (${(device.memory_modules || cf.memory_modules).length})</h6>
-                    <div class="d-flex flex-wrap gap-2">
+                <div class="d-flex flex-wrap gap-2">
                         ${(device.memory_modules || cf.memory_modules).map(mod => {
                             const modObj = typeof mod === 'string' ? {} : mod;
                             return '<span class="badge bg-secondary">' + (modObj.size_gb || '?') + ' GB' + (modObj.speed_mhz ? ' @ ' + modObj.speed_mhz + ' MHz' : '') + (modObj.manufacturer ? ' (' + modObj.manufacturer + ')' : '') + '</span>';
                         }).join('')}
-                    </div>
+                </div>
                     ` : ''}
                     ${(cf.domain_role || cf.is_server !== undefined || cf.virtualization || cf.timezone || cf.docker_containers_running !== undefined || cf.uptime || cf.last_boot || cf.kernel || cf.bios_version || cf.default_gateway || cf.dns_servers || cf.load_average || cf.packages_installed) ? `
                     <hr>
