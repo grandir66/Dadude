@@ -2043,10 +2043,21 @@ async def ssh_advanced_scan(
             session.close()
         
         if not ssh_credential:
-            result["error"] = "Nessuna credenziale SSH trovata per questo dispositivo"
+            result["error"] = "Nessuna credenziale SSH trovata per questo dispositivo.\n\nVerifica che:\n- Il dispositivo abbia una credenziale SSH assegnata, oppure\n- Esista una credenziale SSH di default per questo cliente"
+            return result
+        
+        # Verifica che abbiamo almeno username e password o chiave privata
+        if not ssh_credential.get("username"):
+            result["error"] = "Credenziale SSH incompleta: username mancante"
+            return result
+        
+        if not ssh_credential.get("password") and not ssh_credential.get("private_key"):
+            result["error"] = f"Credenziale SSH incompleta: password o chiave privata mancante per utente '{ssh_credential.get('username')}'"
             return result
         
         # 3. Esegui scan SSH avanzato via agent
+        logger.info(f"SSH advanced scan: target={data.address}, username={ssh_credential['username']}, port={ssh_credential.get('port', 22)}, auth_type={'key' if ssh_credential.get('private_key') else 'password'}")
+        
         probe_result = await agent_service.probe_ssh_advanced(
             agent_info=agent_info,
             target=data.address,
@@ -2060,7 +2071,31 @@ async def ssh_advanced_scan(
             result["success"] = True
             result["data"] = probe_result.data
         else:
-            result["error"] = probe_result.error or "Scan SSH avanzato fallito"
+            # Costruisci messaggio di errore più dettagliato
+            error_msg = probe_result.error or "Scan SSH avanzato fallito"
+            error_details = [
+                f"Indirizzo: {data.address}",
+                f"Porta: {ssh_credential.get('port', 22)}",
+                f"Username: {ssh_credential['username']}",
+                f"Autenticazione: {'Chiave privata' if ssh_credential.get('private_key') else 'Password'}",
+                f"Agent: {agent_info.get('name', 'N/A')} ({agent_info.get('address', 'N/A')})",
+                f"Errore: {error_msg}",
+            ]
+            
+            # Aggiungi suggerimenti in base all'errore
+            if "connection" in error_msg.lower() or "timeout" in error_msg.lower() or "refused" in error_msg.lower():
+                error_details.append("\nPossibili cause:")
+                error_details.append("- Il dispositivo non è raggiungibile dall'agent")
+                error_details.append("- La porta SSH non è corretta")
+                error_details.append("- Firewall blocca la connessione")
+                error_details.append("- Il servizio SSH non è attivo sul dispositivo")
+            elif "authentication" in error_msg.lower() or "password" in error_msg.lower() or "permission" in error_msg.lower():
+                error_details.append("\nPossibili cause:")
+                error_details.append("- Credenziali errate")
+                error_details.append("- Chiave privata non valida o non autorizzata")
+                error_details.append("- Utente senza permessi SSH")
+            
+            result["error"] = "\n".join(error_details)
             
     except Exception as e:
         logger.error(f"SSH advanced scan failed for {data.address}: {e}", exc_info=True)

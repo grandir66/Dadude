@@ -6436,7 +6436,10 @@ async function sshAdvancedScan(deviceId, address) {
             
             modal.show();
         } else {
-            alert(`❌ Scan SSH Avanzato Fallito\n\nIndirizzo: ${address}\nErrore: ${result.error || 'Errore sconosciuto'}`);
+            // Mostra errore formattato con line breaks
+            const errorMsg = result.error || 'Errore sconosciuto';
+            const formattedError = errorMsg.replace(/\n/g, '\n');
+            alert(`❌ Scan SSH Avanzato Fallito\n\n${formattedError}`);
         }
     } catch (e) {
         alert('Errore: ' + e.message);
