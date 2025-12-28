@@ -2378,6 +2378,24 @@ async def get_inventory_device(device_id: str):
                         result["sysName"] = cf["sysName"]
                     if "sysObjectID" in cf:
                         result["sysObjectID"] = cf["sysObjectID"]
+                    # Campi Ubiquiti
+                    if "ubiquiti_model" in cf:
+                        result["ubiquiti_model"] = cf["ubiquiti_model"]
+                    if "ubiquiti_firmware" in cf:
+                        result["ubiquiti_firmware"] = cf["ubiquiti_firmware"]
+                    if "vendor_model" in cf:
+                        result["vendor_model"] = cf["vendor_model"]
+                    if "vendor_version" in cf:
+                        result["vendor_version"] = cf["vendor_version"]
+                    if "wifi_clients" in cf:
+                        result["wifi_clients"] = cf["wifi_clients"]
+                    if "load_average_1m" in cf:
+                        result["load_average_1m"] = cf["load_average_1m"]
+                    if "ram_available_mb" in cf:
+                        result["ram_available_mb"] = cf["ram_available_mb"]
+                    # Storage info (Synology/QNAP)
+                    if "storage_info" in cf:
+                        result["storage_info"] = cf["storage_info"]
             except:
                 pass
         
