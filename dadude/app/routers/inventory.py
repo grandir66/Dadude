@@ -520,15 +520,46 @@ async def auto_detect_device(
             )
             
             if is_linux_storage_hypervisor:
-                # Trova credenziali SSH che hanno funzionato
+                # Trova credenziali SSH che hanno funzionato per il probe normale
                 ssh_cred = None
-                for cred in credentials_list:
-                    if cred.get("type") == "ssh":
-                        ssh_cred = cred
-                        break
+                
+                # Cerca il probe SSH che ha avuto successo
+                if probe_result.get("probes"):
+                    for probe in probe_result["probes"]:
+                        if probe.get("type") == "ssh" and probe.get("success"):
+                            # Trovato probe SSH riuscito, cerca la credenziale corrispondente
+                            # Il probe contiene i dati che includono username/hostname
+                            probe_data = probe.get("data", {})
+                            probe_username = probe_data.get("username") or probe_data.get("hostname")
+                            
+                            # Cerca nella lista delle credenziali quella che corrisponde
+                            for cred in credentials_list:
+                                if cred.get("type") == "ssh":
+                                    # Se abbiamo un username dal probe, confrontalo
+                                    if probe_username:
+                                        if cred.get("username") == probe_username:
+                                            ssh_cred = cred
+                                            logger.info(f"Auto-detect: Found working SSH credential from probe result (username match): {cred.get('name', cred.get('username'))}")
+                                            break
+                                    else:
+                                        # Se non abbiamo username dal probe, usa la prima credenziale SSH
+                                        ssh_cred = cred
+                                        logger.info(f"Auto-detect: Using SSH credential (no username match): {cred.get('name', cred.get('username'))}")
+                                        break
+                            
+                            if ssh_cred:
+                                break
+                
+                # Se non trovata nei probe riusciti, usa la prima credenziale SSH disponibile
+                if not ssh_cred:
+                    for cred in credentials_list:
+                        if cred.get("type") == "ssh":
+                            ssh_cred = cred
+                            logger.info(f"Auto-detect: Using first available SSH credential: {cred.get('name', cred.get('username'))}")
+                            break
                 
                 if ssh_cred:
-                    logger.info(f"Auto-detect: Executing advanced SSH scan for Linux/Storage/Hypervisor device")
+                    logger.info(f"Auto-detect: Executing advanced SSH scan for Linux/Storage/Hypervisor device with username={ssh_cred.get('username')}, has_password={bool(ssh_cred.get('password'))}, has_key={bool(ssh_cred.get('ssh_private_key'))}")
                     try:
                         advanced_result = await agent_service.probe_ssh_advanced(
                             agent_info=agent_info,
