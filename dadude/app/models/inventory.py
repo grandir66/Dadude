@@ -410,6 +410,54 @@ class LinuxDetails(Base):
     docker_installed = Column(Boolean, nullable=True)
     docker_version = Column(String(50), nullable=True)
     containers_running = Column(Integer, nullable=True)
+    containers_stopped = Column(Integer, nullable=True)
+    containers_total = Column(Integer, nullable=True)
+    docker_images_count = Column(Integer, nullable=True)
+    
+    # CPU dettagliato
+    cpu_frequency_mhz = Column(Float, nullable=True)
+    cpu_cache_size = Column(String(50), nullable=True)
+    cpu_usage_percent = Column(Float, nullable=True)
+    cpu_temperature_celsius = Column(Float, nullable=True)
+    cpu_load_1min = Column(Float, nullable=True)
+    cpu_load_5min = Column(Float, nullable=True)
+    cpu_load_15min = Column(Float, nullable=True)
+    
+    # Memory dettagliato
+    memory_available_bytes = Column(BigInteger, nullable=True)
+    memory_used_bytes = Column(BigInteger, nullable=True)
+    memory_free_bytes = Column(BigInteger, nullable=True)
+    memory_cached_bytes = Column(BigInteger, nullable=True)
+    memory_buffers_bytes = Column(BigInteger, nullable=True)
+    memory_usage_percent = Column(Float, nullable=True)
+    swap_total_bytes = Column(BigInteger, nullable=True)
+    swap_used_bytes = Column(BigInteger, nullable=True)
+    swap_free_bytes = Column(BigInteger, nullable=True)
+    swap_usage_percent = Column(Float, nullable=True)
+    
+    # Storage avanzato (JSON per volumi, RAID, dischi)
+    storage_data = Column(JSON, nullable=True)  # Volumi, RAID arrays, storage pools
+    disks_data = Column(JSON, nullable=True)  # Dettagli dischi fisici
+    network_interfaces_data = Column(JSON, nullable=True)  # Interfacce di rete dettagliate
+    services_data = Column(JSON, nullable=True)  # Servizi dettagliati
+    vms_data = Column(JSON, nullable=True)  # VM/Container (per Proxmox)
+    
+    # Network
+    default_gateway = Column(String(50), nullable=True)
+    dns_servers = Column(JSON, nullable=True)  # Lista DNS servers
+    
+    # Timezone
+    timezone = Column(String(100), nullable=True)
+    
+    # Boot time
+    boot_time = Column(DateTime, nullable=True)
+    uptime_seconds = Column(Integer, nullable=True)
+    
+    # NAS specific (Synology/QNAP)
+    nas_model = Column(String(100), nullable=True)
+    nas_serial = Column(String(100), nullable=True)
+    firmware_version = Column(String(100), nullable=True)
+    firmware_build = Column(String(50), nullable=True)
     
     last_updated = Column(DateTime, default=func.now())
     

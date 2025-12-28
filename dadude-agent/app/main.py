@@ -242,6 +242,52 @@ async def probe_ssh(
         )
 
 
+@app.post("/probe/ssh-advanced", response_model=ProbeResult)
+async def probe_ssh_advanced(
+    request: SSHProbeRequest,
+    authorized: bool = Depends(verify_token)
+):
+    """
+    Esegue scansione SSH avanzata su un target Linux/Storage/Hypervisor.
+    Raccoglie informazioni complete: sistema, CPU, memoria, storage, RAID, rete, servizi, Docker, VM.
+    Supporta comandi con sudo quando necessario.
+    """
+    start_time = datetime.now()
+    
+    try:
+        from app.probes.ssh_advanced_scanner import scan_advanced
+        
+        result = await scan_advanced(
+            target=request.target,
+            username=request.username,
+            password=request.password,
+            private_key=request.private_key,
+            port=request.port,
+            timeout=30,
+        )
+        
+        duration = int((datetime.now() - start_time).total_seconds() * 1000)
+        
+        return ProbeResult(
+            success=True,
+            target=request.target,
+            protocol="ssh-advanced",
+            data=result,
+            duration_ms=duration,
+        )
+        
+    except Exception as e:
+        logger.error(f"SSH advanced scan failed for {request.target}: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return ProbeResult(
+            success=False,
+            target=request.target,
+            protocol="ssh-advanced",
+            error=str(e),
+        )
+
+
 @app.post("/probe/snmp", response_model=ProbeResult)
 async def probe_snmp(
     request: SNMPProbeRequest,

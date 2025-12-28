@@ -1006,6 +1006,13 @@ async def auto_detect_device(
                         "sysDescr", "sysName", "sysObjectID", "sysUpTime", "sysServices",
                         "entPhysicalDescr", "entPhysicalModelName", "entPhysicalName", 
                         "entPhysicalSerialNum", "entPhysicalSoftwareRev",
+                        # Neighbors (LLDP/CDP)
+                        "neighbors", "lldp_neighbors", "cdp_neighbors", "neighbors_count",
+                        "lldp_neighbors_count", "cdp_neighbors_count",
+                        # Routing e ARP
+                        "routing_table", "routing_count", "arp_table", "arp_count",
+                        # Interfacce avanzate
+                        "interfaces", "network_interfaces",
                         # Campi Ubiquiti specifici
                         "ubiquiti_model", "ubiquiti_firmware", "wifi_clients", 
                         "load_average_1m", "ram_available_mb", "vendor_model", "vendor_version",
