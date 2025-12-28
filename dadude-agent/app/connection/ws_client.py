@@ -433,7 +433,7 @@ class AgentWebSocketClient:
         action = message.data.get("action")
         params = message.data.get("params", {})
         
-        logger.info(f"Command received: {action} (id={command_id})")
+        logger.info(f"[WS] Command received: {action} (id={command_id}, params keys: {list(params.keys())})")
         
         if self._command_handler:
             try:

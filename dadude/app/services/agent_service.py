@@ -349,6 +349,77 @@ class AgentService:
                 agent_id=agent_info.get("id"),
             )
     
+    async def probe_ssh_advanced(
+        self,
+        agent_info: Dict[str, Any],
+        target: str,
+        username: str,
+        password: Optional[str] = None,
+        private_key: Optional[str] = None,
+        port: int = 22,
+    ) -> AgentProbeResult:
+        """
+        Esegue scansione SSH avanzata via agent.
+        Solo agent Docker può eseguire SSH advanced probe.
+        Supporta sia WebSocket che HTTP.
+        """
+        agent_type = agent_info.get("agent_type", "mikrotik")
+        
+        if agent_type != "docker":
+            return AgentProbeResult(
+                success=False,
+                target=target,
+                protocol="ssh-advanced",
+                error="SSH advanced probe requires Docker agent",
+                agent_id=agent_info.get("id"),
+            )
+        
+        try:
+            # Prima prova WebSocket (se supportato)
+            ws_agent_id = self._get_ws_agent_id(agent_info)
+            
+            if ws_agent_id:
+                # Per ora usa HTTP, WebSocket può essere aggiunto in futuro
+                logger.info(f"Executing SSH advanced probe via HTTP to {target}")
+                client = self._get_docker_client(agent_info)
+                result = await client.probe_ssh_advanced(
+                    target=target,
+                    username=username,
+                    password=password,
+                    private_key=private_key,
+                    port=port,
+                )
+            else:
+                # Fallback a HTTP
+                logger.info(f"Executing SSH advanced probe via HTTP to {target}")
+                client = self._get_docker_client(agent_info)
+                result = await client.probe_ssh_advanced(
+                    target=target,
+                    username=username,
+                    password=password,
+                    private_key=private_key,
+                    port=port,
+                )
+            
+            return AgentProbeResult(
+                success=result.get("success", False),
+                target=target,
+                protocol="ssh-advanced",
+                data=result.get("data"),
+                error=result.get("error"),
+                agent_id=agent_info.get("id"),
+                duration_ms=result.get("duration_ms"),
+            )
+        except Exception as e:
+            logger.error(f"Agent SSH advanced probe failed: {e}")
+            return AgentProbeResult(
+                success=False,
+                target=target,
+                protocol="ssh-advanced",
+                error=str(e),
+                agent_id=agent_info.get("id"),
+            )
+    
     async def probe_snmp(
         self,
         agent_info: Dict[str, Any],
@@ -705,6 +776,51 @@ class AgentService:
                         cred.get("ssh_private_key"),
                         cred.get("ssh_port", 22),
                     )
+                    
+                    # Se il probe SSH base ha successo e identifica Linux/Storage/Hypervisor, 
+                    # esegui anche la scansione avanzata
+                    if result.success and result.data:
+                        device_type = result.data.get("device_type", "").lower()
+                        os_family = (result.data.get("os_family") or "").lower()
+                        os_name = (result.data.get("os_name") or "").lower()
+                        
+                        is_linux = (
+                            device_type in ["linux", "storage", "hypervisor"] or
+                            "linux" in os_family or
+                            any(x in os_name for x in ["ubuntu", "debian", "centos", "rhel", "alpine", "suse", "arch"]) or
+                            "synology" in os_name or
+                            "qnap" in os_name or
+                            "proxmox" in os_name or
+                            "dsm" in os_name or
+                            "qts" in os_name
+                        )
+                        
+                        if is_linux:
+                            logger.info(f"Agent auto_probe: Linux/Storage/Hypervisor detected, running advanced SSH scan...")
+                            try:
+                                advanced_result = await self.probe_ssh_advanced(
+                                    agent_info,
+                                    target,
+                                    cred.get("username", ""),
+                                    cred.get("password"),
+                                    cred.get("ssh_private_key"),
+                                    cred.get("ssh_port", 22),
+                                )
+                                
+                                if advanced_result.success and advanced_result.data:
+                                    # Merge dati avanzati con dati base
+                                    if isinstance(result.data, dict) and isinstance(advanced_result.data, dict):
+                                        # I dati avanzati hanno priorità, ma mantieni alcuni campi base se mancanti
+                                        merged_data = {**result.data, **advanced_result.data}
+                                        result.data = merged_data
+                                        logger.info(f"Agent auto_probe: Advanced SSH scan completed, merged {len(advanced_result.data)} fields")
+                                    else:
+                                        logger.warning(f"Agent auto_probe: Advanced SSH scan returned non-dict data")
+                                else:
+                                    logger.warning(f"Agent auto_probe: Advanced SSH scan failed: {advanced_result.error}")
+                            except Exception as e:
+                                logger.error(f"Agent auto_probe: Advanced SSH scan error: {e}", exc_info=True)
+                                # Continua con i dati base
                 else:
                     continue
                 

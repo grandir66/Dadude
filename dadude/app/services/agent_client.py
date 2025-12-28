@@ -103,6 +103,31 @@ class AgentClient:
             logger.error(f"Agent SSH probe failed: {e}")
             return {"success": False, "error": str(e)}
     
+    async def probe_ssh_advanced(
+        self,
+        target: str,
+        username: str,
+        password: Optional[str] = None,
+        private_key: Optional[str] = None,
+        port: int = 22,
+    ) -> Dict[str, Any]:
+        """Esegue scansione SSH avanzata tramite agent"""
+        client = await self._get_client()
+        
+        try:
+            response = await client.post("/probe/ssh-advanced", json={
+                "target": target,
+                "username": username,
+                "password": password,
+                "private_key": private_key,
+                "port": port,
+            })
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            logger.error(f"Agent SSH advanced probe failed: {e}")
+            return {"success": False, "error": str(e)}
+    
     async def probe_snmp(
         self,
         target: str,

@@ -467,13 +467,77 @@ async def auto_detect_device(
                 logger.info(f"Auto-detect: Merging agent probe result, best_result.data has {len(best_data_keys)} fields: {sorted(best_data_keys)[:30]}")
                 if isinstance(best_data, dict) and best_data.get("running_services_count"):
                     logger.info(f"Auto-detect: best_result.data includes: running_services_count={best_data.get('running_services_count')}, cron_jobs_count={best_data.get('cron_jobs_count')}, neighbors_count={best_data.get('neighbors_count')}")
+                
+                # Estrai dati base da oggetti annidati (per compatibilità con modal)
+                flattened_data = {}
+                if isinstance(best_data, dict):
+                    # Copia tutti i dati esistenti
+                    flattened_data = best_data.copy()
+                    
+                    # Estrai da system_info se presente
+                    if best_data.get("system_info"):
+                        si = best_data["system_info"]
+                        if isinstance(si, dict):
+                            if si.get("hostname") and not flattened_data.get("hostname"):
+                                flattened_data["hostname"] = si.get("hostname")
+                            if si.get("os_name") and not flattened_data.get("os_name"):
+                                flattened_data["os_name"] = si.get("os_name")
+                            if si.get("os_version") and not flattened_data.get("os_version"):
+                                flattened_data["os_version"] = si.get("os_version")
+                            if si.get("kernel_version") and not flattened_data.get("kernel"):
+                                flattened_data["kernel"] = si.get("kernel_version")
+                            if si.get("architecture") and not flattened_data.get("architecture"):
+                                flattened_data["architecture"] = si.get("architecture")
+                            if si.get("system_type") and not flattened_data.get("device_type"):
+                                # Mappa system_type a device_type
+                                sys_type = si.get("system_type", "").lower()
+                                if sys_type in ["synology", "qnap"]:
+                                    flattened_data["device_type"] = "storage"
+                                elif sys_type == "proxmox":
+                                    flattened_data["device_type"] = "hypervisor"
+                                elif not flattened_data.get("device_type"):
+                                    flattened_data["device_type"] = "linux"
+                    
+                    # Estrai da cpu se presente
+                    if best_data.get("cpu"):
+                        cpu = best_data["cpu"]
+                        if isinstance(cpu, dict):
+                            if cpu.get("model") and not flattened_data.get("cpu_model"):
+                                flattened_data["cpu_model"] = cpu.get("model")
+                            if cpu.get("cores_physical") and not flattened_data.get("cpu_cores"):
+                                flattened_data["cpu_cores"] = cpu.get("cores_physical")
+                            if cpu.get("cores_logical") and not flattened_data.get("cpu_threads"):
+                                flattened_data["cpu_threads"] = cpu.get("cores_logical")
+                            if cpu.get("frequency_mhz") and not flattened_data.get("cpu_speed_mhz"):
+                                flattened_data["cpu_speed_mhz"] = int(cpu.get("frequency_mhz"))
+                    
+                    # Estrai da memory se presente
+                    if best_data.get("memory"):
+                        mem = best_data["memory"]
+                        if isinstance(mem, dict):
+                            if mem.get("total_gb") and not flattened_data.get("ram_total_mb"):
+                                flattened_data["ram_total_mb"] = int(mem.get("total_gb") * 1024)
+                            if mem.get("total_bytes") and not flattened_data.get("ram_total_mb"):
+                                flattened_data["ram_total_mb"] = int(mem.get("total_bytes") / (1024 * 1024))
+                    
+                    # Estrai da docker se presente
+                    if best_data.get("docker"):
+                        docker = best_data["docker"]
+                        if isinstance(docker, dict):
+                            if docker.get("version") and not flattened_data.get("docker_version"):
+                                flattened_data["docker_version"] = docker.get("version")
+                            if docker.get("containers_running") is not None and not flattened_data.get("docker_containers_running"):
+                                flattened_data["docker_containers_running"] = docker.get("containers_running")
+                            if docker.get("containers_running") is not None:
+                                flattened_data["docker_installed"] = True
+                
                 scan_result = {
                     "address": data.address,
                     "mac_address": data.mac_address,
-                    "device_type": "unknown",
-                    "category": None,
+                    "device_type": flattened_data.get("device_type") or "unknown",
+                    "category": flattened_data.get("category") or None,
                     "identified_by": f"agent_{probe_result['best_result']['type']}",
-                    **best_data,
+                    **flattened_data,  # Include tutti i dati (sia base che avanzati)
                 }
                 scan_result_keys = list(scan_result.keys())
                 logger.info(f"Auto-detect: scan_result after merge has {len(scan_result_keys)} fields: {sorted(scan_result_keys)[:30]}")
@@ -1210,8 +1274,101 @@ async def auto_detect_device(
                     if is_linux_device and has_ssh_data:
                         try:
                             from ..models.inventory import LinuxDetails
+                            from ..services.linux_details_service import save_advanced_linux_data
+                            
                             # I dati SSH sono mergeati direttamente in scan_result
                             logger.info(f"Saving LinuxDetails for device {data.device_id}, scan_result keys: {list(scan_result.keys())[:30]}")
+                            
+                            # Controlla se abbiamo dati avanzati (da scanner avanzato)
+                            # I dati avanzati possono essere direttamente in scan_result o dentro system_info/cpu/memory/etc
+                            has_advanced_data = (
+                                scan_result.get("system_info") or
+                                scan_result.get("cpu") or
+                                scan_result.get("memory") or
+                                scan_result.get("disks") or
+                                scan_result.get("volumes") or
+                                scan_result.get("raid_arrays") or
+                                scan_result.get("network_interfaces") or
+                                scan_result.get("services") or
+                                scan_result.get("docker") or
+                                scan_result.get("vms")
+                            )
+                            
+                            if has_advanced_data:
+                                # Usa il servizio avanzato per salvare i dati
+                                logger.info(f"Detected advanced SSH scan data, using advanced save service")
+                                advanced_data = {
+                                    "system_info": scan_result.get("system_info", {}),
+                                    "cpu": scan_result.get("cpu", {}),
+                                    "memory": scan_result.get("memory", {}),
+                                    "disks": scan_result.get("disks", []),
+                                    "volumes": scan_result.get("volumes", []),
+                                    "raid_arrays": scan_result.get("raid_arrays", []),
+                                    "network_interfaces": scan_result.get("network_interfaces", []),
+                                    "services": scan_result.get("services", []),
+                                    "docker": scan_result.get("docker", {}),
+                                    "vms": scan_result.get("vms", []),
+                                    "default_gateway": scan_result.get("default_gateway"),
+                                    "dns_servers": scan_result.get("dns_servers", []),
+                                }
+                                
+                                # Salva dati avanzati (questo aggiorna anche i campi base di LinuxDetails)
+                                save_advanced_linux_data(session, data.device_id, advanced_data)
+                                
+                                # IMPORTANTE: Estrai dati base da oggetti annidati e mettili direttamente in scan_result
+                                # per compatibilità con il modal JavaScript che si aspetta dati flat
+                                if scan_result.get("system_info"):
+                                    si = scan_result["system_info"]
+                                    if isinstance(si, dict):
+                                        if si.get("hostname") and not scan_result.get("hostname"):
+                                            scan_result["hostname"] = si.get("hostname")
+                                        if si.get("os_name") and not scan_result.get("os_name"):
+                                            scan_result["os_name"] = si.get("os_name")
+                                        if si.get("os_version") and not scan_result.get("os_version"):
+                                            scan_result["os_version"] = si.get("os_version")
+                                        if si.get("kernel_version") and not scan_result.get("kernel"):
+                                            scan_result["kernel"] = si.get("kernel_version")
+                                        if si.get("architecture") and not scan_result.get("architecture"):
+                                            scan_result["architecture"] = si.get("architecture")
+                                        if si.get("system_type") and not scan_result.get("device_type"):
+                                            sys_type = si.get("system_type", "").lower()
+                                            if sys_type in ["synology", "qnap"]:
+                                                scan_result["device_type"] = "storage"
+                                            elif sys_type == "proxmox":
+                                                scan_result["device_type"] = "hypervisor"
+                                            elif not scan_result.get("device_type"):
+                                                scan_result["device_type"] = "linux"
+                                
+                                # Estrai dati CPU base
+                                if scan_result.get("cpu"):
+                                    cpu = scan_result["cpu"]
+                                    if isinstance(cpu, dict):
+                                        if cpu.get("model") and not scan_result.get("cpu_model"):
+                                            scan_result["cpu_model"] = cpu.get("model")
+                                        if cpu.get("cores_physical") and not scan_result.get("cpu_cores"):
+                                            scan_result["cpu_cores"] = cpu.get("cores_physical")
+                                        if cpu.get("cores_logical") and not scan_result.get("cpu_threads"):
+                                            scan_result["cpu_threads"] = cpu.get("cores_logical")
+                                
+                                # Estrai dati memoria base
+                                if scan_result.get("memory"):
+                                    mem = scan_result["memory"]
+                                    if isinstance(mem, dict):
+                                        if mem.get("total_gb") and not scan_result.get("ram_total_mb"):
+                                            scan_result["ram_total_mb"] = int(mem.get("total_gb") * 1024)
+                                        elif mem.get("total_bytes") and not scan_result.get("ram_total_mb"):
+                                            scan_result["ram_total_mb"] = int(mem.get("total_bytes") / (1024 * 1024))
+                                
+                                # Estrai dati Docker base
+                                if scan_result.get("docker"):
+                                    docker = scan_result["docker"]
+                                    if isinstance(docker, dict):
+                                        if docker.get("version") and not scan_result.get("docker_version"):
+                                            scan_result["docker_version"] = docker.get("version")
+                                        if docker.get("containers_running") is not None:
+                                            scan_result["docker_installed"] = True
+                                            if not scan_result.get("docker_containers_running"):
+                                                scan_result["docker_containers_running"] = docker.get("containers_running")
                             
                             linux_data = {}
                             
