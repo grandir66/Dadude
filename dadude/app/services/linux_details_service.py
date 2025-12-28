@@ -70,6 +70,44 @@ def save_advanced_linux_data(
         if system_info.get("firmware_build"):
             linux_data["firmware_build"] = system_info.get("firmware_build")
         
+        # IMPORTANTE: Aggiorna anche i campi base del dispositivo per il modal
+        # System info -> campi base device
+        if system_info.get("hostname"):
+            device.hostname = system_info.get("hostname")
+        if system_info.get("os_name"):
+            if not device.os_family or device.os_family == "unknown":
+                device.os_family = "Linux"
+            if not device.os_version:
+                device.os_version = system_info.get("os_version")
+        if system_info.get("system_type"):
+            sys_type = system_info.get("system_type", "").lower()
+            if sys_type in ["synology", "qnap"]:
+                if not device.device_type or device.device_type == "other":
+                    device.device_type = "storage"
+                if not device.category:
+                    device.category = "storage"
+                if not device.manufacturer:
+                    device.manufacturer = "Synology" if sys_type == "synology" else "QNAP"
+            elif sys_type == "proxmox":
+                if not device.device_type or device.device_type == "other":
+                    device.device_type = "hypervisor"
+                if not device.category:
+                    device.category = "hypervisor"
+            elif not device.device_type or device.device_type == "other":
+                device.device_type = "linux"
+        if system_info.get("nas_model"):
+            if not device.manufacturer:
+                if system_info.get("system_type") == "synology":
+                    device.manufacturer = "Synology"
+                elif system_info.get("system_type") == "qnap":
+                    device.manufacturer = "QNAP"
+            if not device.model:
+                device.model = system_info.get("nas_model")
+        if system_info.get("nas_serial"):
+            device.serial_number = system_info.get("nas_serial")
+        if system_info.get("firmware_version"):
+            device.os_version = system_info.get("firmware_version")
+        
         # CPU info
         cpu_info = scan_data.get("cpu", {})
         if cpu_info.get("model"):

@@ -166,6 +166,7 @@ class CommandHandler:
             return await self._probe_ssh(params)
         
         elif action == CommandAction.PROBE_SNMP.value:
+            logger.info(f"[HANDLER] PROBE_SNMP action matched, calling _probe_snmp with params: {list(params.keys())}")
             return await self._probe_snmp(params)
         
         elif action == CommandAction.GET_ARP_TABLE.value:

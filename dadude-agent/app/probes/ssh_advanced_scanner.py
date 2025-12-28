@@ -836,6 +836,58 @@ class SSHAdvancedScanner:
         
         # NAS-specific (Synology/QNAP) - da implementare se necessario
         # self.collect_nas_info()
+        
+        # IMPORTANTE: Estrai anche dati base per compatibilità con sistema esistente
+        # Metti i dati base direttamente nel risultato (non solo negli oggetti annidati)
+        if self.result.get("system_info"):
+            si = self.result["system_info"]
+            if isinstance(si, dict):
+                if si.get("hostname") and not self.result.get("hostname"):
+                    self.result["hostname"] = si.get("hostname")
+                if si.get("os_name") and not self.result.get("os_name"):
+                    self.result["os_name"] = si.get("os_name")
+                if si.get("os_version") and not self.result.get("os_version"):
+                    self.result["os_version"] = si.get("os_version")
+                if si.get("kernel_version") and not self.result.get("kernel"):
+                    self.result["kernel"] = si.get("kernel_version")
+                if si.get("architecture") and not self.result.get("architecture"):
+                    self.result["architecture"] = si.get("architecture")
+                if si.get("system_type"):
+                    sys_type = si.get("system_type", "").lower()
+                    if sys_type in ["synology", "qnap"]:
+                        self.result["device_type"] = "storage"
+                    elif sys_type == "proxmox":
+                        self.result["device_type"] = "hypervisor"
+                    elif not self.result.get("device_type"):
+                        self.result["device_type"] = "linux"
+        
+        if self.result.get("cpu"):
+            cpu = self.result["cpu"]
+            if isinstance(cpu, dict):
+                if cpu.get("model") and not self.result.get("cpu_model"):
+                    self.result["cpu_model"] = cpu.get("model")
+                if cpu.get("cores_physical") and not self.result.get("cpu_cores"):
+                    self.result["cpu_cores"] = cpu.get("cores_physical")
+                if cpu.get("cores_logical") and not self.result.get("cpu_threads"):
+                    self.result["cpu_threads"] = cpu.get("cores_logical")
+        
+        if self.result.get("memory"):
+            mem = self.result["memory"]
+            if isinstance(mem, dict):
+                if mem.get("total_gb") and not self.result.get("ram_total_mb"):
+                    self.result["ram_total_mb"] = int(mem.get("total_gb") * 1024)
+                elif mem.get("total_bytes") and not self.result.get("ram_total_mb"):
+                    self.result["ram_total_mb"] = int(mem.get("total_bytes") / (1024 * 1024))
+        
+        if self.result.get("docker"):
+            docker = self.result["docker"]
+            if isinstance(docker, dict):
+                if docker.get("version") and not self.result.get("docker_version"):
+                    self.result["docker_version"] = docker.get("version")
+                if docker.get("containers_running") is not None:
+                    self.result["docker_installed"] = True
+                    if not self.result.get("docker_containers_running"):
+                        self.result["docker_containers_running"] = docker.get("containers_running")
     
     def scan(self) -> Dict[str, Any]:
         """Esegue la scansione completa"""

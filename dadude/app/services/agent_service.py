@@ -810,10 +810,16 @@ class AgentService:
                                 if advanced_result.success and advanced_result.data:
                                     # Merge dati avanzati con dati base
                                     if isinstance(result.data, dict) and isinstance(advanced_result.data, dict):
-                                        # I dati avanzati hanno priorità, ma mantieni alcuni campi base se mancanti
-                                        merged_data = {**result.data, **advanced_result.data}
+                                        # IMPORTANTE: Lo scanner avanzato ora include già i dati base direttamente nel risultato
+                                        # Quindi possiamo semplicemente fare merge mantenendo i dati base del probe normale
+                                        base_data = result.data.copy()
+                                        advanced_data = advanced_result.data.copy()
+                                        
+                                        # I dati base dello scanner avanzato sono già estratti, ma preferiamo quelli del probe normale se presenti
+                                        # Merge: dati base del probe normale hanno priorità, poi dati avanzati (include anche dati base estratti)
+                                        merged_data = {**advanced_data, **base_data}  # base_data ha priorità (viene dopo)
                                         result.data = merged_data
-                                        logger.info(f"Agent auto_probe: Advanced SSH scan completed, merged {len(advanced_result.data)} fields")
+                                        logger.info(f"Agent auto_probe: Advanced SSH scan completed, merged data. Base fields: {len([k for k in base_data.keys() if k not in ['system_info', 'cpu', 'memory', 'disks', 'volumes', 'raid_arrays', 'network_interfaces', 'services', 'docker', 'vms']])}, Advanced fields: {len(advanced_data)}")
                                     else:
                                         logger.warning(f"Agent auto_probe: Advanced SSH scan returned non-dict data")
                                 else:
