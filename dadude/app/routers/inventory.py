@@ -1008,7 +1008,19 @@ async def auto_detect_device(
                         "entPhysicalSerialNum", "entPhysicalSoftwareRev",
                         # Campi Ubiquiti specifici
                         "ubiquiti_model", "ubiquiti_firmware", "wifi_clients", 
-                        "load_average_1m", "ram_available_mb", "vendor_model", "vendor_version"
+                        "load_average_1m", "ram_available_mb", "vendor_model", "vendor_version",
+                        # Campi HP ProCurve specifici
+                        "vendor_os_version", "vendor_rom_version", "vendor_product_number",
+                        "vendor_mem_total", "vendor_mem_free", "cpu_usage_percent",
+                        # Campi HP Comware specifici
+                        "vendor_cpu_usage", "vendor_mem_usage", "vendor_temperature",
+                        "vendor_fan_status", "vendor_power_status", "memory_usage_percent",
+                        # Campi ArubaOS specifici
+                        "vendor_sw_version", "vendor_hw_version", "vendor_switch_serial",
+                        "vendor_cpu_usage", "vendor_storage_usage",
+                        # Campi TP-Link Omada specifici
+                        "vendor_description", "vendor_hw_version", "vendor_fw_version",
+                        "vendor_mac", "hardware_version"
                     ]
                     
                     for field in extra_field_names:
