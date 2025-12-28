@@ -504,6 +504,99 @@ async def auto_detect_device(
         logger.info(f"Auto-detect complete for {data.address}: identified={result['identified']}, method={scan_result.get('identified_by')}")
         logger.info(f"Auto-detect data collected: {collected_data}")
         
+        # 3.4. Se identificato come Linux/Storage/Hypervisor via SSH, esegui scan SSH avanzato automaticamente
+        if result["identified"] and agent_info and agent_info.get("agent_type") == "docker":
+            device_type = scan_result.get("device_type", "").lower()
+            os_family = (scan_result.get("os_family") or "").lower()
+            identified_by = scan_result.get("identified_by", "").lower()
+            
+            # Verifica se è un dispositivo Linux/Storage/Hypervisor identificato via SSH
+            is_linux_storage_hypervisor = (
+                ("ssh" in identified_by or "agent_ssh" in identified_by) and
+                (device_type in ["linux", "storage", "hypervisor", "server"] or
+                 os_family == "linux" or
+                 scan_result.get("kernel") or
+                 scan_result.get("distro_name"))
+            )
+            
+            if is_linux_storage_hypervisor:
+                # Trova credenziali SSH che hanno funzionato
+                ssh_cred = None
+                for cred in credentials_list:
+                    if cred.get("type") == "ssh":
+                        ssh_cred = cred
+                        break
+                
+                if ssh_cred:
+                    logger.info(f"Auto-detect: Executing advanced SSH scan for Linux/Storage/Hypervisor device")
+                    try:
+                        advanced_result = await agent_service.probe_ssh_advanced(
+                            agent_info=agent_info,
+                            target=data.address,
+                            username=ssh_cred.get("username", ""),
+                            password=ssh_cred.get("password"),
+                            private_key=ssh_cred.get("ssh_private_key"),
+                            port=ssh_cred.get("ssh_port", 22),
+                        )
+                        
+                        if advanced_result.success and advanced_result.data:
+                            # Merge dati avanzati con scan_result (dati avanzati hanno priorità)
+                            advanced_data = advanced_result.data
+                            
+                            # Estrai dati base da oggetti annidati e mettili direttamente in scan_result
+                            if isinstance(advanced_data, dict):
+                                # Estrai da system_info
+                                if advanced_data.get("system_info"):
+                                    si = advanced_data["system_info"]
+                                    if isinstance(si, dict):
+                                        scan_result["hostname"] = scan_result.get("hostname") or si.get("hostname")
+                                        scan_result["os_name"] = scan_result.get("os_name") or si.get("os_name")
+                                        scan_result["os_version"] = scan_result.get("os_version") or si.get("os_version")
+                                        scan_result["kernel"] = scan_result.get("kernel") or si.get("kernel_version")
+                                        scan_result["architecture"] = scan_result.get("architecture") or si.get("architecture")
+                                        sys_type = si.get("system_type", "").lower()
+                                        if sys_type in ["synology", "qnap"]:
+                                            scan_result["device_type"] = "storage"
+                                            scan_result["manufacturer"] = scan_result.get("manufacturer") or ("Synology" if sys_type == "synology" else "QNAP")
+                                        elif sys_type == "proxmox":
+                                            scan_result["device_type"] = "hypervisor"
+                                        elif not scan_result.get("device_type") or scan_result.get("device_type") == "unknown":
+                                            scan_result["device_type"] = "linux"
+                                        scan_result["model"] = scan_result.get("model") or si.get("nas_model")
+                                        scan_result["serial_number"] = scan_result.get("serial_number") or si.get("nas_serial")
+                                
+                                # Estrai da cpu
+                                if advanced_data.get("cpu"):
+                                    cpu = advanced_data["cpu"]
+                                    if isinstance(cpu, dict):
+                                        scan_result["cpu_model"] = scan_result.get("cpu_model") or cpu.get("model")
+                                        scan_result["cpu_cores"] = scan_result.get("cpu_cores") or cpu.get("cores_physical")
+                                        scan_result["cpu_threads"] = scan_result.get("cpu_threads") or cpu.get("cores_logical")
+                                
+                                # Estrai da memory
+                                if advanced_data.get("memory"):
+                                    mem = advanced_data["memory"]
+                                    if isinstance(mem, dict):
+                                        if mem.get("total_gb"):
+                                            scan_result["ram_total_gb"] = mem.get("total_gb")
+                                        elif mem.get("total_bytes"):
+                                            scan_result["ram_total_mb"] = int(mem.get("total_bytes") / (1024 * 1024))
+                                
+                                # Estrai da docker
+                                if advanced_data.get("docker"):
+                                    docker = advanced_data["docker"]
+                                    if isinstance(docker, dict):
+                                        scan_result["docker_version"] = scan_result.get("docker_version") or docker.get("version")
+                                        scan_result["docker_installed"] = True if docker.get("version") else False
+                                        scan_result["docker_containers_running"] = scan_result.get("docker_containers_running") or docker.get("containers_running")
+                                
+                                # Merge tutti i dati avanzati (mantieni anche oggetti annidati per salvataggio avanzato)
+                                scan_result.update(advanced_data)
+                                logger.info(f"Auto-detect: Advanced SSH scan completed, merged {len(advanced_data)} fields")
+                    except Exception as e:
+                        logger.warning(f"Auto-detect: Advanced SSH scan failed: {e}", exc_info=True)
+                        # Continua comunque con i dati del probe normale
+        
         # 3.5. Se identificato come Proxmox o network device, raccogli dati avanzati automaticamente
         if result["identified"] and data.device_id and data.save_results:
             device_type = scan_result.get("device_type", "").lower()
@@ -1210,8 +1303,46 @@ async def auto_detect_device(
                     if is_linux_device and has_ssh_data:
                         try:
                             from ..models.inventory import LinuxDetails
+                            from ..services.linux_details_service import save_advanced_linux_data
+                            
                             # I dati SSH sono mergeati direttamente in scan_result
                             logger.info(f"Saving LinuxDetails for device {data.device_id}, scan_result keys: {list(scan_result.keys())[:30]}")
+                            
+                            # Controlla se abbiamo dati avanzati (da scanner avanzato)
+                            has_advanced_data = (
+                                scan_result.get("system_info") or
+                                scan_result.get("cpu") or
+                                scan_result.get("memory") or
+                                scan_result.get("disks") or
+                                scan_result.get("volumes") or
+                                scan_result.get("raid_arrays") or
+                                scan_result.get("network_interfaces") or
+                                scan_result.get("services") or
+                                scan_result.get("docker") or
+                                scan_result.get("vms")
+                            )
+                            
+                            if has_advanced_data:
+                                # Usa il servizio avanzato per salvare i dati
+                                logger.info(f"Detected advanced SSH scan data, using advanced save service")
+                                advanced_data = {
+                                    "system_info": scan_result.get("system_info", {}),
+                                    "cpu": scan_result.get("cpu", {}),
+                                    "memory": scan_result.get("memory", {}),
+                                    "disks": scan_result.get("disks", []),
+                                    "volumes": scan_result.get("volumes", []),
+                                    "raid_arrays": scan_result.get("raid_arrays", []),
+                                    "network_interfaces": scan_result.get("network_interfaces", []),
+                                    "services": scan_result.get("services", []),
+                                    "docker": scan_result.get("docker", {}),
+                                    "vms": scan_result.get("vms", []),
+                                    "default_gateway": scan_result.get("default_gateway"),
+                                    "dns_servers": scan_result.get("dns_servers", []),
+                                }
+                                
+                                # Salva dati avanzati (questo aggiorna anche i campi base di InventoryDevice e LinuxDetails)
+                                save_advanced_linux_data(session, data.device_id, advanced_data)
+                                logger.info(f"Advanced Linux data saved for device {data.device_id}")
                             
                             linux_data = {}
                             
