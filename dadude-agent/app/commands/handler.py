@@ -360,20 +360,35 @@ class CommandHandler:
         version = params.get("version", "2c")
         port = params.get("port", 161)
         
+        logger.info(f"[PROBE_SNMP] Starting SNMP probe for {target}:{port} with community '{community}' (v{version})")
+        
         if not target:
+            logger.error(f"[PROBE_SNMP] Missing 'target' parameter")
             return CommandResult(success=False, status="error", error="Missing 'target' parameter")
         
         try:
             # snmp_probe.probe è già async, chiamalo direttamente
+            logger.info(f"[PROBE_SNMP] Calling snmp_probe.probe({target}, {community}, {version}, {port})")
             result = await self._snmp_probe.probe(
                 target, community, version, port
             )
+            
+            logger.info(f"[PROBE_SNMP] SNMP probe completed for {target}, result keys: {list(result.keys())[:30]}")
             
             # Log what fields are being returned
             basic_fields = ['sysDescr', 'sysName', 'sysObjectID', 'device_type', 'category', 'vendor', 'manufacturer', 'model', 'serial_number', 'firmware_version', 'interface_count', 'uptime_formatted']
             advanced_fields = ['neighbors', 'lldp_neighbors', 'cdp_neighbors', 'routing_table', 'arp_table', 'interfaces', 'interface_details']
             returned_basic = [f for f in basic_fields if f in result]
             returned_advanced = [f for f in advanced_fields if f in result]
+            
+            logger.info(f"[PROBE_SNMP] Basic fields returned: {returned_basic}")
+            logger.info(f"[PROBE_SNMP] Advanced fields returned: {returned_advanced}")
+            
+            if result.get("neighbors") or result.get("lldp_neighbors"):
+                neighbors_count = len(result.get("neighbors", [])) or len(result.get("lldp_neighbors", []))
+                logger.info(f"[PROBE_SNMP] ✓ Found {neighbors_count} neighbors")
+            else:
+                logger.warning(f"[PROBE_SNMP] ✗ No neighbors found")
             
             logger.info(f"SNMP probe handler: Returning {len(result)} fields for {target}")
             logger.info(f"SNMP probe handler: Basic fields: {len(returned_basic)}/{len(basic_fields)}, Advanced fields: {len(returned_advanced)}/{len(advanced_fields)}")
