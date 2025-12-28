@@ -1087,18 +1087,27 @@ async def probe(
         # ==========================================
         # COLLECT ADVANCED DATA FOR NETWORK DEVICES
         # ==========================================
-        is_network_device = device_type in ["router", "switch", "ap", "network"]
+        # Considera dispositivo di rete se:
+        # - device_type è router/switch/ap/network
+        # - category è network
+        # - vendor è un vendor di rete (Cisco, HP, Ubiquiti, etc.)
+        is_network_device = (
+            device_type in ["router", "switch", "ap", "network"] or
+            category == "network" or
+            info.get("vendor", "").lower() in ["cisco", "hp", "ubiquiti", "mikrotik", "aruba", "juniper", "fortinet", "dell", "tp-link"]
+        )
         is_router = device_type == "router"
         
         logger.info(f"SNMP probe: device_type={device_type}, category={category}, vendor={info.get('vendor', 'unknown')}, sysObjectID={sys_oid}, is_network_device={is_network_device}, is_router={is_router}")
         
         if is_network_device:
+            logger.info(f"SNMP probe: Starting advanced data collection for network device {target}")
             logger.info(f"SNMP probe: Collecting advanced data for network device {target} (type={device_type}, vendor={info.get('vendor', 'unknown')})")
             try:
                 # ==========================================
                 # LLDP NEIGHBORS (IEEE 802.1AB)
                 # ==========================================
-                logger.info(f"SNMP probe: Collecting LLDP neighbors for {target}...")
+                logger.info(f"SNMP probe: [LLDP] Starting LLDP neighbor collection for {target}...")
                 lldp_neighbors = []
                 
                 # LLDP Remote Table OIDs
@@ -1138,10 +1147,11 @@ async def probe(
                                     index_key = '.'.join(oid_parts[-3:])
                                     local_ports[index_key] = value
                     
-                    logger.debug(f"SNMP probe: Collected {len(local_ports)} LLDP local ports")
+                    logger.info(f"SNMP probe: [LLDP] Collected {len(local_ports)} LLDP local ports")
                     
                     # Get system names
                     sys_names = {}  # Key: "timeMark.localPortNum.remoteIndex", Value: system name
+                    logger.info(f"SNMP probe: [LLDP] Querying LLDP system names OID {lldp_oids['sys_name']}...")
                     async for (errorIndication, errorStatus, errorIndex, varBinds) in next_cmd(
                         dispatcher,
                         CommunityData(community, mpModel=1 if version == "2c" else 0),
@@ -1150,7 +1160,7 @@ async def probe(
                         lexicographicMode=False
                     ):
                         if errorIndication or errorStatus:
-                            logger.debug(f"SNMP probe: LLDP sys_name walk error: {errorIndication or errorStatus}")
+                            logger.warning(f"SNMP probe: [LLDP] sys_name walk error: {errorIndication or errorStatus}")
                             break
                         for varBind in varBinds:
                             oid_str = str(varBind[0])
@@ -1162,7 +1172,7 @@ async def probe(
                                     index_key = '.'.join(oid_parts[-3:])
                                     sys_names[index_key] = value
                     
-                    logger.debug(f"SNMP probe: Collected {len(sys_names)} LLDP system names")
+                    logger.info(f"SNMP probe: [LLDP] Collected {len(sys_names)} LLDP system names")
                     
                     # Match by index key to build neighbor list
                     for index_key, port in list(local_ports.items())[:50]:  # Limit to 50 neighbors
@@ -1182,11 +1192,11 @@ async def probe(
                         info["neighbors"] = lldp_neighbors  # Also set in neighbors for compatibility
                         info["lldp_neighbors_count"] = len(lldp_neighbors)
                         info["neighbors_count"] = len(lldp_neighbors)
-                        logger.info(f"SNMP probe: Found {len(lldp_neighbors)} LLDP neighbors")
+                        logger.info(f"SNMP probe: [LLDP] ✓ Found {len(lldp_neighbors)} LLDP neighbors")
                     else:
-                        logger.debug(f"SNMP probe: No LLDP neighbors found (sys_names={len(sys_names)}, local_ports={len(local_ports)})")
+                        logger.warning(f"SNMP probe: [LLDP] ✗ No LLDP neighbors found (sys_names={len(sys_names)}, local_ports={len(local_ports)})")
                 except Exception as e:
-                    logger.warning(f"SNMP probe: LLDP query failed for {target}: {e}", exc_info=True)
+                    logger.error(f"SNMP probe: [LLDP] ✗ LLDP query failed for {target}: {e}", exc_info=True)
                 
                 # ==========================================
                 # CDP NEIGHBORS (Cisco Discovery Protocol)
