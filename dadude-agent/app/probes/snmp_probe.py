@@ -103,7 +103,26 @@ async def probe(
             "mem_usage": "1.3.6.1.4.1.9.9.48.1.1.1.5.1",
             "temperature": "1.3.6.1.4.1.9.9.13.1.3.1.3",
         },
-        # HP/Aruba (11, 25506)
+        # HP ProCurve (11.2.3.7.11, 11.2.3.7.8)
+        "hp_procurve": {
+            "os_version": "1.3.6.1.4.1.11.2.14.11.5.1.1.1.3.0",
+            "rom_version": "1.3.6.1.4.1.11.2.14.11.5.1.1.1.4.0",
+            "serial": "1.3.6.1.4.1.11.2.14.11.5.1.1.1.6.0",
+            "product_number": "1.3.6.1.4.1.11.2.14.11.5.1.1.1.10.0",
+            "cpu_usage": "1.3.6.1.4.1.11.2.14.11.5.1.9.6.1.0",
+            "mem_total": "1.3.6.1.4.1.11.2.14.11.5.1.1.2.1.1.1.5",
+            "mem_free": "1.3.6.1.4.1.11.2.14.11.5.1.1.2.1.1.1.6",
+            "temperature": "1.3.6.1.4.1.11.2.14.11.1.2.6.1.4",
+        },
+        # HP Comware/H3C (25506)
+        "hp_comware": {
+            "cpu_usage": "1.3.6.1.4.1.25506.2.6.1.1.1.1.6",
+            "mem_usage": "1.3.6.1.4.1.25506.2.6.1.1.1.1.8",
+            "temperature": "1.3.6.1.4.1.25506.2.6.1.1.1.1.12",
+            "fan_status": "1.3.6.1.4.1.25506.8.35.9.1.1.1.2",
+            "power_status": "1.3.6.1.4.1.25506.8.35.9.1.2.1.2",
+        },
+        # HP/Aruba (11, 25506) - Legacy compatibility
         "hp": {
             "serial": "1.3.6.1.4.1.11.2.36.1.1.2.9.0",
             "model": "1.3.6.1.4.1.11.2.36.1.1.2.5.0",
@@ -111,6 +130,18 @@ async def probe(
             "cpu_usage": "1.3.6.1.4.1.11.2.14.11.5.1.1.1.2.1.1.1.1",
             "mem_usage": "1.3.6.1.4.1.11.2.14.11.5.1.1.1.2.1.1.1.2",
             "temperature": "1.3.6.1.4.1.11.2.14.11.5.1.1.1.2.1.1.1.3",
+        },
+        # ArubaOS (14823)
+        "aruba": {
+            "model": "1.3.6.1.4.1.14823.2.2.1.2.1.2.0",
+            "serial": "1.3.6.1.4.1.14823.2.2.1.2.1.15.0",
+            "sw_version": "1.3.6.1.4.1.14823.2.2.1.2.1.6.0",
+            "hw_version": "1.3.6.1.4.1.14823.2.2.1.2.1.8.0",
+            "cpu_usage": "1.3.6.1.4.1.14823.2.2.1.2.1.30.0",
+            "mem_usage": "1.3.6.1.4.1.14823.2.2.1.2.1.31.0",
+            "storage_usage": "1.3.6.1.4.1.14823.2.2.1.2.1.32.0",
+            # Aruba Switch specific
+            "switch_serial": "1.3.6.1.4.1.14823.2.3.1.2.1.2.0",
         },
         # Dell (674)
         "dell": {
@@ -204,7 +235,12 @@ async def probe(
         # TP-Link/Omada (11863)
         "tp-link": {
             "model": "1.3.6.1.4.1.11863.1.1.1.1.0",
-            "version": "1.3.6.1.4.1.11863.1.1.1.2.0",
+            "description": "1.3.6.1.4.1.11863.1.1.1.2.0",
+            "hw_version": "1.3.6.1.4.1.11863.1.1.1.3.0",
+            "fw_version": "1.3.6.1.4.1.11863.1.1.1.4.0",
+            "serial": "1.3.6.1.4.1.11863.1.1.1.5.0",
+            "mac": "1.3.6.1.4.1.11863.1.1.1.6.0",
+            "version": "1.3.6.1.4.1.11863.1.1.1.4.0",  # Alias per compatibilità
             "serial": "1.3.6.1.4.1.11863.1.1.1.3.0",
         },
     }
@@ -312,15 +348,21 @@ async def probe(
         device_type = "network"
         category = "unknown"
         
-        # Vendor detection
+        # Vendor detection (basato su sysObjectID prefix)
         vendor_patterns = {
             "1.3.6.1.4.1.41112": ("Ubiquiti", "ubiquiti"),
             "1.3.6.1.4.1.10002": ("Ubiquiti", "ubiquiti"),  # UBNT
             "1.3.6.1.4.1.4413": ("Ubiquiti", "ubiquiti"),  # Ubiquiti Networks (USW, USXG, etc.)
             "1.3.6.1.4.1.14988": ("MikroTik", "mikrotik"),
             "1.3.6.1.4.1.9.": ("Cisco", "cisco"),
-            "1.3.6.1.4.1.11.": ("HP", "hp"),
-            "1.3.6.1.4.1.25506": ("HP/H3C", "hp"),
+            "1.3.6.1.4.1.11.2.3.7.11": ("HP ProCurve", "hp_procurve"),  # HP ProCurve
+            "1.3.6.1.4.1.11.2.3.7.8": ("HP ProCurve", "hp_procurve"),  # HP ProCurve older
+            "1.3.6.1.4.1.25506": ("HP Comware", "hp_comware"),  # H3C/Comware
+            "1.3.6.1.4.1.2011": ("HP Comware", "hp_comware"),  # Huawei (Comware compatible)
+            "1.3.6.1.4.1.14823.1.1": ("Aruba Controller", "aruba"),  # Aruba Controller
+            "1.3.6.1.4.1.14823.1.2": ("Aruba AP", "aruba"),  # Aruba AP
+            "1.3.6.1.4.1.14823.2.3": ("Aruba Switch", "aruba"),  # Aruba Switch
+            "1.3.6.1.4.1.11.": ("HP", "hp"),  # HP generic (fallback)
             "1.3.6.1.4.1.674": ("Dell", "dell"),
             "1.3.6.1.4.1.6574": ("Synology", "synology"),
             "1.3.6.1.4.1.24681": ("QNAP", "qnap"),
